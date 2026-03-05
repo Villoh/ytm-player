@@ -50,11 +50,8 @@ sudo dnf install mpv
 # macOS (Homebrew)
 brew install mpv
 
-# Windows (Scoop)
+# Windows — see "Windows Setup" section below for full instructions
 scoop install mpv
-
-# Windows (Chocolatey)
-choco install mpv
 ```
 
 ### 2. Install ytm-player
@@ -86,6 +83,8 @@ py -m ytm_player
 ```
 
 > `pip install` on Windows does not add the `ytm` command to PATH. Use `py -m ytm_player` to launch — this always works. Alternatively, install with [pipx](https://pipx.pypa.io/) which handles PATH automatically: `pipx install ytm-player`
+
+> **Important:** Windows requires extra mpv setup — see [Windows Setup](#windows-setup) below.
 
 #### From source
 
@@ -182,6 +181,26 @@ pip install -e ".[spotify,mpris,images,discord,lastfm]"
 # Development tools (pytest, ruff)
 pip install -e ".[dev]"
 ```
+
+### Windows Setup
+
+On Linux and macOS, `mpv` packages include the shared library that ytm-player needs. On Windows, `scoop install mpv` (and most other methods) only install the **player executable** — the `libmpv-2.dll` library must be downloaded separately.
+
+**Steps:**
+
+1. Install mpv: `scoop install mpv` (or [download from mpv.io](https://mpv.io/installation/))
+2. Install 7zip if you don't have it: `scoop install 7zip`
+3. Download the latest **`mpv-dev-x86_64-*.7z`** from [shinchiro's mpv builds](https://github.com/shinchiro/mpv-winbuild-cmake/releases) (the file starting with `mpv-dev`, not just `mpv`)
+4. Extract `libmpv-2.dll` into your mpv directory:
+
+```powershell
+# Adjust the filename to match what you downloaded
+7z e "$env:TEMP\mpv-dev-x86_64-*.7z" -o"$env:USERPROFILE\scoop\apps\mpv\current" libmpv-2.dll -y
+```
+
+If you installed mpv a different way, place `libmpv-2.dll` next to `mpv.exe` or anywhere on your `%PATH%`.
+
+ytm-player automatically searches common install locations (scoop, chocolatey, Program Files) for the DLL.
 
 ### 3. Authenticate
 
