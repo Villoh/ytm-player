@@ -12,3 +12,4 @@ build/
 htmlcov/
 PRD.md
 .claude/
+uv.lock

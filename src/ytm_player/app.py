@@ -23,8 +23,6 @@ from ytm_player.services.discord_rpc import DiscordRPC
 from ytm_player.services.download import DownloadService
 from ytm_player.services.history import HistoryManager
 from ytm_player.services.lastfm import LastFMService
-from ytm_player.services.macos_eventtap import MacOSEventTapService
-from ytm_player.services.macos_media import MacOSMediaService
 from ytm_player.services.mediakeys import MediaKeysService
 from ytm_player.services.mpris import MPRISService
 from ytm_player.services.player import Player, PlayerEvent
@@ -159,8 +157,8 @@ class YTMPlayerApp(App):
         self.history: HistoryManager | None = None
         self.cache: CacheManager | None = None
         self.mpris: MPRISService | None = None
-        self.mac_media: MacOSMediaService | None = None
-        self.mac_eventtap: MacOSEventTapService | None = None
+        self.mac_media: Any = None
+        self.mac_eventtap: Any = None
         self.mediakeys: MediaKeysService | None = None
         self.discord: DiscordRPC | None = None
         self.lastfm: LastFMService | None = None
@@ -331,6 +329,9 @@ class YTMPlayerApp(App):
 
         # Start native macOS media key integration (Now Playing center).
         if sys.platform == "darwin" and self.settings.mpris.enabled:
+            from ytm_player.services.macos_eventtap import MacOSEventTapService
+            from ytm_player.services.macos_media import MacOSMediaService
+
             self.mac_media = MacOSMediaService()
             self.mac_eventtap = MacOSEventTapService()
             callbacks = self._build_mpris_callbacks()

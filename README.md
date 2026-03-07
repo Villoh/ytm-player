@@ -157,29 +157,44 @@ nix develop  # drops you into a shell with all deps + dev tools
 > ```
 > The flake handles this automatically — no manual `LD_LIBRARY_PATH` needed.
 
-#### Optional extras
+#### Optional extras (pip)
 
 ```bash
 # Spotify playlist import
-pip install -e ".[spotify]"
+pip install "ytm-player[spotify]"
 
 # MPRIS media key support (Linux only, requires D-Bus)
-pip install -e ".[mpris]"
-
-# Album art rendering (colored half-block images)
-pip install -e ".[images]"
+pip install "ytm-player[mpris]"
 
 # Discord Rich Presence
-pip install -e ".[discord]"
+pip install "ytm-player[discord]"
 
 # Last.fm scrobbling
-pip install -e ".[lastfm]"
+pip install "ytm-player[lastfm]"
 
 # All optional features
-pip install -e ".[spotify,mpris,images,discord,lastfm]"
+pip install "ytm-player[spotify,mpris,discord,lastfm]"
 
 # Development tools (pytest, ruff)
 pip install -e ".[dev]"
+```
+
+#### Optional extras (AUR)
+
+If you installed via AUR, install optional dependencies with pacman/yay — **not** pip (pip won't work on Arch due to [PEP 668](https://peps.python.org/pep-0668/)):
+
+```bash
+# MPRIS media key support (Linux)
+sudo pacman -S python-dbus-next
+
+# Last.fm scrobbling
+yay -S python-pylast
+
+# Discord Rich Presence
+yay -S python-pypresence
+
+# Spotify playlist import
+yay -S python-spotipy python-thefuzz
 ```
 
 ### Windows Setup
@@ -567,6 +582,14 @@ max_size_mb = 512
 MIT — see [LICENSE](LICENSE).
 
 ## Changelog
+
+### v1.4.0 (2026-03-07)
+
+**New**
+- Native macOS media key and Now Playing support — hardware media keys (play/pause, next, previous) now work via Quartz event taps, and track metadata appears in macOS Control Center (thanks @Thayrov, PR [#12](https://github.com/peternaame-boop/ytm-player/pull/12))
+
+**Fixes**
+- Documented how to install optional features for AUR users — pip doesn't work on Arch due to PEP 668 (fixes [#13](https://github.com/peternaame-boop/ytm-player/issues/13))
 
 ### v1.3.6 (2026-03-05)
 
