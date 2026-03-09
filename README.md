@@ -609,8 +609,6 @@ MIT — see [LICENSE](LICENSE).
 - Transliteration toggle state now persists across restarts via session.json
 - Sidebar refreshes after adding or removing playlists from library
 
----
-
 ### v1.4.0 (2026-03-07)
 
 **New**
