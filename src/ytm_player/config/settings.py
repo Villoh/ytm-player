@@ -63,6 +63,7 @@ class UISettings:
     col_artist: int = 0
     col_album: int = 0
     col_duration: int = 8
+    bidi_mode: str = "auto"  # "auto", "reorder", "passthrough"
 
 
 @dataclass

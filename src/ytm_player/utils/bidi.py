@@ -1,19 +1,24 @@
 """BiDi text utilities for correct RTL display in terminals.
 
-Most terminals (WezTerm default, Kitty, Alacritty) do NOT implement the
-Unicode BiDi algorithm.  They render characters left-to-right in the order
-received, relying on HarfBuzz for text shaping (ligatures, contextual forms)
-but not for paragraph-level reordering.
+Terminal BiDi support varies widely:
 
-This module performs word-level reordering based on UAX #9 (Unicode
-Bidirectional Algorithm) embedding levels and the L2 reversal rule.
-Characters within each word stay in logical order so HarfBuzz shaping
-is preserved — only the *word order* is rearranged.
+- **Native BiDi** (Konsole, GNOME Terminal/VTE, mlterm): The terminal
+  implements UAX #9 and reorders RTL text automatically.  Manual reordering
+  would double-reverse the text.
+- **No BiDi** (WezTerm default, Alacritty, Ghostty, Foot): Characters are
+  placed left-to-right in memory order.  Arabic/Hebrew text in Unicode
+  logical order is still *readable* L-to-R (logical order = reading order),
+  so manual reordering actually *breaks* it by reversing the sentence.
+- **Partial BiDi** (Kitty): Some reordering at the text-run level.
 
-The track table and playback bar wrap reordered text in LRI/PDI
-(U+2066/U+2069) isolation so RTL content doesn't pull adjacent
-columns into the RTL BiDi context.  The lyrics sidebar uses
-``wrap_rtl_line()`` for correct multi-line display.
+In practice, manual word reordering is almost never correct:
+- On BiDi terminals it double-reverses.
+- On non-BiDi terminals the logical order is already readable.
+
+The ``bidi_mode`` setting in ``[ui]`` controls behavior:
+- ``"auto"`` (default): detect terminal — passthrough for all known terminals.
+- ``"reorder"``: force manual word reordering (UAX #9 L2 rule).
+- ``"passthrough"``: never reorder, pass text through as-is.
 """
 
 from __future__ import annotations
@@ -28,10 +33,60 @@ _RTL_RE = re.compile(
     r"\uFB1D-\uFB4F\uFB50-\uFDFF\uFE70-\uFEFF]"
 )
 
+# Cached detection result.
+_should_reorder: bool | None = None
+
 
 def has_rtl(text: str) -> bool:
     """Return True if text contains any RTL script characters."""
     return bool(_RTL_RE.search(text))
+
+
+def _detect_should_reorder() -> bool:
+    """Auto-detect whether manual word reordering is needed.
+
+    Returns True only if the terminal is known to lack BiDi support AND
+    is known to need manual reordering.  In practice this returns False
+    for all known terminals because:
+    - BiDi terminals (Konsole, VTE) handle reordering natively.
+    - Non-BiDi terminals (WezTerm, Alacritty, etc.) display logical
+      order text readably without reordering.
+    """
+    # Currently no terminal benefits from manual reordering.
+    # This function exists so we can add exceptions if one is found.
+    return False
+
+
+def _get_reorder_enabled() -> bool:
+    """Check the bidi_mode setting and return whether to reorder."""
+    global _should_reorder
+    if _should_reorder is not None:
+        return _should_reorder
+
+    try:
+        from ytm_player.config.settings import get_settings
+
+        mode = get_settings().ui.bidi_mode
+    except Exception:
+        mode = "auto"
+
+    if mode == "reorder":
+        _should_reorder = True
+    elif mode == "passthrough":
+        _should_reorder = False
+    else:  # "auto"
+        _should_reorder = _detect_should_reorder()
+
+    return _should_reorder
+
+
+def reset_bidi_cache() -> None:
+    """Reset the cached detection result (useful after settings change)."""
+    global _should_reorder
+    _should_reorder = None
+
+
+# ── Internal reorder logic (only used when bidi_mode="reorder") ──────────
 
 
 def _char_direction(ch: str) -> str:
@@ -62,30 +117,8 @@ def _paragraph_base_direction(text: str) -> str:
     return "L"
 
 
-def reorder_rtl_line(text: str) -> str:
-    """Reorder words in a line for correct display in an LTR terminal.
-
-    Uses a simplified UAX #9 approach:
-
-    1. Determine the paragraph base direction from the first strong
-       directional character (P2/P3).
-    2. Assign an embedding level to each whitespace-delimited word:
-       - RTL words → level 1
-       - LTR words in an RTL paragraph → level 2 (embedded LTR in RTL)
-       - LTR words in an LTR paragraph → level 0
-       - Neutral words → paragraph base level
-    3. Apply the L2 reversal rule: from the highest level down to the
-       lowest odd level, reverse each contiguous run of words at that
-       level or higher.
-
-    Characters within words are NOT reordered — HarfBuzz handles
-    intra-word shaping and ligatures.
-
-    Pure LTR text passes through unchanged.
-    """
-    if not text or not has_rtl(text):
-        return text
-
+def _do_reorder(text: str) -> str:
+    """Perform UAX #9 word-level reordering (L2 reversal rule)."""
     words = text.split()
     if not words:
         return text
@@ -93,25 +126,19 @@ def reorder_rtl_line(text: str) -> str:
     base_dir = _paragraph_base_direction(text)
     base_level = 1 if base_dir == "R" else 0
 
-    # Assign embedding levels to each word.
     levels: list[int] = []
     for word in words:
         wd = _word_direction(word)
         if wd == "R":
             levels.append(1)
         elif wd == "L":
-            # LTR text embedded in RTL paragraph gets level 2;
-            # LTR text in LTR paragraph stays at level 0.
             levels.append(2 if base_level == 1 else 0)
         else:
-            # Neutral words (numbers, punctuation-only) inherit
-            # the paragraph base level.
             levels.append(base_level)
 
     if not levels:
         return text
 
-    # L2: reverse contiguous sequences from highest level down to 1.
     max_level = max(levels)
     indices = list(range(len(words)))
 
@@ -130,22 +157,36 @@ def reorder_rtl_line(text: str) -> str:
     return " ".join(words[idx] for idx in indices)
 
 
-def wrap_rtl_line(text: str, width: int) -> str:
-    """Pre-wrap and reorder RTL text for correct multi-line terminal display.
+# ── Public API ───────────────────────────────────────────────────────────
 
-    Terminals wrap text left-to-right, which reverses the line order when a
-    reordered RTL string exceeds the display width.  This wraps the text in
-    *logical* (reading) order first, then reorders each wrapped segment
-    independently so that visual line 1 = start of sentence, line 2 =
-    continuation, etc.
 
-    Pure LTR or short text passes through to ``reorder_rtl_line`` directly.
+def reorder_rtl_line(text: str) -> str:
+    """Reorder words in a line for RTL display, if enabled.
+
+    When ``bidi_mode`` is ``"auto"`` or ``"passthrough"``, returns the
+    text unchanged.  When ``"reorder"``, applies UAX #9 word-level
+    reversal.
     """
     if not text or not has_rtl(text):
         return text
+    if not _get_reorder_enabled():
+        return text
+    return _do_reorder(text)
+
+
+def wrap_rtl_line(text: str, width: int) -> str:
+    """Pre-wrap RTL text for multi-line display, with optional reordering.
+
+    When reordering is disabled (default), simply returns the text as-is
+    so the terminal or reader handles directionality naturally.
+    """
+    if not text or not has_rtl(text):
+        return text
+    if not _get_reorder_enabled():
+        return text
 
     if len(text) <= width or width <= 0:
-        return reorder_rtl_line(text)
+        return _do_reorder(text)
 
     words = text.split()
     if not words:
@@ -170,4 +211,4 @@ def wrap_rtl_line(text: str, width: int) -> str:
     if current_words:
         lines.append(" ".join(current_words))
 
-    return "\n".join(reorder_rtl_line(line) for line in lines)
+    return "\n".join(_do_reorder(line) for line in lines)
