@@ -14,18 +14,21 @@ A full-featured YouTube Music player for the terminal. Browse your library, sear
 - **Vim-style navigation** — `j`/`k` movement, multi-key sequences (`g l` for library, `g s` for search), count prefixes (`5j`)
 - **Table sorting** — click column headers or use keyboard (`s t`/`s a`/`s A`/`s d`/`s r`), drag-to-resize columns
 - **Predictive search** — debounced with 300ms delay, music-first mode with clickable toggle to all results
-- **Session resume** — restores queue position, volume, shuffle/repeat state on startup
+- **Theming** — 18 built-in Textual themes (nord, dracula, gruvbox, catppuccin, etc.) via `Ctrl+P`, plus custom app-specific color overrides in `theme.toml`. Theme selection persists across sessions
+- **Session resume** — restores queue position, volume, shuffle/repeat state, theme on startup
 - **Free-tier support** — works with free YouTube Music accounts (Premium-only tracks are filtered with notice)
+- **Multi-account & Brand Account support** — `ytm setup` auto-detects multiple Google accounts; Brand Accounts configurable via `brand_account_id` in config
 - **Spotify import** — import playlists from Spotify via API or URL scraping
 - **History tracking** — play history + search history stored in SQLite with listening stats
 - **Audio caching** — LRU cache (1GB default) for offline-like replay of previously heard tracks
+- **Progressive loading** — large playlists (1500+ tracks) load instantly with background fetching
 - **Offline downloads** — right-click any track → "Download for Offline" to save locally
 - **Discord Rich Presence** — show what you're listening to in your Discord status
 - **Last.fm scrobbling** — automatic scrobbling with Now Playing updates
-- **Album art** — colored half-block rendering in the playback bar
+- **Album art** — colored half-block rendering in the playback bar, toggleable with `Ctrl+A`
 - **Media keys** — MPRIS/D-Bus on Linux, native Now Playing + Quartz event taps on macOS, pynput on Windows
-- **CLI mode** — headless subcommands for scripting (`ytm search`, `ytm stats`, `ytm history`)
-- **IPC control** — control the running TUI from another terminal (`ytm play`, `ytm pause`, `ytm next`)
+- **CLI mode** — headless subcommands for scripting (`ytm search`, `ytm stats`, `ytm history`, `ytm like`)
+- **IPC control** — control the running TUI from another terminal (`ytm play`, `ytm pause`, `ytm next`, `ytm like`)
 - **yt-dlp integration** — cookie file auth, configurable `remote_components` and `js_runtimes`
 - **Fully configurable** — TOML config files for settings, keybindings, and theme
 
@@ -171,16 +174,6 @@ nix develop  # drops you into a shell with all deps + dev tools
 > ```
 > The flake handles this automatically — no manual `LD_LIBRARY_PATH` needed.
 
-#### Gentoo ([GURU](https://wiki.gentoo.org/wiki/Project:GURU))
-
-Enable the repository as described in [Project:GURU/Information for End Users](https://wiki.gentoo.org/wiki/Project:GURU/Information_for_End_Users) then emerge the package:
-
-```bash
-emerge --ask media-sound/ytm-player
-```
-
-> **Note:** The Gentoo package is community-maintained via the [GURU overlay](https://wiki.gentoo.org/wiki/Project:GURU) (thanks @dsafxP).
-
 #### Optional extras (pip)
 
 ```bash
@@ -322,6 +315,10 @@ ytm seek +10      # Seek forward 10 seconds
 ytm seek -5       # Seek backward 5 seconds
 ytm seek 1:30     # Seek to 1:30
 
+ytm like           # Like current track
+ytm dislike        # Dislike current track
+ytm unlike         # Remove like/dislike
+
 ytm now            # Current track info (JSON)
 ytm status         # Player status (JSON)
 ytm queue          # Queue contents (JSON)
@@ -359,6 +356,8 @@ ytm queue clear    # Clear queue
 | `s t` / `s a` / `s A` / `s d` | Sort by Title / Artist / Album / Duration |
 | `s r` | Reverse current sort |
 | `T` | Toggle lyrics transliteration (ASCII) |
+| `Ctrl+a` | Toggle album art |
+| `Ctrl+p` | Change theme |
 | `q` | Quit |
 
 ### Mouse
@@ -397,6 +396,7 @@ ytm config
 ```toml
 [general]
 startup_page = "library"     # library, search, browse
+brand_account_id = ""        # YouTube Brand Account ID (21-digit number, find at myaccount.google.com/brandaccounts)
 
 [playback]
 audio_quality = "high"       # high, medium, low
@@ -423,6 +423,7 @@ col_title = 0                # 0 = auto-fill
 col_artist = 30
 col_album = 25
 col_duration = 8
+bidi_mode = "auto"           # auto, reorder, passthrough (RTL text handling)
 
 [notifications]
 enabled = true
@@ -444,22 +445,19 @@ username = ""
 
 ### Example `theme.toml`
 
+Base colors (primary, background, etc.) come from the active Textual theme — switch themes with `Ctrl+P`. The `theme.toml` file overrides app-specific colors only:
+
 ```toml
 [colors]
-background = "#0f0f0f"
-foreground = "#ffffff"
-primary = "#ff0000"
-secondary = "#aaaaaa"
-accent = "#ff4e45"
-success = "#2ecc71"
-warning = "#f39c12"
-error = "#e74c3c"
-muted_text = "#999999"
-border = "#333333"
+playback_bar_bg = "#1a1a1a"
 selected_item = "#2a2a2a"
 progress_filled = "#ff0000"
 progress_empty = "#555555"
-playback_bar_bg = "#1a1a1a"
+lyrics_played = "#999999"
+lyrics_current = "#2ecc71"
+lyrics_upcoming = "#aaaaaa"
+active_tab = "#ffffff"
+inactive_tab = "#999999"
 ```
 
 ## Spotify Import
@@ -541,7 +539,7 @@ src/ytm_player/
 ├── ui/
 │   ├── header_bar.py   # Top bar with sidebar toggle buttons
 │   ├── playback_bar.py # Persistent bottom bar (track info, progress, controls)
-│   ├── theme.py        # Theme system with CSS variable generation
+│   ├── theme.py        # Textual theme integration + app-specific color overrides
 │   ├── sidebars/       # Persistent playlist sidebar (left) and lyrics sidebar (right)
 │   ├── pages/          # Library, Search, Browse, Context, Queue, Liked Songs, Recently Played, Help
 │   ├── popups/         # Actions menu, playlist picker, Spotify import
