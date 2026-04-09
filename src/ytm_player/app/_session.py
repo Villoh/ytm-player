@@ -69,8 +69,10 @@ class SessionMixin:
         # Always start with lyrics sidebar closed regardless of previous session.
         self._lyrics_sidebar_open = False
 
-        # Restore Textual theme from last session.
-        saved_theme = state.get("theme")
+        # Restore Textual theme: config.toml is the source of truth; session.json
+        # overrides it when the user changed the theme at runtime.
+        config_theme = self.settings.ui.theme
+        saved_theme = state.get("theme", config_theme)
         if saved_theme and isinstance(saved_theme, str):
             try:
                 self.theme = saved_theme
