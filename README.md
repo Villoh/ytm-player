@@ -416,6 +416,7 @@ js_runtimes = ""             # Optional: bun or bun:/path/to/bun (also node/quic
 
 [ui]
 album_art = true
+theme = "ytm-dark"           # Textual theme name (e.g. catppuccin-mocha, dracula, nord, tokyo-night)
 progress_style = "block"     # block or line
 sidebar_width = 30
 col_index = 4                # 0 = auto-fill

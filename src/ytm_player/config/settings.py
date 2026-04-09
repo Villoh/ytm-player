@@ -65,7 +65,7 @@ class UISettings:
     col_album: int = 0
     col_duration: int = 8
     bidi_mode: str = "auto"  # "auto", "reorder", "passthrough"
-    theme: str = ""  # Textual theme name (e.g. "catppuccin-mocha"); empty = Textual default
+    theme: str = "ytm-dark"
 
 
 @dataclass
