@@ -69,15 +69,17 @@ class SessionMixin:
         # Always start with lyrics sidebar closed regardless of previous session.
         self._lyrics_sidebar_open = False
 
-        # Restore Textual theme: config.toml is the source of truth; session.json
-        # overrides it when the user changed the theme at runtime.
+        # Apply theme from config.toml — the single source of truth.
+        # User-initiated changes (Ctrl+P) are written back to config.toml via
+        # watch_theme, so session.json no longer needs to store the theme.
         config_theme = self.settings.ui.theme
-        saved_theme = state.get("theme", config_theme)
-        if saved_theme and isinstance(saved_theme, str):
+        if config_theme and isinstance(config_theme, str):
             try:
-                self.theme = saved_theme
+                self.theme = config_theme
             except Exception:
                 pass
+
+        self._theme_initialized = True
 
         # Restore transliteration toggle state (session overrides config).
         if "transliteration_enabled" in state:
@@ -153,7 +155,6 @@ class SessionMixin:
             "sidebar_per_page": self._sidebar_per_page,
             "lyrics_sidebar_open": self._lyrics_sidebar_open,
             "transliteration_enabled": self._get_transliteration_state(),
-            "theme": self.theme,
         }
         try:
             from ytm_player.config.paths import SECURE_FILE_MODE, secure_chmod

@@ -170,6 +170,10 @@ class YTMPlayerApp(
         # Clean exit flag: True when user quits via q/C-q (no resume on next start).
         self._clean_exit: bool = False
 
+        # Set to True once session restore is complete so watch_theme knows when
+        # to persist user-initiated theme changes back to config.toml.
+        self._theme_initialized: bool = False
+
         # Sidebar state: per-page playlist sidebar visibility and global lyrics toggle.
         # Default True for all pages -- user can toggle off per-view.
         self._sidebar_default: bool = True
@@ -238,6 +242,16 @@ class YTMPlayerApp(
             self.theme_colors = tc
         except Exception:
             pass
+
+        # Persist user-initiated theme changes to config.toml so it remains
+        # the source of truth.  Skip during startup (before session restore
+        # completes) to avoid overwriting the user's configured value.
+        if self._theme_initialized:
+            try:
+                self.settings.ui.theme = theme_name
+                self.settings.save()
+            except Exception:
+                logger.debug("Failed to persist theme to config.toml", exc_info=True)
 
     # ── Compose ──────────────────────────────────────────────────────
 
