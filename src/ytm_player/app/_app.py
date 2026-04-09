@@ -107,6 +107,9 @@ class YTMPlayerApp(
     def __init__(self) -> None:
         super().__init__()
 
+        # Must be set before self.theme so watch_theme doesn't fire prematurely.
+        self._theme_initialized: bool = False
+
         # Register custom YTM theme and set as default.
         from ytm_player.ui.theme import YTM_DARK
 
@@ -169,10 +172,6 @@ class YTMPlayerApp(
 
         # Clean exit flag: True when user quits via q/C-q (no resume on next start).
         self._clean_exit: bool = False
-
-        # Set to True once session restore is complete so watch_theme knows when
-        # to persist user-initiated theme changes back to config.toml.
-        self._theme_initialized: bool = False
 
         # Sidebar state: per-page playlist sidebar visibility and global lyrics toggle.
         # Default True for all pages -- user can toggle off per-view.
@@ -246,7 +245,7 @@ class YTMPlayerApp(
         # Persist user-initiated theme changes to config.toml so it remains
         # the source of truth.  Skip during startup (before session restore
         # completes) to avoid overwriting the user's configured value.
-        if getattr(self, "_theme_initialized", False):
+        if self._theme_initialized:
             try:
                 self.settings.ui.theme = theme_name
                 self.settings.save()
