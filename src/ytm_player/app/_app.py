@@ -246,7 +246,7 @@ class YTMPlayerApp(
         # Persist user-initiated theme changes to config.toml so it remains
         # the source of truth.  Skip during startup (before session restore
         # completes) to avoid overwriting the user's configured value.
-        if self._theme_initialized:
+        if getattr(self, "_theme_initialized", False):
             try:
                 self.settings.ui.theme = theme_name
                 self.settings.save()
