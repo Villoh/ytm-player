@@ -15,7 +15,7 @@ PRIVACY_OPTIONS: list[tuple[str, str]] = [
 ]
 
 
-class CreatePlaylistPopup(ModalScreen[tuple[str, str] | None]):
+class CreatePlaylistPopup(ModalScreen[tuple[str, str, str] | None]):
     """Modal prompt for creating a playlist.
 
     Returns ``(name, privacy)`` on submit, or ``None`` if dismissed.
@@ -51,6 +51,10 @@ class CreatePlaylistPopup(ModalScreen[tuple[str, str] | None]):
         margin-bottom: 1;
     }
 
+    CreatePlaylistPopup #input-description {
+        height: 3;
+    }
+
     CreatePlaylistPopup Select {
         width: 100%;
         margin-bottom: 1;
@@ -72,6 +76,7 @@ class CreatePlaylistPopup(ModalScreen[tuple[str, str] | None]):
         with Vertical():
             yield Static("New Playlist", id="popup-title")
             yield Input(placeholder="Playlist name...", id="input-name")
+            yield Input(placeholder="Description (optional)...", id="input-description")
             yield Select(
                 PRIVACY_OPTIONS,
                 value="PRIVATE",
@@ -98,5 +103,6 @@ class CreatePlaylistPopup(ModalScreen[tuple[str, str] | None]):
         name = self.query_one("#input-name", Input).value.strip()
         if not name:
             return
+        description = self.query_one("#input-description", Input).value.strip()
         privacy = str(self.query_one("#select-privacy", Select).value)
-        self.dismiss((name, privacy))
+        self.dismiss((name, description, privacy))
