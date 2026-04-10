@@ -7,6 +7,7 @@ import time
 from typing import Any
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Vertical
 from textual.events import Click
 from textual.message import Message
@@ -457,6 +458,10 @@ class PlaylistSidebar(Widget):
             super().__init__()
             self.nav_id = nav_id
 
+    BINDINGS = [
+        Binding("r", "refresh", "Refresh playlists", show=False),
+    ]
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._loaded: bool = False
@@ -499,6 +504,11 @@ class PlaylistSidebar(Widget):
         """Force-reload playlists."""
         self._loaded = False
         await self.ensure_loaded()
+
+    async def action_refresh(self) -> None:
+        """Keybinding handler: refresh the playlist sidebar."""
+        await self.refresh_playlists()
+        self.app.notify("Playlists refreshed", timeout=2)
 
     def auto_select_playlist(self, playlist_id: str) -> None:
         """Highlight a specific playlist in the panel."""
