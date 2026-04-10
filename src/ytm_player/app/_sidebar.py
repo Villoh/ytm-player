@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from ytm_player.ui.header_bar import HeaderBar
@@ -238,7 +237,8 @@ class SidebarMixin:
             if playlist_id:
                 self.notify(f"Created '{name}'", timeout=2)
                 ps = self.query_one("#playlist-sidebar", PlaylistSidebar)
-                await ps.refresh_playlists()
+                panel = ps.query_one("#ps-playlists")
+                panel.prepend_item({"playlistId": playlist_id, "title": name})
             else:
                 self.notify("Failed to create playlist", severity="error", timeout=3)
         except Exception:
@@ -266,9 +266,8 @@ class SidebarMixin:
                 success = await self.ytmusic.remove_album_from_library(raw_id)
             if success:
                 self.notify(f"Removed '{title}'", timeout=2)
-                await asyncio.sleep(1)
                 ps = self.query_one("#playlist-sidebar", PlaylistSidebar)
-                await ps.refresh_playlists()
+                ps.query_one("#ps-playlists").remove_item(raw_id)
             else:
                 self.notify("Failed to remove playlist", severity="error", timeout=3)
         except Exception:
