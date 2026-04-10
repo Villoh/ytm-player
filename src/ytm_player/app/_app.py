@@ -110,6 +110,9 @@ class YTMPlayerApp(
     def __init__(self) -> None:
         super().__init__()
 
+        # Must be set before self.theme so watch_theme doesn't fire prematurely.
+        self._theme_initialized: bool = False
+
         self._register_themes()
         self.theme = "ytm-dark"
 
