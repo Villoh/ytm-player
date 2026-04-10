@@ -56,6 +56,7 @@ class Action(str, Enum):
     TOGGLE_SIDEBAR = "toggle_sidebar"
     TOGGLE_TRANSLITERATION = "toggle_transliteration"
     TOGGLE_ALBUM_ART = "toggle_album_art"
+    REFRESH_SIDEBAR = "refresh_sidebar"
 
     # Actions
     DELETE_ITEM = "delete_item"
@@ -126,6 +127,7 @@ DEFAULT_BINDINGS: dict[str, list[str]] = {
     "toggle_sidebar": ["C-e"],
     "toggle_transliteration": ["T"],
     "toggle_album_art": ["C-a"],
+    "refresh_sidebar": ["r"],
     # Actions
     "delete_item": ["delete", "d d"],
     "track_actions": ["a"],
