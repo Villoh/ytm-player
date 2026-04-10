@@ -246,6 +246,10 @@ class SidebarMixin:
                 await asyncio.sleep(1)
                 ps = self.query_one("#playlist-sidebar", PlaylistSidebar)
                 await ps.refresh_playlists()
+                # If the deleted playlist is currently open, navigate to plain library.
+                active_pid = self._current_page_kwargs.get("playlist_id", "")
+                if self._current_page == "library" and active_pid in (playlist_id, raw_id):
+                    await self.navigate_to("library", playlist_id=None)
             else:
                 self.notify("Failed to remove playlist", severity="error", timeout=3)
         except Exception:
