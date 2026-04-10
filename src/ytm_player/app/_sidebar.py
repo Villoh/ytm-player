@@ -268,6 +268,10 @@ class SidebarMixin:
                 self.notify(f"Removed '{title}'", timeout=2)
                 ps = self.query_one("#playlist-sidebar", PlaylistSidebar)
                 ps.query_one("#ps-playlists").remove_item(raw_id)
+                # If the deleted playlist is currently open, navigate to plain library.
+                active_pid = self._current_page_kwargs.get("playlist_id", "")
+                if self._current_page == "library" and active_pid in (playlist_id, raw_id):
+                    await self.navigate_to("library", playlist_id=None)
             else:
                 self.notify("Failed to remove playlist", severity="error", timeout=3)
         except Exception:

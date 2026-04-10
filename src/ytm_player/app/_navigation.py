@@ -89,7 +89,7 @@ class NavigationMixin:
             logger.warning("Unknown page: %s", page_name)
             return
 
-        if page_name == self._current_page and not kwargs:
+        if not is_back and page_name == self._current_page and not kwargs:
             # Clicking the same page again goes back to the previous page.
             if self._nav_stack:
                 prev_page, prev_kwargs = self._nav_stack.pop()
