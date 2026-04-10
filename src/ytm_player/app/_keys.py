@@ -215,6 +215,15 @@ class KeyHandlingMixin:
             case Action.ADD_TO_PLAYLIST:
                 await self._open_add_to_playlist()
 
+            # -- Open the command palette --
+            case Action.COMMAND_PALETTE:
+                self.action_command_palette()
+
+            # -- Clear the play queue --
+            case Action.CLEAR_QUEUE:
+                self.queue.clear()
+                self.notify("Queue cleared", timeout=2)
+
             # -- Track actions (opens popup, handles result) --
             case Action.TRACK_ACTIONS:
                 await self._open_track_actions()

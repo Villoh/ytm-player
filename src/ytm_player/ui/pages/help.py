@@ -62,6 +62,8 @@ ACTION_DESCRIPTIONS: dict[Action, str] = {
     Action.ADD_TO_QUEUE: "Add track to queue",
     Action.ADD_TO_PLAYLIST: "Add track to a playlist",
     Action.FILTER: "Filter / search within list",
+    Action.CLEAR_QUEUE: "Clear the entire play queue",
+    Action.COMMAND_PALETTE: "Open command palette",
     # Sorting
     Action.SORT_TITLE: "Sort by title",
     Action.SORT_ARTIST: "Sort by artist",
@@ -121,6 +123,8 @@ ACTION_CATEGORIES: dict[str, list[Action]] = {
         Action.ADD_TO_QUEUE,
         Action.ADD_TO_PLAYLIST,
         Action.FILTER,
+        Action.CLEAR_QUEUE,
+        Action.COMMAND_PALETTE,
     ],
     "Sorting": [
         Action.SORT_TITLE,

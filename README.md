@@ -357,7 +357,8 @@ ytm queue clear    # Clear queue
 | `s r` | Reverse current sort |
 | `T` | Toggle lyrics transliteration (ASCII) |
 | `Ctrl+a` | Toggle album art |
-| `Ctrl+p` | Change theme |
+| `Ctrl+p` | Open command palette (change theme, clear queue, …) |
+| `Ctrl+x` | Clear queue |
 | `q` | Quit |
 
 ### Mouse
