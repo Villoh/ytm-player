@@ -58,12 +58,13 @@ class CreatePlaylistPopup(ModalScreen[tuple[str, str] | None]):
 
     CreatePlaylistPopup #button-row {
         height: auto;
-        align: right middle;
+        align: center middle;
         margin-top: 1;
     }
 
     CreatePlaylistPopup Button {
-        margin-left: 1;
+        width: 1fr;
+        margin: 0 1;
     }
     """
 
