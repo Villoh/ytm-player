@@ -55,11 +55,6 @@ class PlaybackProgress(Widget):
     ) -> None:
         super().__init__(name=name, id=id, classes=classes)
         self._bar_style = bar_style
-        # None means "follow the active theme"; a value means explicit override.
-        self._filled_color = filled_color
-        self._empty_color = empty_color
-        self._time_color = time_color
-        self._marker_color = marker_color
 
         # Scroll-seek preview state.
         self._preview_position: float | None = None
