@@ -223,19 +223,21 @@ class SidebarMixin:
         """Show an input screen to create a new playlist."""
         from ytm_player.ui.popups.create_playlist_popup import CreatePlaylistPopup
 
-        def _on_result(result: tuple[str, str] | None) -> None:
+        def _on_result(result: tuple[str, str, str] | None) -> None:
             if result:
-                name, privacy = result
-                self.run_worker(self._create_sidebar_playlist(name, privacy))
+                name, description, privacy = result
+                self.run_worker(self._create_sidebar_playlist(name, description, privacy))
 
         self.push_screen(CreatePlaylistPopup(), _on_result)
 
-    async def _create_sidebar_playlist(self, name: str, privacy: str = "PRIVATE") -> None:
+    async def _create_sidebar_playlist(
+        self, name: str, description: str = "", privacy: str = "PRIVATE"
+    ) -> None:
         """Create a new playlist and refresh the sidebar."""
         if not self.ytmusic:
             return
         try:
-            playlist_id = await self.ytmusic.create_playlist(name, privacy=privacy)
+            playlist_id = await self.ytmusic.create_playlist(name, description, privacy=privacy)
             if playlist_id:
                 self.notify(f"Created '{name}'", timeout=2)
                 ps = self.query_one("#playlist-sidebar", PlaylistSidebar)
