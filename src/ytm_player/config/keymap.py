@@ -65,6 +65,8 @@ class Action(str, Enum):
     ADD_TO_QUEUE = "add_to_queue"
     ADD_TO_PLAYLIST = "add_to_playlist"
     FILTER = "filter"
+    CLEAR_QUEUE = "clear_queue"
+    COMMAND_PALETTE = "command_palette"
 
     # Sorting
     SORT_TITLE = "sort_title"
@@ -99,8 +101,8 @@ DEFAULT_BINDINGS: dict[str, list[str]] = {
     "seek_backward": ["<"],
     "seek_start": ["^"],
     # Navigation
-    "move_down": ["j", "down", "C-n"],
-    "move_up": ["k", "up", "C-p"],
+    "move_down": ["j", "down"],
+    "move_up": ["k", "up"],
     "page_down": ["C-f", "page_down"],
     "page_up": ["C-b", "page_up"],
     "go_top": ["g g", "home"],
@@ -129,6 +131,8 @@ DEFAULT_BINDINGS: dict[str, list[str]] = {
     # Actions
     "delete_item": ["delete", "d d"],
     "track_actions": ["a"],
+    "clear_queue": ["C-x"],
+    "command_palette": ["C-p"],
     "context_actions": ["g A"],
     "selected_actions": ["g a", "C-space"],
     "add_to_queue": ["Z", "C-z"],

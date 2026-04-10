@@ -33,6 +33,7 @@ from ytm_player.services.player import Player, PlayerEvent
 from ytm_player.services.queue import QueueManager
 from ytm_player.services.stream import StreamResolver
 from ytm_player.services.ytmusic import YTMusicService
+from ytm_player.ui.command_palette import AppCommandProvider
 from ytm_player.ui.header_bar import HeaderBar
 from ytm_player.ui.playback_bar import FooterBar, PlaybackBar
 from ytm_player.ui.sidebars.lyrics_sidebar import LyricsSidebar
@@ -103,6 +104,8 @@ class YTMPlayerApp(
 
     # We handle all bindings ourselves through the KeyMap system.
     BINDINGS = []
+
+    COMMANDS = App.COMMANDS | {AppCommandProvider}
 
     def __init__(self) -> None:
         super().__init__()
@@ -397,6 +400,11 @@ class YTMPlayerApp(
         if startup not in PAGE_NAMES:
             startup = "library"
         await self.navigate_to(startup)
+
+    async def _cmd_clear_queue(self) -> None:
+        """Command palette callback: clear the play queue."""
+        self.queue.clear()
+        self.notify("Queue cleared", timeout=2)
 
     async def on_unmount(self) -> None:
         """Clean up services and remove PID file."""
