@@ -459,15 +459,26 @@ You can also specify the full palette and override ytm-player-specific colors vi
 ```toml
 name       = "my-theme"
 primary    = "#cba6f7"
+secondary  = "#aaaaaa"
+accent     = "#b07ad4"
+success    = "#a6e3a1"
+warning    = "#f9e2af"
+error      = "#f38ba8"
+foreground = "#cdd6f4"
 background = "#1e1e2e"
 surface    = "#313244"
 dark       = true
 
 [variables]
 playback-bar-bg = "#181825"
+active-tab      = "#cdd6f4"
+inactive-tab    = "#6c7086"
+selected-item   = "#45475a"
 progress-filled = "#cba6f7"
 progress-empty  = "#45475a"
+lyrics-played   = "#6c7086"
 lyrics-current  = "#a6e3a1"
+lyrics-upcoming = "#cdd6f4"
 ```
 
 ## Spotify Import
