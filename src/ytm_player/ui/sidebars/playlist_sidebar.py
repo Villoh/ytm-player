@@ -151,6 +151,31 @@ class LibraryPanel(Widget):
         self._set_loading_visible(False)
         self.is_loading = False
 
+    def prepend_item(self, item: dict[str, Any]) -> None:
+        """Optimistically insert *item* at the top of the panel."""
+        self._items.insert(0, item)
+        self._filtered_items.insert(0, item)
+        list_view = self.query_one(ListView)
+        list_view.insert(0, [ListItem(Label(self._format_item(item)))])
+        count_label = self.query_one(".panel-count", Static)
+        total = len(self._items)
+        shown = len(self._filtered_items)
+        if shown == total:
+            count_label.update(f"{total} item{'s' if total != 1 else ''}")
+        else:
+            count_label.update(f"{shown}/{total}")
+
+    def remove_item(self, playlist_id: str) -> None:
+        """Optimistically remove the item with *playlist_id* from the panel."""
+
+        def matches(item: dict[str, Any]) -> bool:
+            pid = item.get("playlistId") or item.get("browseId", "")
+            return pid == playlist_id or pid == f"VL{playlist_id}"
+
+        self._items = [i for i in self._items if not matches(i)]
+        self._filtered_items = [i for i in self._filtered_items if not matches(i)]
+        self._rebuild_list(self._filtered_items)
+
     def _rebuild_list(self, items: list[dict[str, Any]]) -> None:
         list_view = self.query_one(ListView)
         list_view.clear()
