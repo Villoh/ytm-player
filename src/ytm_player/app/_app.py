@@ -107,6 +107,9 @@ class YTMPlayerApp(
     def __init__(self) -> None:
         super().__init__()
 
+        # Must be set before self.theme so watch_theme doesn't fire prematurely.
+        self._theme_initialized: bool = False
+
         # Register custom YTM theme and set as default.
         from ytm_player.ui.theme import YTM_DARK
 
@@ -238,6 +241,16 @@ class YTMPlayerApp(
             self.theme_colors = tc
         except Exception:
             pass
+
+        # Persist user-initiated theme changes to config.toml so it remains
+        # the source of truth.  Skip during startup (before session restore
+        # completes) to avoid overwriting the user's configured value.
+        if self._theme_initialized:
+            try:
+                self.settings.ui.theme = theme_name
+                self.settings.save()
+            except Exception:
+                logger.debug("Failed to persist theme to config.toml", exc_info=True)
 
     # ── Compose ──────────────────────────────────────────────────────
 
