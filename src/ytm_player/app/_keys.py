@@ -189,6 +189,8 @@ class KeyHandlingMixin:
                     pass
             case Action.TOGGLE_ALBUM_ART:
                 self._toggle_album_art()
+            case Action.REFRESH_SIDEBAR:
+                await self._refresh_playlist_sidebar()
             case Action.BROWSE:
                 await self.navigate_to("browse")
             case Action.HELP:

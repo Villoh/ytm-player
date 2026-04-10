@@ -218,6 +218,15 @@ class SidebarMixin:
 
         self.push_screen(ActionsPopup(item, item_type="playlist"), _handle_action)
 
+    async def _refresh_playlist_sidebar(self) -> None:
+        """Force-reload the playlist sidebar."""
+        try:
+            ps = self.query_one("#playlist-sidebar", PlaylistSidebar)
+            await ps.refresh_playlists()
+            self.notify("Playlists refreshed", timeout=2)
+        except Exception:
+            logger.debug("Failed to refresh playlist sidebar", exc_info=True)
+
     def _prompt_create_playlist(self) -> None:
         """Show an input screen to create a new playlist."""
         from ytm_player.ui.popups.create_playlist_popup import CreatePlaylistPopup

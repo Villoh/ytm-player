@@ -7,13 +7,12 @@ import time
 from typing import Any
 
 from textual.app import ComposeResult
-from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.events import Click
 from textual.message import Message
 from textual.reactive import reactive
 from textual.widget import Widget
-from textual.widgets import Button, Input, Label, ListItem, ListView, Rule, Static
+from textual.widgets import Input, Label, ListItem, ListView, Rule, Static
 
 from ytm_player.config.settings import get_settings
 from ytm_player.utils.formatting import copy_to_clipboard, truncate
@@ -123,18 +122,14 @@ class LibraryPanel(Widget):
     }
 
     LibraryPanel .panel-refresh-btn {
-        min-width: 3;
-        width: 3;
         height: 1;
-        border: none;
-        background: transparent;
+        width: auto;
+        padding: 0 1;
         color: $text-muted;
-        padding: 0;
     }
 
     LibraryPanel .panel-refresh-btn:hover {
         background: $accent 30%;
-        color: $text;
     }
 
     LibraryPanel .panel-count {
@@ -218,7 +213,7 @@ class LibraryPanel(Widget):
     def compose(self) -> ComposeResult:
         with Horizontal(classes="panel-header"):
             yield Label(self._title, classes="panel-title")
-            yield Button("⟳", classes="panel-refresh-btn", id=f"{self.id}-refresh")
+            yield Static("\u21ba", classes="panel-refresh-btn", id=f"{self.id}-refresh")
         yield Static("Loading...", classes="panel-loading")
         yield ListView(id=f"{self.id}-list")
         yield Static("", classes="panel-count")
@@ -505,10 +500,6 @@ class PlaylistSidebar(Widget):
             super().__init__()
             self.nav_id = nav_id
 
-    BINDINGS = [
-        Binding("r", "refresh", "Refresh playlists", show=False),
-    ]
-
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._loaded: bool = False
@@ -554,14 +545,11 @@ class PlaylistSidebar(Widget):
 
     async def action_refresh(self) -> None:
         """Keybinding handler: refresh the playlist sidebar."""
+        await self._do_refresh()
+
+    async def _do_refresh(self) -> None:
         await self.refresh_playlists()
         self.app.notify("Playlists refreshed", timeout=2)
-
-    async def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "ps-playlists-refresh":
-            event.stop()
-            await self.refresh_playlists()
-            self.app.notify("Playlists refreshed", timeout=2)
 
     def auto_select_playlist(self, playlist_id: str) -> None:
         """Highlight a specific playlist in the panel."""
@@ -590,7 +578,10 @@ class PlaylistSidebar(Widget):
 
     def on_click(self, event: Click) -> None:
         target = event.widget
-        if target.id == "ps-nav-liked":
+        if target.id == "ps-playlists-refresh":
+            event.stop()
+            self.run_worker(self._do_refresh())
+        elif target.id == "ps-nav-liked":
             event.stop()
             self.post_message(self.NavItemClicked("liked_songs"))
         elif target.id == "ps-nav-recent":
