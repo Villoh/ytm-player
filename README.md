@@ -14,7 +14,7 @@ A full-featured YouTube Music player for the terminal. Browse your library, sear
 - **Vim-style navigation** — `j`/`k` movement, multi-key sequences (`g l` for library, `g s` for search), count prefixes (`5j`)
 - **Table sorting** — click column headers or use keyboard (`s t`/`s a`/`s A`/`s d`/`s r`), drag-to-resize columns
 - **Predictive search** — debounced with 300ms delay, music-first mode with clickable toggle to all results
-- **Theming** — 18 built-in Textual themes (nord, dracula, gruvbox, catppuccin, etc.) via `Ctrl+P`, plus custom app-specific color overrides in `theme.toml`. Theme selection persists across sessions
+- **Theming** — 18 built-in Textual themes (nord, dracula, gruvbox, catppuccin, etc.) via `Ctrl+P`, plus user-defined themes in `themes/`. Theme selection persists across sessions
 - **Session resume** — restores queue position, volume, shuffle/repeat state, theme on startup
 - **Free-tier support** — works with free YouTube Music accounts (Premium-only tracks are filtered with notice)
 - **Multi-account & Brand Account support** — `ytm setup` auto-detects multiple Google accounts; Brand Accounts configurable via `brand_account_id` in config
@@ -382,7 +382,7 @@ Config files live in `~/.config/ytm-player/` (respects `$XDG_CONFIG_HOME`):
 |------|---------|
 | `config.toml` | General settings, playback, cache, UI |
 | `keymap.toml` | Custom keybinding overrides |
-| `theme.toml` | Color scheme customization |
+| `themes/` | User-defined custom themes |
 | `auth.json` | YouTube Music credentials (auto-generated) |
 
 Open config directory in your editor:
@@ -444,21 +444,42 @@ session_key = ""
 username = ""
 ```
 
-### Example `theme.toml`
+### Custom themes
 
-Base colors (primary, background, etc.) come from the active Textual theme — switch themes with `Ctrl+P`. The `theme.toml` file overrides app-specific colors only:
+Drop `.toml` files in the `themes/` config directory to define your own themes. They appear in the `Ctrl+P` picker alongside the built-in Textual themes.
+
+Only `name` and `primary` are required — Textual derives the full palette automatically:
 
 ```toml
-[colors]
-playback_bar_bg = "#1a1a1a"
-selected_item = "#2a2a2a"
-progress_filled = "#ff0000"
-progress_empty = "#555555"
-lyrics_played = "#999999"
-lyrics_current = "#2ecc71"
-lyrics_upcoming = "#aaaaaa"
-active_tab = "#ffffff"
-inactive_tab = "#999999"
+name    = "my-theme"
+primary = "#cba6f7"
+```
+
+You can also specify the full palette and override ytm-player-specific colors via `[variables]`:
+
+```toml
+name       = "my-theme"
+primary    = "#cba6f7"
+secondary  = "#aaaaaa"
+accent     = "#b07ad4"
+success    = "#a6e3a1"
+warning    = "#f9e2af"
+error      = "#f38ba8"
+foreground = "#cdd6f4"
+background = "#1e1e2e"
+surface    = "#313244"
+dark       = true
+
+[variables]
+playback-bar-bg = "#181825"
+active-tab      = "#cdd6f4"
+inactive-tab    = "#6c7086"
+selected-item   = "#45475a"
+progress-filled = "#cba6f7"
+progress-empty  = "#45475a"
+lyrics-played   = "#6c7086"
+lyrics-current  = "#a6e3a1"
+lyrics-upcoming = "#cdd6f4"
 ```
 
 ## Spotify Import

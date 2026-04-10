@@ -64,7 +64,7 @@ else:
     IPC_PORT_FILE = None  # Not used on Unix.
 
 KEYMAP_FILE = CONFIG_DIR / "keymap.toml"
-THEME_FILE = CONFIG_DIR / "theme.toml"
+THEMES_DIR = CONFIG_DIR / "themes"
 RECENT_PLAYLISTS_FILE = CONFIG_DIR / "recent_playlists.json"
 SESSION_STATE_FILE = CONFIG_DIR / "session.json"
 HISTORY_DB = CONFIG_DIR / "history.db"
@@ -89,7 +89,7 @@ def ensure_dirs() -> None:
     global _dirs_ensured
     if _dirs_ensured:
         return
-    for _dir in (CONFIG_DIR, CACHE_DIR):
+    for _dir in (CONFIG_DIR, CACHE_DIR, THEMES_DIR):
         _dir.mkdir(parents=True, exist_ok=True)
         secure_chmod(_dir, SECURE_DIR_MODE)
     _dirs_ensured = True

@@ -107,13 +107,7 @@ class YTMPlayerApp(
     def __init__(self) -> None:
         super().__init__()
 
-        # Must be set before self.theme so watch_theme doesn't fire prematurely.
-        self._theme_initialized: bool = False
-
-        # Register custom YTM theme and set as default.
-        from ytm_player.ui.theme import YTM_DARK
-
-        self.register_theme(YTM_DARK)
+        self._register_themes()
         self.theme = "ytm-dark"
 
         # Configuration.
@@ -206,6 +200,13 @@ class YTMPlayerApp(
 
         return variables
 
+    def _register_themes(self) -> None:
+        """Register ytm-dark and any user-defined themes from themes/."""
+        from ytm_player.ui.theme import YTM_DARK, load_user_themes
+
+        for theme in [YTM_DARK, *load_user_themes()]:
+            self.register_theme(theme)
+
     def watch_theme(self, theme_name: str) -> None:
         """Rebuild ThemeColors when the Textual theme changes."""
         from ytm_player.ui.theme import ThemeColors, set_theme
@@ -236,7 +237,6 @@ class YTMPlayerApp(
                 lyrics_current=v.get("lyrics-current", t.success or "#2ecc71"),
                 lyrics_upcoming=v.get("lyrics-upcoming", t.foreground or "#aaaaaa"),
             )
-            tc._apply_toml_overrides()
             set_theme(tc)
             self.theme_colors = tc
         except Exception:
