@@ -7,6 +7,7 @@ from typing import Any
 
 from textual.app import ComposeResult
 from textual.containers import Vertical
+from textual.events import Click, MouseDown
 from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import DataTable, Label, Static
@@ -71,6 +72,8 @@ class LikedSongsPage(Widget):
         self._row_keys: list[RowKey] = []
         self._tracks: list[dict] = []
         self._restore_cursor_row = cursor_row
+        self._right_clicked: bool = False
+        self._suppress_select_on_refocus: bool = False
 
     def compose(self) -> ComposeResult:
         yield Vertical(
@@ -207,8 +210,35 @@ class LikedSongsPage(Widget):
             pass
         return state
 
+    def on_mouse_down(self, event: MouseDown) -> None:
+        """Handle right-click on liked songs rows to open the context menu."""
+        if event.button != 3:
+            return
+        meta = event.style.meta
+        row_idx = meta.get("row") if meta else None
+        if row_idx is None:
+            return
+        if 0 <= row_idx < len(self._tracks):
+            event.stop()
+            event.prevent_default()
+            self._right_clicked = True
+            self._suppress_select_on_refocus = True
+            self.app._open_actions_for_track(self._tracks[row_idx])  # type: ignore[attr-defined]
+
+    def on_click(self, event: Click) -> None:
+        """Suppress right-click Click events to prevent spurious row selection."""
+        if event.button == 3:
+            event.stop()
+            event.prevent_default()
+
     async def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         event.stop()
+        if self._right_clicked:
+            self._right_clicked = False
+            return
+        if self._suppress_select_on_refocus:
+            self._suppress_select_on_refocus = False
+            return
         idx = event.cursor_row
         if 0 <= idx < len(self._tracks):
             queue = self.app.queue  # type: ignore[attr-defined]

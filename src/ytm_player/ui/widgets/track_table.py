@@ -301,7 +301,20 @@ class TrackTable(DataTable):
     _SORTABLE_KEYS = {"index", "title", "artist", "album", "duration"}
 
     def on_mouse_down(self, event: MouseDown) -> None:
-        """Start column resize on header edge drag."""
+        """Handle right-click early (before DataTable fires RowSelected) and column resize drag."""
+        if event.button == 3:
+            # Set the flag before the Click event fires so on_data_table_row_selected
+            # can suppress TrackSelected even though DataTable processes Click first.
+            self._right_clicked = True
+            self._suppress_select_on_refocus = True
+            meta = event.style.meta
+            row_idx = meta.get("row") if meta else None
+            if row_idx is not None and 0 <= row_idx < len(self._tracks):
+                self.post_message(self.TrackRightClicked(self._tracks[row_idx], row_idx))
+            # Do NOT stop here — let MouseDown bubble so parent pages can also
+            # set their own _right_clicked guard (see BrowsePage, ContextPage, etc.)
+            event.prevent_default()
+            return
         if event.button != 1:
             return
         if event.y != 0 or not self.show_header:
@@ -379,16 +392,10 @@ class TrackTable(DataTable):
         self.post_message(self.TrackHighlighted(track, row_idx))
 
     def on_click(self, event: Click) -> None:
-        """Handle right-click to emit TrackRightClicked."""
+        """Suppress right-click Click events (logic is handled in on_mouse_down)."""
         if event.button == 3:
             event.stop()
             event.prevent_default()
-            self._right_clicked = True
-            self._suppress_select_on_refocus = True
-            meta = event.style.meta
-            row_idx = meta.get("row") if meta else None
-            if row_idx is not None and 0 <= row_idx < len(self._tracks):
-                self.post_message(self.TrackRightClicked(self._tracks[row_idx], row_idx))
 
     def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
         """Sort by the clicked column header."""
