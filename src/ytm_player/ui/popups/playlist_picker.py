@@ -301,6 +301,14 @@ class PlaylistPicker(ModalScreen[str | None]):
                 f"Added {len(self.video_ids)} {track_word} to '{name}'",
                 severity="information",
             )
+            try:
+                from ytm_player.ui.sidebars.playlist_sidebar import LibraryPanel, PlaylistSidebar
+
+                self.app.query_one("#playlist-sidebar", PlaylistSidebar).query_one(
+                    "#ps-playlists", LibraryPanel
+                ).update_item_count(playlist_id, len(self.video_ids))
+            except Exception:
+                logger.debug("Failed to update sidebar count", exc_info=True)
             self.dismiss(playlist_id)
 
         except Exception:
