@@ -341,14 +341,19 @@ class PlaylistPicker(ModalScreen[str | None]):
     # ── Cancel ──────────────────────────────────────────────────────
 
     def _update_sidebar_prepend(self, playlist_id: str, title: str, count: int) -> None:
-        """Add newly created playlist to the sidebar panel."""
-        try:
-            from ytm_player.ui.sidebars.playlist_sidebar import PlaylistSidebar
+        """Add newly created playlist to the sidebar after the modal closes."""
+        app = self.app
 
-            ps = self.app.query_one("#playlist-sidebar", PlaylistSidebar)
-            ps.prepend_playlist(playlist_id, title, count=count)
-        except Exception:
-            logger.debug("Failed to prepend playlist to sidebar", exc_info=True)
+        def _do_prepend() -> None:
+            try:
+                from ytm_player.ui.sidebars.playlist_sidebar import PlaylistSidebar
+
+                ps = app.query_one("#playlist-sidebar", PlaylistSidebar)
+                ps.prepend_playlist(playlist_id, title, count=count)
+            except Exception:
+                logger.debug("Failed to prepend playlist to sidebar", exc_info=True)
+
+        app.call_after_refresh(_do_prepend)
 
     def _update_sidebar_count(self, playlist_id: str, delta: int) -> None:
         """Increment track count for a playlist item in the sidebar."""
