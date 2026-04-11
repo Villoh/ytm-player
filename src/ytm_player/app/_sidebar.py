@@ -221,6 +221,104 @@ class SidebarMixin:
 
         self.push_screen(ActionsPopup(item, item_type="playlist"), _handle_action)
 
+    # ── Panel focus (Alt+h / Alt+l) ─────────────────────────────────
+
+    def _panel_focus(self, direction: int) -> None:
+        """Shift focus one panel left (direction=-1) or right (direction=1)."""
+        panels = self._get_visible_panels()
+        if not panels:
+            return
+        current = self._focused_panel_index(panels)
+        self._activate_panel(panels[(current + direction) % len(panels)])
+
+    def _get_visible_panels(self) -> list[str]:
+        """Ordered list of panel IDs that are currently visible."""
+        panels: list[str] = []
+        try:
+            if not self.query_one("#playlist-sidebar").has_class("hidden"):
+                panels.append("sidebar")
+        except Exception:
+            pass
+        panels.append("main")
+        # LyricsSidebar has no focusable widgets — excluded intentionally.
+        return panels
+
+    def _focused_panel_index(self, panels: list[str]) -> int:
+        """Return index of the panel that currently contains focus."""
+        from ytm_player.ui.sidebars.playlist_sidebar import PlaylistSidebar
+
+        widget = self.focused
+        while widget is not None:
+            if isinstance(widget, PlaylistSidebar):
+                try:
+                    return panels.index("sidebar")
+                except ValueError:
+                    pass
+                break
+            widget = widget.parent
+        try:
+            return panels.index("main")
+        except ValueError:
+            return 0
+
+    def _activate_panel(self, panel_id: str) -> None:
+        if panel_id == "sidebar":
+            self._focus_playlist_sidebar()
+        else:
+            self._focus_main_content()
+
+    def _focus_playlist_sidebar(self) -> None:
+        """Move focus to the playlist list in the sidebar."""
+        from textual.widgets import ListView
+
+        try:
+            lv = self.query_one("#ps-playlists-list", ListView)
+            lv.focus()
+        except Exception:
+            logger.debug("Failed to focus playlist sidebar", exc_info=True)
+
+    @staticmethod
+    def _is_on_screen(w: object) -> bool:
+        """Return True if the widget and ALL its ancestors have display=True.
+
+        Textual's w.display only reflects the widget's own CSS/reactive state,
+        not whether a parent has been hidden. Walk the full ancestor chain so
+        we never focus a widget whose parent section is hidden (e.g. an
+        inactive Browse tab).
+        """
+        node = w
+        while node is not None:
+            if not getattr(node, "display", True):
+                return False
+            node = getattr(node, "parent", None)
+        return True
+
+    def _focus_main_content(self) -> None:
+        """Move focus to the primary interactive widget in the current page."""
+        from textual.widgets import DataTable, ListView
+
+        from ytm_player.ui.widgets.track_table import TrackTable
+
+        try:
+            content = self.query_one("#main-content")
+            # TrackTable first (extends DataTable; most feature-rich pages use it).
+            for w in content.query(TrackTable):
+                if self._is_on_screen(w):
+                    w.focus()
+                    return
+            # Plain DataTable (LikedSongs, Queue, RecentlyPlayed).
+            for w in content.query(DataTable):
+                if self._is_on_screen(w):
+                    w.focus()
+                    return
+            # ListView fallback (Browse → For You / Moods sections).
+            for w in content.query(ListView):
+                if self._is_on_screen(w):
+                    w.focus()
+                    return
+        except Exception:
+            logger.debug("Failed to focus main content", exc_info=True)
+
     async def _refresh_playlist_sidebar(self) -> None:
         """Force-reload the playlist sidebar."""
         try:

@@ -143,6 +143,17 @@ class RecentlyPlayedPage(Widget):
         if row is not None and 0 <= row < table.row_count:
             table.move_cursor(row=row)
 
+    def get_selected_track(self) -> dict | None:
+        """Return the track at the cursor position (used by the context menu)."""
+        try:
+            table = self.query_one("#recent-table", DataTable)
+            idx = table.cursor_row
+            if idx is not None and 0 <= idx < len(self._tracks):
+                return self._tracks[idx]
+        except Exception:
+            pass
+        return None
+
     def get_nav_state(self) -> dict[str, Any]:
         """Return state to preserve when navigating away."""
         state: dict[str, Any] = {}

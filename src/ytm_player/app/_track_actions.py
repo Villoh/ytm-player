@@ -31,11 +31,13 @@ class TrackActionsMixin:
         if focused is None:
             return None
 
-        # Walk up to find a TrackTable parent.
+        # Walk up looking for a TrackTable or any widget exposing get_selected_track().
         widget = focused
         while widget is not None:
             if isinstance(widget, TrackTable):
                 return widget.selected_track
+            if hasattr(widget, "get_selected_track"):
+                return widget.get_selected_track()  # type: ignore[attr-defined]
             widget = widget.parent
         return None
 
@@ -58,21 +60,48 @@ class TrackActionsMixin:
 
         self.push_screen(PlaylistPicker(video_ids=[video_id]))
 
+    @staticmethod
+    def _infer_item_type(item: dict) -> str:
+        """Detect ActionsPopup item_type from a raw item dict.
+
+        Browse's ForYou shelves can contain songs, playlists, albums or
+        artists — inspect the dict to pick the right popup type.
+        """
+        result_type = (item.get("resultType") or item.get("type") or "").lower()
+        if result_type in ("song", "video", "flat_song"):
+            return "track"
+        if result_type in ("album", "single"):
+            return "album"
+        if result_type == "artist":
+            return "artist"
+        if result_type == "playlist":
+            return "playlist"
+        # Fall back to field presence when resultType is absent.
+        if item.get("video_id") or item.get("videoId"):
+            return "track"
+        if item.get("playlistId") or item.get("audioPlaylistId"):
+            return "playlist"
+        browse_id = item.get("browseId", "")
+        if browse_id.startswith("MPREb_"):
+            return "album"
+        return "track"
+
     async def _open_track_actions(self) -> None:
-        """Open ActionsPopup for the focused track."""
-        track = self._get_focused_track()
-        if not track:
+        """Open ActionsPopup for the focused item (track, playlist, album…)."""
+        item = self._get_focused_track()
+        if not item:
             # Fall back to currently playing track.
             if self.player and self.player.current_track:
-                track = self.player.current_track
+                item = self.player.current_track
             else:
                 self.notify("No track selected.", severity="warning", timeout=2)
                 return
 
-        self._open_actions_for_track(track)
+        item_type = self._infer_item_type(item)
+        self._open_actions_for_track(item, item_type=item_type)
 
-    def _open_actions_for_track(self, track: dict) -> None:
-        """Push ActionsPopup for a specific track dict."""
+    def _open_actions_for_track(self, track: dict, item_type: str = "track") -> None:
+        """Push ActionsPopup for a specific item dict."""
 
         def _handle_action_result(action_id: str | None) -> None:
             """Callback when the user picks an action from the popup."""
@@ -145,7 +174,7 @@ class TrackActionsMixin:
                     else:
                         self.notify(link, timeout=5)
 
-        self.push_screen(ActionsPopup(track, item_type="track"), _handle_action_result)
+        self.push_screen(ActionsPopup(track, item_type=item_type), _handle_action_result)
 
     def _refresh_queue_page(self) -> None:
         """Refresh the queue page if it's currently displayed."""
