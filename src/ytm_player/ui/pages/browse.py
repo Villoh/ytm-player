@@ -11,13 +11,31 @@ from textual.events import Click, MouseDown
 from textual.message import Message
 from textual.reactive import reactive
 from textual.widget import Widget
-from textual.widgets import Label, ListItem, ListView, Static
+from textual.widgets import DataTable, Label, Static
 
 from ytm_player.config.keymap import Action
 from ytm_player.ui.widgets.track_table import TrackTable
 from ytm_player.utils.formatting import extract_artist, get_video_id, normalize_tracks, truncate
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Shared table widget
+# ---------------------------------------------------------------------------
+
+
+class BrowseTable(DataTable):
+    """DataTable that hides its cursor row when it does not have focus."""
+
+    def on_mount(self) -> None:
+        self.show_cursor = False
+
+    def on_focus(self) -> None:
+        self.show_cursor = True
+
+    def on_blur(self) -> None:
+        self.show_cursor = False
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +153,7 @@ class ForYouSection(Widget):
     ForYouSection .shelf-items {
         height: auto;
         max-height: 5;
+        border: none;
     }
 
     ForYouSection .loading {
@@ -155,7 +174,6 @@ class ForYouSection(Widget):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._shelves: list[dict[str, Any]] = []
-        self._right_clicked: bool = False
 
     def compose(self) -> ComposeResult:
         yield Static("Loading recommendations...", id="foryou-loading", classes="loading")
@@ -195,10 +213,10 @@ class ForYouSection(Widget):
         loading.display = False
 
         container = self.query_one("#foryou-shelves", Vertical)
-        # Clear _shelf_items references from old ListViews before removing.
-        for lv in container.query(ListView):
-            if hasattr(lv, "_shelf_items"):
-                lv._shelf_items = []  # type: ignore[attr-defined]
+        # Clear _shelf_items references from old DataTables before removing.
+        for dt in container.query(DataTable):
+            if hasattr(dt, "_shelf_items"):
+                dt._shelf_items = []  # type: ignore[attr-defined]
         await container.remove_children()
 
         if not self._shelves:
@@ -216,8 +234,14 @@ class ForYouSection(Widget):
                 await container.mount(shelf_container)
                 await shelf_container.mount(Label(title, classes="shelf-title"))
 
-                list_view = ListView(classes="shelf-items")
-                await shelf_container.mount(list_view)
+                shelf_table = BrowseTable(
+                    show_header=False,
+                    cursor_type="row",
+                    zebra_stripes=False,
+                    classes="shelf-items",
+                )
+                await shelf_container.mount(shelf_table)
+                shelf_table.add_column("item")
 
                 for item in contents[:8]:
                     item_title = item.get("title", "Unknown")
@@ -231,10 +255,10 @@ class ForYouSection(Widget):
                     subtitle = " - ".join(subtitle_parts)
                     display = truncate(f"{item_title}  {subtitle}", 80) if subtitle else item_title
 
-                    list_view.append(ListItem(Label(display)))
+                    shelf_table.add_row(display)
 
-                # Store items on the list_view for later retrieval.
-                list_view._shelf_items = contents[:8]  # type: ignore[attr-defined]
+                # Store items on the table for later retrieval.
+                shelf_table._shelf_items = contents[:8]  # type: ignore[attr-defined]
             except Exception:
                 logger.debug("Failed to render shelf %r", title, exc_info=True)
 
@@ -251,34 +275,39 @@ class ForYouSection(Widget):
         """
         try:
             focused = self.app.focused
-            if isinstance(focused, ListView):
+            if isinstance(focused, DataTable):
                 items = getattr(focused, "_shelf_items", [])
-                idx = focused.index
-                if idx is not None and 0 <= idx < len(items):
+                idx = focused.cursor_row
+                if 0 <= idx < len(items):
                     return items[idx]
         except Exception:
             pass
         return None
 
     def on_mouse_down(self, event: MouseDown) -> None:
-        """Track right-clicks so on_list_view_selected can suppress playback."""
-        if event.button == 3:
-            self._right_clicked = True
-
-    def on_list_view_selected(self, event: ListView.Selected) -> None:
-        """Handle item selection within a shelf."""
-        if self._right_clicked:
-            self._right_clicked = False
-            list_view = event.list_view
-            items = getattr(list_view, "_shelf_items", [])
-            idx = list_view.index
-            if idx is not None and 0 <= idx < len(items):
-                self.app._open_actions_for_track(items[idx])  # type: ignore[attr-defined]
+        """Open context menu on right-click."""
+        if event.button != 3:
             return
-        list_view = event.list_view
-        items = getattr(list_view, "_shelf_items", [])
-        idx = list_view.index
-        if idx is not None and 0 <= idx < len(items):
+        meta = event.style.meta
+        row_idx = meta.get("row") if meta else None
+        node = event.widget
+        while node is not None:
+            if isinstance(node, DataTable):
+                items = getattr(node, "_shelf_items", [])
+                if row_idx is None:
+                    row_idx = node.cursor_row
+                if row_idx is not None and 0 <= row_idx < len(items):
+                    self.app._open_actions_for_track(items[row_idx])  # type: ignore[attr-defined]
+                event.prevent_default()
+                return
+            node = getattr(node, "parent", None)
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Handle item activation within a shelf."""
+        table = event.data_table
+        items = getattr(table, "_shelf_items", [])
+        idx = event.cursor_row
+        if 0 <= idx < len(items):
             self.post_message(self.ItemSelected(items[idx]))
 
 
@@ -305,9 +334,10 @@ class MoodsGenresSection(Widget):
         padding: 1 0 0 0;
     }
 
-    MoodsGenresSection ListView {
+    MoodsGenresSection DataTable {
         height: auto;
         max-height: 8;
+        border: none;
     }
     """
 
@@ -349,10 +379,10 @@ class MoodsGenresSection(Widget):
         loading.display = False
 
         container = self.query_one("#moods-container", Vertical)
-        # Clear _category_items references from old ListViews before removing.
-        for lv in container.query(ListView):
-            if hasattr(lv, "_category_items"):
-                lv._category_items = []  # type: ignore[attr-defined]
+        # Clear _category_items references from old DataTables before removing.
+        for dt in container.query(DataTable):
+            if hasattr(dt, "_category_items"):
+                dt._category_items = []  # type: ignore[attr-defined]
         await container.remove_children()
 
         if not self._categories:
@@ -370,27 +400,28 @@ class MoodsGenresSection(Widget):
             if group_title:
                 await container.mount(Label(group_title, classes="category-title"))
 
-            list_view = ListView()
-            await container.mount(list_view)
+            table = BrowseTable(show_header=False, cursor_type="row", zebra_stripes=False)
+            await container.mount(table)
+            table.add_column("category")
 
             for item in items:
                 title = item.get("title", "Unknown")
-                list_view.append(ListItem(Label(title)))
+                table.add_row(title)
                 self._all_items.append(item)
 
-            list_view._category_items = items  # type: ignore[attr-defined]
+            table._category_items = items  # type: ignore[attr-defined]
 
     def _show_error(self, message: str) -> None:
         loading = self.query_one("#moods-loading", Static)
         loading.update(message)
         loading.display = True
 
-    def on_list_view_selected(self, event: ListView.Selected) -> None:
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handle category selection."""
-        list_view = event.list_view
-        items = getattr(list_view, "_category_items", [])
-        idx = list_view.index
-        if idx is not None and 0 <= idx < len(items):
+        table = event.data_table
+        items = getattr(table, "_category_items", [])
+        idx = event.cursor_row
+        if 0 <= idx < len(items):
             self.post_message(self.CategorySelected(items[idx]))
 
 
@@ -528,8 +559,9 @@ class NewReleasesSection(Widget):
         padding: 0 0 1 0;
     }
 
-    NewReleasesSection ListView {
+    NewReleasesSection DataTable {
         height: 1fr;
+        border: none;
     }
     """
 
@@ -552,7 +584,9 @@ class NewReleasesSection(Widget):
         yield Static("Loading new releases...", id="releases-loading", classes="loading")
         with Vertical(id="releases-content"):
             yield Label("New Releases", classes="section-title")
-            yield ListView(id="releases-list")
+            yield BrowseTable(
+                show_header=False, cursor_type="row", zebra_stripes=True, id="releases-list"
+            )
 
     def on_mount(self) -> None:
         try:
@@ -579,8 +613,10 @@ class NewReleasesSection(Widget):
         content = self.query_one("#releases-content")
         content.display = True
 
-        list_view = self.query_one("#releases-list", ListView)
-        list_view.clear()
+        table = self.query_one("#releases-list", DataTable)
+        table.clear()
+        if not table.columns:
+            table.add_column("release")
 
         for album in self._albums:
             title = album.get("title", "Unknown Album")
@@ -601,8 +637,7 @@ class NewReleasesSection(Widget):
             if meta_parts:
                 parts.append(f"({', '.join(meta_parts)})")
 
-            display = truncate(" ".join(parts), 80)
-            list_view.append(ListItem(Label(display)))
+            table.add_row(truncate(" ".join(parts), 80))
 
     def _show_error(self, message: str) -> None:
         loading = self.query_one("#releases-loading", Static)
@@ -613,10 +648,10 @@ class NewReleasesSection(Widget):
         except Exception:
             logger.debug("Failed to hide releases content on error", exc_info=True)
 
-    def on_list_view_selected(self, event: ListView.Selected) -> None:
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handle album selection."""
-        idx = event.list_view.index
-        if idx is not None and 0 <= idx < len(self._albums):
+        idx = event.cursor_row
+        if 0 <= idx < len(self._albums):
             self.post_message(self.AlbumSelected(self._albums[idx]))
 
 
@@ -859,54 +894,56 @@ class BrowsePage(Widget):
         match action:
             case Action.MOVE_DOWN:
                 focused = self.app.focused
-                if isinstance(focused, ListView):
+                if isinstance(focused, TrackTable):
+                    await focused.handle_action(action, count)
+                elif isinstance(focused, DataTable):
                     for _ in range(count):
                         focused.action_cursor_down()
-                elif isinstance(focused, TrackTable):
-                    await focused.handle_action(action, count)
 
             case Action.MOVE_UP:
                 focused = self.app.focused
-                if isinstance(focused, ListView):
+                if isinstance(focused, TrackTable):
+                    await focused.handle_action(action, count)
+                elif isinstance(focused, DataTable):
                     for _ in range(count):
                         focused.action_cursor_up()
-                elif isinstance(focused, TrackTable):
-                    await focused.handle_action(action, count)
 
             case Action.PAGE_DOWN:
                 focused = self.app.focused
-                if isinstance(focused, ListView):
-                    focused.action_scroll_down()
-                elif isinstance(focused, TrackTable):
+                if isinstance(focused, TrackTable):
                     await focused.handle_action(action, count)
+                elif isinstance(focused, DataTable):
+                    focused.action_scroll_cursor_down()
 
             case Action.PAGE_UP:
                 focused = self.app.focused
-                if isinstance(focused, ListView):
-                    focused.action_scroll_up()
-                elif isinstance(focused, TrackTable):
+                if isinstance(focused, TrackTable):
                     await focused.handle_action(action, count)
+                elif isinstance(focused, DataTable):
+                    focused.action_scroll_cursor_up()
 
             case Action.GO_TOP:
                 focused = self.app.focused
-                if isinstance(focused, ListView):
-                    focused.action_first()
-                elif isinstance(focused, TrackTable):
+                if isinstance(focused, TrackTable):
                     await focused.handle_action(action, count)
+                elif isinstance(focused, DataTable):
+                    if focused.row_count > 0:
+                        focused.move_cursor(row=0)
 
             case Action.GO_BOTTOM:
                 focused = self.app.focused
-                if isinstance(focused, ListView):
-                    focused.action_last()
-                elif isinstance(focused, TrackTable):
+                if isinstance(focused, TrackTable):
                     await focused.handle_action(action, count)
+                elif isinstance(focused, DataTable):
+                    if focused.row_count > 0:
+                        focused.move_cursor(row=focused.row_count - 1)
 
             case Action.SELECT:
                 focused = self.app.focused
-                if isinstance(focused, ListView):
-                    focused.action_select_cursor()
-                elif isinstance(focused, TrackTable):
+                if isinstance(focused, TrackTable):
                     await focused.handle_action(action, count)
+                elif isinstance(focused, DataTable):
+                    focused.action_select_cursor()
 
             case Action.FOCUS_NEXT:
                 # Tab: cycle focus forward through the active section's widgets.
