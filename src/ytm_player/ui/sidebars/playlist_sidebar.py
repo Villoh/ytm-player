@@ -261,8 +261,12 @@ class LibraryPanel(Widget):
         """Optimistically insert *item* at the top of the panel."""
         self._items.insert(0, item)
         self._filtered_items.insert(0, item)
+        lbl = _BouncingLabel(self._format_item(item))
+        if not hasattr(self, "_bouncing_labels"):
+            self._bouncing_labels = []
+        self._bouncing_labels.insert(0, lbl)
         list_view = self.query_one(ListView)
-        list_view.insert(0, [ListItem(Label(self._format_item(item)))])
+        list_view.insert(0, [ListItem(lbl)])
         count_label = self.query_one(".panel-count", Static)
         total = len(self._items)
         shown = len(self._filtered_items)
@@ -270,6 +274,32 @@ class LibraryPanel(Widget):
             count_label.update(f"{total} item{'s' if total != 1 else ''}")
         else:
             count_label.update(f"{shown}/{total}")
+
+    def update_item_count(self, playlist_id: str, delta: int) -> None:
+        """Increment the displayed track count for a playlist item by *delta*."""
+
+        def _matches(item: dict[str, Any]) -> bool:
+            pid = item.get("playlistId") or item.get("browseId", "")
+            return pid == playlist_id or pid == f"VL{playlist_id}"
+
+        updated_item: dict[str, Any] | None = None
+        for item in self._items:
+            if _matches(item):
+                item["count"] = (item.get("count") or 0) + delta
+                updated_item = item
+                break
+
+        if updated_item is None:
+            return
+
+        labels = getattr(self, "_bouncing_labels", [])
+        for idx, item in enumerate(self._filtered_items):
+            if item is updated_item or _matches(item):
+                if 0 <= idx < len(labels):
+                    new_text = self._format_item(item)
+                    labels[idx]._full_text = new_text
+                    labels[idx].update(truncate(new_text, 60))
+                break
 
     def remove_item(self, playlist_id: str) -> None:
         """Optimistically remove the item with *playlist_id* from the panel."""
@@ -648,6 +678,16 @@ class PlaylistSidebar(Widget):
         except Exception:
             logger.debug("Failed to get highlighted item from sidebar", exc_info=True)
         return None
+
+    def prepend_playlist(self, playlist_id: str, title: str, count: int = 0) -> None:
+        """Optimistically add a newly created playlist at the top of the panel."""
+        panel = self.query_one("#ps-playlists", LibraryPanel)
+        panel.prepend_item({"playlistId": playlist_id, "title": title, "count": count})
+
+    def update_playlist_count(self, playlist_id: str, delta: int) -> None:
+        """Increment the track count label for a playlist item by *delta*."""
+        panel = self.query_one("#ps-playlists", LibraryPanel)
+        panel.update_item_count(playlist_id, delta)
 
     def copy_item_link(self, item: dict[str, Any]) -> None:
         """Copy a YouTube Music playlist link to clipboard."""

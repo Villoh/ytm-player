@@ -301,6 +301,7 @@ class PlaylistPicker(ModalScreen[str | None]):
                 f"Added {len(self.video_ids)} {track_word} to '{name}'",
                 severity="information",
             )
+            self._update_sidebar_prepend(playlist_id, name, len(self.video_ids))
             self.dismiss(playlist_id)
 
         except Exception:
@@ -329,6 +330,7 @@ class PlaylistPicker(ModalScreen[str | None]):
                 f"Added {len(self.video_ids)} {track_word} to '{title}'",
                 severity="information",
             )
+            self._update_sidebar_count(playlist_id, len(self.video_ids))
             self.dismiss(playlist_id)
 
         except Exception:
@@ -337,6 +339,26 @@ class PlaylistPicker(ModalScreen[str | None]):
             status.update("Error")
 
     # ── Cancel ──────────────────────────────────────────────────────
+
+    def _update_sidebar_prepend(self, playlist_id: str, title: str, count: int) -> None:
+        """Add newly created playlist to the sidebar panel."""
+        try:
+            from ytm_player.ui.sidebars.playlist_sidebar import PlaylistSidebar
+
+            ps = self.app.query_one("#playlist-sidebar", PlaylistSidebar)
+            ps.prepend_playlist(playlist_id, title, count=count)
+        except Exception:
+            logger.debug("Failed to prepend playlist to sidebar", exc_info=True)
+
+    def _update_sidebar_count(self, playlist_id: str, delta: int) -> None:
+        """Increment track count for a playlist item in the sidebar."""
+        try:
+            from ytm_player.ui.sidebars.playlist_sidebar import PlaylistSidebar
+
+            ps = self.app.query_one("#playlist-sidebar", PlaylistSidebar)
+            ps.update_playlist_count(playlist_id, delta)
+        except Exception:
+            logger.debug("Failed to update sidebar count", exc_info=True)
 
     def action_cancel(self) -> None:
         """Close the picker without selecting anything."""
