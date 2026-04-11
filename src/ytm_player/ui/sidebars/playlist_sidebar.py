@@ -50,8 +50,9 @@ class _BouncingLabel(Static):
 
     def start_bounce(self, visible_width: int) -> None:
         """Start bouncing if the text overflows the visible width."""
-        # Account for padding (1 char each side from ListItem).
-        self._visible_width = max(visible_width - 4, 10)
+        # Use the label's own rendered width; fall back to the estimate if not laid out yet.
+        actual = self.size.width
+        self._visible_width = max(actual if actual > 0 else visible_width - 4, 10)
         if len(self._full_text) <= self._visible_width:
             return
         self._offset = 0
