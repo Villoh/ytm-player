@@ -319,7 +319,22 @@ class PlaylistPicker(ModalScreen[str | None]):
                 panel = self.app.query_one("#ps-playlists", LibraryPanel)
                 panel.update_item_count(playlist_id, +len(self.video_ids))
             except Exception:
-                logger.debug("Sidebar count update failed", exc_info=True)
+                logger.exception("Sidebar count update failed")
+
+            # Update library page header if the target playlist is currently open.
+            try:
+                from ytm_player.ui.pages.library import LibraryPage
+                from ytm_player.utils.formatting import strip_vl_prefix
+
+                host = cast("YTMHostBase", self.app)
+                current_pid = host._current_page_kwargs.get("playlist_id", "")
+                if host._current_page == "library" and strip_vl_prefix(
+                    current_pid
+                ) == strip_vl_prefix(playlist_id):
+                    library = self.app.query_one(LibraryPage)
+                    library.update_track_count(+len(self.video_ids))
+            except Exception:
+                logger.exception("Library track count update failed")
 
             track_word = "track" if len(self.video_ids) == 1 else "tracks"
             self.notify(
@@ -367,7 +382,22 @@ class PlaylistPicker(ModalScreen[str | None]):
                 panel = self.app.query_one("#ps-playlists", LibraryPanel)
                 panel.update_item_count(playlist_id, +len(self.video_ids))
             except Exception:
-                logger.debug("Sidebar count update failed", exc_info=True)
+                logger.exception("Sidebar count update failed")
+
+            # Update library page header if the target playlist is currently open.
+            try:
+                from ytm_player.ui.pages.library import LibraryPage
+                from ytm_player.utils.formatting import strip_vl_prefix
+
+                host = cast("YTMHostBase", self.app)
+                current_pid = host._current_page_kwargs.get("playlist_id", "")
+                if host._current_page == "library" and strip_vl_prefix(
+                    current_pid
+                ) == strip_vl_prefix(playlist_id):
+                    library = self.app.query_one(LibraryPage)
+                    library.update_track_count(+len(self.video_ids))
+            except Exception:
+                logger.exception("Library track count update failed")
 
             track_word = "track" if len(self.video_ids) == 1 else "tracks"
             self.notify(
