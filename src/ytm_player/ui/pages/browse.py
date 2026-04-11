@@ -7,7 +7,7 @@ from typing import Any
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.events import Click
+from textual.events import Click, MouseDown
 from textual.message import Message
 from textual.reactive import reactive
 from textual.widget import Widget
@@ -115,15 +115,26 @@ class ForYouSection(Widget):
         padding: 0 1;
     }
 
+    ForYouSection .shelf-container {
+        border: solid $secondary;
+        padding: 0 1;
+        margin: 0 0 1 0;
+        height: auto;
+    }
+
+    ForYouSection .shelf-container:focus-within {
+        border: solid $accent;
+    }
+
     ForYouSection .shelf-title {
         text-style: bold;
         color: $text;
-        padding: 1 0 0 0;
+        padding: 0 0 1 0;
     }
 
     ForYouSection .shelf-items {
         height: auto;
-        max-height: 6;
+        max-height: 5;
     }
 
     ForYouSection .loading {
@@ -144,6 +155,7 @@ class ForYouSection(Widget):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._shelves: list[dict[str, Any]] = []
+        self._right_clicked: bool = False
 
     def compose(self) -> ComposeResult:
         yield Static("Loading recommendations...", id="foryou-loading", classes="loading")
@@ -200,10 +212,12 @@ class ForYouSection(Widget):
                 continue
 
             try:
-                await container.mount(Label(title, classes="shelf-title"))
+                shelf_container = Vertical(classes="shelf-container")
+                await container.mount(shelf_container)
+                await shelf_container.mount(Label(title, classes="shelf-title"))
 
                 list_view = ListView(classes="shelf-items")
-                await container.mount(list_view)
+                await shelf_container.mount(list_view)
 
                 for item in contents[:8]:
                     item_title = item.get("title", "Unknown")
@@ -229,8 +243,38 @@ class ForYouSection(Widget):
         loading.update(message)
         loading.display = True
 
+    def get_selected_track(self) -> dict | None:
+        """Return the highlighted item in the focused shelf (track, playlist, album, etc.).
+
+        Returns the raw item dict so the caller can detect its type and open
+        the appropriate context menu — not just tracks.
+        """
+        try:
+            focused = self.app.focused
+            if isinstance(focused, ListView):
+                items = getattr(focused, "_shelf_items", [])
+                idx = focused.index
+                if idx is not None and 0 <= idx < len(items):
+                    return items[idx]
+        except Exception:
+            pass
+        return None
+
+    def on_mouse_down(self, event: MouseDown) -> None:
+        """Track right-clicks so on_list_view_selected can suppress playback."""
+        if event.button == 3:
+            self._right_clicked = True
+
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         """Handle item selection within a shelf."""
+        if self._right_clicked:
+            self._right_clicked = False
+            list_view = event.list_view
+            items = getattr(list_view, "_shelf_items", [])
+            idx = list_view.index
+            if idx is not None and 0 <= idx < len(items):
+                self.app._open_actions_for_track(items[idx])  # type: ignore[attr-defined]
+            return
         list_view = event.list_view
         items = getattr(list_view, "_shelf_items", [])
         idx = list_view.index
@@ -598,6 +642,18 @@ class BrowsePage(Widget):
         width: 1fr;
     }
 
+    #browse-header {
+        height: auto;
+        max-height: 3;
+        padding: 1 2;
+        background: $surface;
+    }
+
+    #browse-header-title {
+        text-style: bold;
+        color: $primary;
+    }
+
     #browse-content {
         height: 1fr;
         width: 1fr;
@@ -628,6 +684,11 @@ class BrowsePage(Widget):
 
     def compose(self) -> ComposeResult:
         with Vertical():
+            yield Vertical(
+                Label("Browse", id="browse-header-title"),
+                id="browse-header",
+                classes="browse-header",
+            )
             yield BrowseTabBar(id="browse-tabs")
             with Vertical(id="browse-content"):
                 yield ForYouSection(id="section-foryou", classes="active-section")
@@ -848,13 +909,21 @@ class BrowsePage(Widget):
                     await focused.handle_action(action, count)
 
             case Action.FOCUS_NEXT:
-                # Move to next tab.
+                # Tab: cycle focus forward through the active section's widgets.
+                self.app.action_focus_next()
+
+            case Action.FOCUS_PREV:
+                # Shift+Tab: cycle focus backward.
+                self.app.action_focus_previous()
+
+            case Action.NEXT_TAB:
+                # ]: advance to the next Browse tab.
                 tab_bar = self.query_one("#browse-tabs", BrowseTabBar)
                 next_idx = (tab_bar.active_tab + 1) % len(_TABS)
                 tab_bar.switch_to(next_idx)
 
-            case Action.FOCUS_PREV:
-                # Move to previous tab.
+            case Action.PREV_TAB:
+                # [: go back to the previous Browse tab.
                 tab_bar = self.query_one("#browse-tabs", BrowseTabBar)
                 prev_idx = (tab_bar.active_tab - 1) % len(_TABS)
                 tab_bar.switch_to(prev_idx)

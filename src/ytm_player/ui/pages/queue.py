@@ -229,6 +229,19 @@ class QueuePage(Widget):
         except Exception:
             logger.debug("Failed to update queue footer", exc_info=True)
 
+    def get_selected_track(self) -> dict | None:
+        """Return the track at the cursor position (used by the context menu)."""
+        try:
+            table = self.query_one("#queue-table", DataTable)
+            idx = table.cursor_row
+            if idx is not None:
+                tracks = self.app.queue.tracks  # type: ignore[attr-defined]
+                if 0 <= idx < len(tracks):
+                    return tracks[idx]
+        except Exception:
+            pass
+        return None
+
     # ── DataTable events ──────────────────────────────────────────────
 
     async def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:

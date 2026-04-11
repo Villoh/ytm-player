@@ -57,6 +57,14 @@ class Action(str, Enum):
     TOGGLE_TRANSLITERATION = "toggle_transliteration"
     TOGGLE_ALBUM_ART = "toggle_album_art"
 
+    # Panel navigation (Alt+h/l — move focus between sidebar and main content)
+    PANEL_LEFT = "panel_left"
+    PANEL_RIGHT = "panel_right"
+
+    # Tab navigation ([ / ] — cycle tabs within multi-tab pages like Browse)
+    PREV_TAB = "prev_tab"
+    NEXT_TAB = "next_tab"
+
     # Actions
     DELETE_ITEM = "delete_item"
     TRACK_ACTIONS = "track_actions"
@@ -134,6 +142,12 @@ DEFAULT_BINDINGS: dict[str, list[str]] = {
     "add_to_queue": ["Z", "C-z"],
     "add_to_playlist": ["A"],
     "filter": ["/"],
+    # Panel navigation
+    "panel_left": ["M-h", "M-left"],
+    "panel_right": ["M-l", "M-right"],
+    # Tab cycling (multi-tab pages like Browse)
+    "prev_tab": ["["],
+    "next_tab": ["]"],
     # Sorting
     "sort_title": ["s t"],
     "sort_artist": ["s a"],

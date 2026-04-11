@@ -109,9 +109,20 @@ class KeyHandlingMixin:
             "equals": "=",
             "question_mark": "?",
             "slash": "/",
+            "left_square_bracket": "[",
+            "right_square_bracket": "]",
         }
 
         return key_map.get(key, key)
+
+    def _focused_in_sidebar(self) -> bool:
+        """Return True if the currently focused widget lives inside the PlaylistSidebar."""
+        widget = self.focused
+        while widget is not None:
+            if getattr(widget, "id", None) == "playlist-sidebar":
+                return True
+            widget = widget.parent
+        return False
 
     async def _handle_action(self, action: Action | None, count: int = 1) -> None:
         """Dispatch a resolved action to the appropriate handler."""
@@ -219,7 +230,16 @@ class KeyHandlingMixin:
             case Action.TRACK_ACTIONS:
                 await self._open_track_actions()
 
-            # -- Navigation actions delegated to the current page --
+            # -- Panel navigation (Alt+h / Alt+l) --
+            case Action.PANEL_LEFT:
+                self._panel_focus(-1)
+
+            case Action.PANEL_RIGHT:
+                self._panel_focus(1)
+
+            # -- Cursor movement: sidebar-aware --
+            # When the PlaylistSidebar has focus, send these to the sidebar so
+            # arrow keys navigate the playlist list instead of the content page.
             case (
                 Action.MOVE_DOWN
                 | Action.MOVE_UP
@@ -228,13 +248,29 @@ class KeyHandlingMixin:
                 | Action.GO_TOP
                 | Action.GO_BOTTOM
                 | Action.SELECT
-                | Action.FOCUS_NEXT
+                | Action.FILTER
+            ):
+                if self._focused_in_sidebar():
+                    from ytm_player.ui.sidebars.playlist_sidebar import PlaylistSidebar
+
+                    try:
+                        ps = self.query_one("#playlist-sidebar", PlaylistSidebar)
+                        ps.handle_sidebar_action(action, count)
+                    except Exception:
+                        pass
+                else:
+                    page = self._get_current_page()
+                    if page and hasattr(page, "handle_action"):
+                        await page.handle_action(action, count)
+
+            # -- Content actions and page-specific Tab: always to the page --
+            case (
+                Action.FOCUS_NEXT
                 | Action.FOCUS_PREV
                 | Action.CONTEXT_ACTIONS
                 | Action.SELECTED_ACTIONS
                 | Action.ADD_TO_QUEUE
                 | Action.DELETE_ITEM
-                | Action.FILTER
                 | Action.SORT_TITLE
                 | Action.SORT_ARTIST
                 | Action.SORT_ALBUM
@@ -243,6 +279,8 @@ class KeyHandlingMixin:
                 | Action.REVERSE_SORT
                 | Action.JUMP_TO_CURRENT
                 | Action.TOGGLE_SEARCH_MODE
+                | Action.PREV_TAB
+                | Action.NEXT_TAB
             ):
                 page = self._get_current_page()
                 if page and hasattr(page, "handle_action"):

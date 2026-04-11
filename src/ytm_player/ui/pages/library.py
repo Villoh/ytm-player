@@ -173,11 +173,12 @@ class LibraryPage(Widget):
                     Label(f"{unavailable} unavailable tracks hidden", classes="content-subtitle")
                 )
 
-            # Load tracks into the table.
+            # Load tracks into the table and move focus there.
             loading.display = False
             table = self.query_one("#library-tracks", TrackTable)
             table.display = True
             table.load_tracks(tracks)
+            table.focus()
 
             # Restore cursor position or scroll to the currently-playing track.
             self._restore_track_cursor(table)
