@@ -282,24 +282,14 @@ class LibraryPanel(Widget):
             pid = item.get("playlistId") or item.get("browseId", "")
             return pid == playlist_id or pid == f"VL{playlist_id}"
 
-        updated_item: dict[str, Any] | None = None
         for item in self._items:
             if _matches(item):
                 item["count"] = (item.get("count") or 0) + delta
-                updated_item = item
                 break
-
-        if updated_item is None:
+        else:
             return
 
-        labels = getattr(self, "_bouncing_labels", [])
-        for idx, item in enumerate(self._filtered_items):
-            if item is updated_item or _matches(item):
-                if 0 <= idx < len(labels):
-                    new_text = self._format_item(item)
-                    labels[idx]._full_text = new_text
-                    labels[idx].update(truncate(new_text, 60))
-                break
+        self._rebuild_list(self._filtered_items)
 
     def remove_item(self, playlist_id: str) -> None:
         """Optimistically remove the item with *playlist_id* from the panel."""

@@ -295,7 +295,7 @@ class SidebarMixin:
                 self.notify(f"Created '{name}'", timeout=2)
                 ps = self.query_one("#playlist-sidebar", PlaylistSidebar)
                 panel = ps.query_one("#ps-playlists")
-                panel.prepend_item({"playlistId": playlist_id, "title": name})
+                panel.prepend_item({"playlistId": playlist_id, "title": name, "count": 0})
             else:
                 self.notify("Failed to create playlist", severity="error", timeout=3)
         except Exception:
