@@ -7,7 +7,7 @@ from typing import Any
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.events import Click
+from textual.events import Click, MouseDown
 from textual.message import Message
 from textual.reactive import reactive
 from textual.widget import Widget
@@ -144,6 +144,7 @@ class ForYouSection(Widget):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._shelves: list[dict[str, Any]] = []
+        self._right_clicked: bool = False
 
     def compose(self) -> ComposeResult:
         yield Static("Loading recommendations...", id="foryou-loading", classes="loading")
@@ -229,8 +230,27 @@ class ForYouSection(Widget):
         loading.update(message)
         loading.display = True
 
+    def on_mouse_down(self, event: MouseDown) -> None:
+        """Track right-clicks so on_list_view_selected can suppress playback."""
+        if event.button == 3:
+            self._right_clicked = True
+
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         """Handle item selection within a shelf."""
+        if self._right_clicked:
+            self._right_clicked = False
+            # Open context menu if the item is a song with a video ID.
+            list_view = event.list_view
+            items = getattr(list_view, "_shelf_items", [])
+            idx = list_view.index
+            if idx is not None and 0 <= idx < len(items):
+                item = items[idx]
+                video_id = get_video_id(item)
+                if video_id:
+                    normalized = normalize_tracks([item])
+                    if normalized:
+                        self.app._open_actions_for_track(normalized[0])  # type: ignore[attr-defined]
+            return
         list_view = event.list_view
         items = getattr(list_view, "_shelf_items", [])
         idx = list_view.index
