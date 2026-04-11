@@ -133,6 +133,18 @@ class LibraryPanel(Widget):
         background: $accent 30%;
     }
 
+    LibraryPanel .panel-add-btn {
+        height: 1;
+        width: auto;
+        padding: 0 1;
+        color: $text-muted;
+    }
+
+    LibraryPanel .panel-add-btn:hover {
+        background: $accent 30%;
+        color: $text;
+    }
+
     LibraryPanel .panel-count {
         color: $text-muted;
         dock: bottom;
@@ -214,7 +226,8 @@ class LibraryPanel(Widget):
     def compose(self) -> ComposeResult:
         with Horizontal(classes="panel-header"):
             yield Label(self._title, classes="panel-title")
-            yield Static("\u21ba", classes="panel-refresh-btn", id=f"{self.id}-refresh")
+            yield Static("\u2795", classes="panel-add-btn", id=f"{self.id}-add")
+            yield Static("\U0001f504", classes="panel-refresh-btn", id=f"{self.id}-refresh")
         yield Static("Loading...", classes="panel-loading")
         yield ListView(id=f"{self.id}-list")
         yield Static("", classes="panel-count")
@@ -579,7 +592,10 @@ class PlaylistSidebar(Widget):
 
     def on_click(self, event: Click) -> None:
         target = event.widget
-        if target.id == "ps-playlists-refresh":
+        if target.id == "ps-playlists-add":
+            event.stop()
+            self.post_message(self.PlaylistRightClicked(None))
+        elif target.id == "ps-playlists-refresh":
             event.stop()
             self.run_worker(self._do_refresh())
         elif target.id == "ps-nav-liked":
