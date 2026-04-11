@@ -13,7 +13,7 @@ from textual.widgets import Label, Static
 
 from ytm_player.config.keymap import Action
 from ytm_player.ui.widgets.track_table import TrackTable
-from ytm_player.utils.formatting import normalize_tracks
+from ytm_player.utils.formatting import build_playlist_subtitle, normalize_tracks
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +34,17 @@ class LibraryPage(Widget):
 
     #content-header {
         height: auto;
-        max-height: 5;
+        max-height: 6;
         padding: 1 2;
     }
 
     .content-title {
         text-style: bold;
+    }
+
+    .content-description {
+        color: $text-muted;
+        text-style: italic;
     }
 
     .content-subtitle {
@@ -79,6 +84,9 @@ class LibraryPage(Widget):
         super().__init__(name=name, id=id, classes=classes)
         self._active_playlist_id: str | None = playlist_id
         self._restore_cursor_row: int | None = cursor_row
+        self._cached_owner: str = "Unknown"
+        self._cached_year: int | str | None = None
+        self._cached_privacy: str = ""
 
     def compose(self) -> ComposeResult:
         yield Vertical(id="content-header")
@@ -152,17 +160,27 @@ class LibraryPage(Widget):
             title = data.get("title", "Unknown Playlist")
             author = data.get("author", {})
             owner = author.get("name", "Unknown") if isinstance(author, dict) else str(author)
+            privacy = (data.get("privacy") or "").strip()
+            year = data.get("year")
             raw_tracks = data.get("tracks", [])
             tracks = normalize_tracks(raw_tracks)
             track_count = len(tracks)
             total_count = data.get("trackCount") or track_count
+
+            # Cache metadata for use in refresh_header / _fetch_remaining without extra API calls.
+            self._cached_owner = owner
+            self._cached_year = year
+            self._cached_privacy = privacy
 
             # Update header.
             header = self.query_one("#content-header", Vertical)
             await header.remove_children()
             header.display = True
             await header.mount(Label(title, classes="content-title"))
-            subtitle = f"{owner} \u00b7 {track_count} track{'s' if track_count != 1 else ''}"
+            description = (data.get("description") or "").strip()
+            if description:
+                await header.mount(Label(description, classes="content-description"))
+            subtitle = build_playlist_subtitle(owner, privacy, year, track_count)
             if total_count > track_count:
                 subtitle += f" (loading {total_count} total\u2026)"
             self._subtitle_label = Label(subtitle, classes="content-subtitle")
@@ -196,6 +214,27 @@ class LibraryPage(Widget):
             empty = self.query_one("#empty-state", Static)
             empty.update("Failed to load playlist")
 
+    async def refresh_header(self, title: str, description: str, privacy: str) -> None:
+        """Update the playlist header in-place after an edit, without reloading tracks."""
+        try:
+            header = self.query_one("#content-header", Vertical)
+            if not header.display:
+                return
+            table = self.query_one("#library-tracks", TrackTable)
+            track_count = len(table.tracks)
+            await header.remove_children()
+            await header.mount(Label(title, classes="content-title"))
+            if description:
+                await header.mount(Label(description, classes="content-description"))
+            self._cached_privacy = privacy
+            subtitle = build_playlist_subtitle(
+                self._cached_owner, privacy, self._cached_year, track_count
+            )
+            self._subtitle_label = Label(subtitle, classes="content-subtitle")
+            await header.mount(self._subtitle_label)
+        except Exception:
+            logger.debug("Failed to refresh library header after edit", exc_info=True)
+
     async def _fetch_remaining(self, playlist_id: str, already_have: int) -> None:
         """Background fetch for tracks beyond the first batch."""
         remaining = await self.app.ytmusic.get_playlist_remaining(
@@ -213,7 +252,10 @@ class LibraryPage(Widget):
             # Update subtitle with final count.
             total = len(table.tracks)
             if hasattr(self, "_subtitle_label"):
-                self._subtitle_label.update(f"{total} track{'s' if total != 1 else ''}")
+                privacy = getattr(self, "_cached_privacy", "")
+                self._subtitle_label.update(
+                    build_playlist_subtitle(self._cached_owner, privacy, self._cached_year, total)
+                )
         except Exception:
             logger.debug("Failed to append remaining tracks in library", exc_info=True)
 
