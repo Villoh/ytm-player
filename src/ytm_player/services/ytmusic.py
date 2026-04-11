@@ -395,6 +395,31 @@ class YTMusicService:
             logger.debug("create_playlist failed for title=%r", title)
             return ""
 
+    async def edit_playlist(
+        self,
+        playlist_id: str,
+        title: str | None = None,
+        description: str | None = None,
+        privacy_status: str | None = None,
+    ) -> bool:
+        """Edit an existing playlist's metadata.
+
+        Returns True if the update succeeded.
+        """
+        kwargs: dict[str, Any] = {}
+        if title is not None:
+            kwargs["title"] = title
+        if description is not None:
+            kwargs["description"] = description
+        if privacy_status is not None:
+            kwargs["privacyStatus"] = privacy_status
+        try:
+            result = await self._call(self.client.edit_playlist, playlist_id, **kwargs)
+            return result == "STATUS_SUCCEEDED" if isinstance(result, str) else bool(result)
+        except Exception:
+            logger.debug("edit_playlist failed for %r", playlist_id)
+            return False
+
     async def delete_playlist(self, playlist_id: str) -> bool:
         """Delete a playlist by its ID.
 

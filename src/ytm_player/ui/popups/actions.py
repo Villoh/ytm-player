@@ -51,6 +51,7 @@ PLAYLIST_ACTIONS: list[tuple[str, str]] = [
     ("shuffle_play", "Shuffle Play"),
     ("add_to_queue", "Add to Queue"),
     ("copy_link", "Copy Link"),
+    ("edit", "Edit Playlist"),
     ("delete", "Delete Playlist"),
 ]
 
