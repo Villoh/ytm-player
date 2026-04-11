@@ -225,6 +225,33 @@ class LibraryPanel(Widget):
         self._set_loading_visible(False)
         self.is_loading = False
 
+    def update_item_count(self, playlist_id: str, delta: int) -> None:
+        """Increment the displayed track count for a playlist item by *delta*."""
+
+        def _matches(item: dict[str, Any]) -> bool:
+            pid = item.get("playlistId") or item.get("browseId", "")
+            return pid == playlist_id or pid == f"VL{playlist_id}"
+
+        for item in self._items:
+            if _matches(item):
+                item["count"] = (item.get("count") or 0) + delta
+                break
+        else:
+            return
+
+        self._rebuild_list(self._filtered_items)
+
+    def remove_item(self, playlist_id: str) -> None:
+        """Optimistically remove the item with *playlist_id* from the panel."""
+
+        def matches(item: dict[str, Any]) -> bool:
+            pid = item.get("playlistId") or item.get("browseId", "")
+            return pid == playlist_id or pid == f"VL{playlist_id}"
+
+        self._items = [i for i in self._items if not matches(i)]
+        self._filtered_items = [i for i in self._filtered_items if not matches(i)]
+        self._rebuild_list(self._filtered_items)
+
     def _rebuild_list(self, items: list[dict[str, Any]]) -> None:
         list_view = self.query_one(ListView)
         list_view.clear()
