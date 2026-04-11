@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from ytm_player.ui.header_bar import HeaderBar
 from ytm_player.ui.popups.actions import ActionsPopup
 from ytm_player.ui.sidebars.lyrics_sidebar import LyricsSidebar
 from ytm_player.ui.sidebars.playlist_sidebar import PlaylistSidebar
+from ytm_player.utils.formatting import strip_vl_prefix
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +197,8 @@ class SidebarMixin:
                     self.run_worker(self._add_playlist_to_queue(pid))
                 else:
                     self.notify("No playlist ID found", severity="error", timeout=2)
+            elif action_id == "edit":
+                self._prompt_edit_playlist(item)
             elif action_id == "delete":
                 from ytm_player.ui.popups.confirm_popup import ConfirmPopup
 
@@ -219,31 +221,143 @@ class SidebarMixin:
 
         self.push_screen(ActionsPopup(item, item_type="playlist"), _handle_action)
 
+    async def _refresh_playlist_sidebar(self) -> None:
+        """Force-reload the playlist sidebar."""
+        try:
+            ps = self.query_one("#playlist-sidebar", PlaylistSidebar)
+            await ps.refresh_playlists()
+            self.notify("Playlists refreshed", timeout=2)
+        except Exception:
+            logger.debug("Failed to refresh playlist sidebar", exc_info=True)
+
     def _prompt_create_playlist(self) -> None:
         """Show an input screen to create a new playlist."""
-        from ytm_player.ui.popups.input_popup import InputPopup
+        from ytm_player.ui.popups.create_playlist_popup import CreatePlaylistPopup
 
-        def _on_name(name: str | None) -> None:
-            if name and name.strip():
-                self.run_worker(self._create_sidebar_playlist(name.strip()))
+        def _on_result(result: tuple[str, str, str] | None) -> None:
+            if result:
+                name, description, privacy = result
+                self.run_worker(self._create_sidebar_playlist(name, description, privacy))
 
-        self.push_screen(InputPopup("New Playlist", placeholder="Playlist name..."), _on_name)
+        self.push_screen(CreatePlaylistPopup(), _on_result)
 
-    async def _create_sidebar_playlist(self, name: str) -> None:
+    def _prompt_edit_playlist(self, item: dict) -> None:
+        """Fetch playlist detail then show the edit popup pre-filled."""
+        self.run_worker(self._fetch_playlist_meta_for_edit(item))
+
+    async def _fetch_playlist_meta_for_edit(self, item: dict) -> None:
+        """Fetch description/privacy from the API, then open the edit popup."""
+        current_name = item.get("title", "")
+        current_description = ""
+        current_privacy = "PRIVATE"
+
+        playlist_id = item.get("playlistId") or item.get("browseId", "")
+        if playlist_id and self.ytmusic:
+            try:
+                data = await self.ytmusic.get_playlist(strip_vl_prefix(playlist_id), limit=1)
+                current_description = data.get("description") or ""
+                current_privacy = data.get("privacy", "PRIVATE")
+            except Exception:
+                logger.debug("Failed to fetch playlist detail for edit popup", exc_info=True)
+
+        self._open_edit_popup(item, current_name, current_description, current_privacy)
+
+    def _open_edit_popup(self, item: dict, name: str, description: str, privacy: str) -> None:
+        """Push the edit popup pre-filled with the given metadata."""
+        from ytm_player.ui.popups.create_playlist_popup import CreatePlaylistPopup
+
+        def _on_result(result: tuple[str, str, str] | None) -> None:
+            if result:
+                new_name, new_description, new_privacy = result
+                self.run_worker(
+                    self._edit_sidebar_playlist(item, new_name, new_description, new_privacy)
+                )
+
+        self.push_screen(
+            CreatePlaylistPopup(
+                initial_name=name,
+                initial_description=description,
+                initial_privacy=privacy,
+                edit_mode=True,
+            ),
+            _on_result,
+        )
+
+    async def _create_sidebar_playlist(
+        self, name: str, description: str = "", privacy: str = "PRIVATE"
+    ) -> None:
         """Create a new playlist and refresh the sidebar."""
         if not self.ytmusic:
             return
         try:
-            playlist_id = await self.ytmusic.create_playlist(name)
+            playlist_id = await self.ytmusic.create_playlist(name, description, privacy=privacy)
             if playlist_id:
                 self.notify(f"Created '{name}'", timeout=2)
                 ps = self.query_one("#playlist-sidebar", PlaylistSidebar)
-                await ps.refresh_playlists()
+                panel = ps.query_one("#ps-playlists")
+                panel.prepend_item({"playlistId": playlist_id, "title": name})
             else:
                 self.notify("Failed to create playlist", severity="error", timeout=3)
         except Exception:
             logger.exception("Failed to create playlist %r", name)
             self.notify("Failed to create playlist", severity="error", timeout=3)
+
+    async def _edit_sidebar_playlist(
+        self, item: dict, name: str, description: str, privacy: str
+    ) -> None:
+        """Call the API to edit playlist metadata, then update the UI if successful."""
+        if not self.ytmusic:
+            return
+        playlist_id = item.get("playlistId") or item.get("browseId", "")
+        if not playlist_id:
+            self.notify("Cannot determine playlist ID", severity="error", timeout=3)
+            return
+        raw_id = strip_vl_prefix(playlist_id)
+        try:
+            await self.ytmusic.edit_playlist(
+                raw_id, title=name, description=description, privacy_status=privacy
+            )
+            self.notify(f"Updated '{name}'", timeout=2)
+            await self._apply_playlist_edit_to_ui(
+                item, playlist_id, raw_id, name, description, privacy
+            )
+        except Exception:
+            logger.exception("Failed to edit playlist %r", playlist_id)
+            self.notify("Failed to edit playlist", severity="error", timeout=3)
+
+    async def _apply_playlist_edit_to_ui(
+        self,
+        item: dict,
+        playlist_id: str,
+        raw_id: str,
+        name: str,
+        description: str,
+        privacy: str,
+    ) -> None:
+        """Update the sidebar panel and library header to reflect a successful edit."""
+        try:
+            ps = self.query_one("#playlist-sidebar", PlaylistSidebar)
+            panel = ps.query_one("#ps-playlists")
+            for stored in panel._items:
+                pid = stored.get("playlistId") or stored.get("browseId", "")
+                if pid in (playlist_id, raw_id, f"VL{raw_id}"):
+                    stored["title"] = name
+                    stored["description"] = description
+                    stored["privacy"] = privacy
+                    break
+            panel._rebuild_list(panel._filtered_items)
+        except Exception:
+            logger.debug("Failed to update sidebar panel after edit", exc_info=True)
+
+        try:
+            from ytm_player.ui.pages.library import LibraryPage
+
+            active_pid = self._current_page_kwargs.get("playlist_id", "")
+            if self._current_page == "library" and active_pid in (playlist_id, raw_id):
+                library = self.query_one(LibraryPage)
+                await library.refresh_header(name, description, privacy)
+        except Exception:
+            logger.debug("Failed to refresh library header after playlist edit", exc_info=True)
 
     async def _delete_sidebar_playlist(self, item: dict) -> None:
         """Delete or remove a playlist and refresh the sidebar."""
@@ -254,7 +368,7 @@ class SidebarMixin:
         if not playlist_id:
             self.notify("Cannot determine playlist ID", severity="error", timeout=3)
             return
-        raw_id = playlist_id[2:] if playlist_id.startswith("VL") else playlist_id
+        raw_id = strip_vl_prefix(playlist_id)
         try:
             # Try delete first (owned playlists), fall back to remove from library.
             success = False
@@ -266,9 +380,12 @@ class SidebarMixin:
                 success = await self.ytmusic.remove_album_from_library(raw_id)
             if success:
                 self.notify(f"Removed '{title}'", timeout=2)
-                await asyncio.sleep(1)
                 ps = self.query_one("#playlist-sidebar", PlaylistSidebar)
-                await ps.refresh_playlists()
+                ps.query_one("#ps-playlists").remove_item(raw_id)
+                # If the deleted playlist is currently open, navigate to plain library.
+                active_pid = self._current_page_kwargs.get("playlist_id", "")
+                if self._current_page == "library" and active_pid in (playlist_id, raw_id):
+                    await self.navigate_to("library", playlist_id=None)
             else:
                 self.notify("Failed to remove playlist", severity="error", timeout=3)
         except Exception:
