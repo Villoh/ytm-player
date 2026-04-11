@@ -1,4 +1,4 @@
-"""Popup for creating a new playlist with name and privacy selection."""
+"""Popup for creating or editing a playlist with name and privacy selection."""
 
 from __future__ import annotations
 
@@ -16,9 +16,13 @@ PRIVACY_OPTIONS: list[tuple[str, str]] = [
 
 
 class CreatePlaylistPopup(ModalScreen[tuple[str, str, str] | None]):
-    """Modal prompt for creating a playlist.
+    """Modal prompt for creating or editing a playlist.
 
-    Returns ``(name, privacy)`` on submit, or ``None`` if dismissed.
+    Pass ``initial_name``, ``initial_description``, and ``initial_privacy`` to
+    pre-fill the fields for edit mode.  Set ``edit_mode=True`` to swap the
+    title and submit-button labels to "Edit Playlist" / "Edit".
+
+    Returns ``(name, description, privacy)`` on submit, or ``None`` if dismissed.
     """
 
     BINDINGS = [
@@ -72,20 +76,44 @@ class CreatePlaylistPopup(ModalScreen[tuple[str, str, str] | None]):
     }
     """
 
+    def __init__(
+        self,
+        *,
+        initial_name: str = "",
+        initial_description: str = "",
+        initial_privacy: str = "PRIVATE",
+        edit_mode: bool = False,
+    ) -> None:
+        super().__init__()
+        self._initial_name = initial_name
+        self._initial_description = initial_description
+        self._initial_privacy = initial_privacy
+        self._edit_mode = edit_mode
+
     def compose(self) -> ComposeResult:
+        title = "Edit Playlist" if self._edit_mode else "New Playlist"
+        submit_label = "Edit" if self._edit_mode else "Create"
         with Vertical():
-            yield Static("New Playlist", id="popup-title")
-            yield Input(placeholder="Playlist name...", id="input-name")
-            yield Input(placeholder="Description (optional)...", id="input-description")
+            yield Static(title, id="popup-title")
+            yield Input(
+                value=self._initial_name,
+                placeholder="Playlist name...",
+                id="input-name",
+            )
+            yield Input(
+                value=self._initial_description,
+                placeholder="Description (optional)...",
+                id="input-description",
+            )
             yield Select(
                 PRIVACY_OPTIONS,
-                value="PRIVATE",
+                value=self._initial_privacy,
                 id="select-privacy",
                 allow_blank=False,
             )
             with Horizontal(id="button-row"):
                 yield Button("Cancel", variant="default", id="btn-cancel")
-                yield Button("Create", variant="primary", id="btn-create")
+                yield Button(submit_label, variant="primary", id="btn-create")
 
     def on_mount(self) -> None:
         self.query_one("#input-name", Input).focus()
