@@ -347,7 +347,10 @@ ytm queue clear    # Clear queue
 | `g y` | Go to Liked Songs |
 | `g r` | Go to Recently Played |
 | `?` | Help (full keybinding reference) |
-| `tab` | Focus next panel |
+| `Alt+h` / `Alt+←` | Move focus to left panel (sidebar) |
+| `Alt+l` / `Alt+→` | Move focus to right panel (main content) |
+| `tab` / `shift+tab` | Cycle focus between widgets within current context |
+| `[` / `]` | Previous / next tab (Browse page) |
 | `a` | Track actions menu |
 | `/` | Filter current list |
 | `Ctrl+r` | Cycle repeat mode |
