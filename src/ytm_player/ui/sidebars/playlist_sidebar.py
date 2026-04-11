@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.events import Click
 from textual.message import Message
 from textual.reactive import reactive
@@ -50,8 +50,9 @@ class _BouncingLabel(Static):
 
     def start_bounce(self, visible_width: int) -> None:
         """Start bouncing if the text overflows the visible width."""
-        # Account for padding (1 char each side from ListItem).
-        self._visible_width = max(visible_width - 4, 10)
+        # Use the label's own rendered width; fall back to the estimate if not laid out yet.
+        actual = self.size.width
+        self._visible_width = max(actual if actual > 0 else visible_width - 4, 10)
         if len(self._full_text) <= self._visible_width:
             return
         self._offset = 0
@@ -109,11 +110,27 @@ class LibraryPanel(Widget):
         padding: 0 1;
     }
 
+    LibraryPanel .panel-header {
+        height: 1;
+        width: 1fr;
+    }
+
     LibraryPanel .panel-title {
         text-style: bold;
         color: $text;
         height: 1;
-        padding: 0 0 0 0;
+        width: 1fr;
+    }
+
+    LibraryPanel .panel-refresh-btn {
+        height: 1;
+        width: auto;
+        padding: 0 1;
+        color: $text-muted;
+    }
+
+    LibraryPanel .panel-refresh-btn:hover {
+        background: $accent 30%;
     }
 
     LibraryPanel .panel-count {
@@ -195,7 +212,9 @@ class LibraryPanel(Widget):
         self._click_activated: bool = False
 
     def compose(self) -> ComposeResult:
-        yield Label(self._title, classes="panel-title")
+        with Horizontal(classes="panel-header"):
+            yield Label(self._title, classes="panel-title")
+            yield Static("\u21ba", classes="panel-refresh-btn", id=f"{self.id}-refresh")
         yield Static("Loading...", classes="panel-loading")
         yield ListView(id=f"{self.id}-list")
         yield Static("", classes="panel-count")
@@ -224,6 +243,31 @@ class LibraryPanel(Widget):
         self._rebuild_list(self._filtered_items)
         self._set_loading_visible(False)
         self.is_loading = False
+
+    def prepend_item(self, item: dict[str, Any]) -> None:
+        """Optimistically insert *item* at the top of the panel."""
+        self._items.insert(0, item)
+        self._filtered_items.insert(0, item)
+        list_view = self.query_one(ListView)
+        list_view.insert(0, [ListItem(Label(self._format_item(item)))])
+        count_label = self.query_one(".panel-count", Static)
+        total = len(self._items)
+        shown = len(self._filtered_items)
+        if shown == total:
+            count_label.update(f"{total} item{'s' if total != 1 else ''}")
+        else:
+            count_label.update(f"{shown}/{total}")
+
+    def remove_item(self, playlist_id: str) -> None:
+        """Optimistically remove the item with *playlist_id* from the panel."""
+
+        def matches(item: dict[str, Any]) -> bool:
+            pid = item.get("playlistId") or item.get("browseId", "")
+            return pid == playlist_id or pid == f"VL{playlist_id}"
+
+        self._items = [i for i in self._items if not matches(i)]
+        self._filtered_items = [i for i in self._filtered_items if not matches(i)]
+        self._rebuild_list(self._filtered_items)
 
     def _rebuild_list(self, items: list[dict[str, Any]]) -> None:
         list_view = self.query_one(ListView)
@@ -500,6 +544,14 @@ class PlaylistSidebar(Widget):
         self._loaded = False
         await self.ensure_loaded()
 
+    async def action_refresh(self) -> None:
+        """Keybinding handler: refresh the playlist sidebar."""
+        await self._do_refresh()
+
+    async def _do_refresh(self) -> None:
+        await self.refresh_playlists()
+        self.app.notify("Playlists refreshed", timeout=2)
+
     def auto_select_playlist(self, playlist_id: str) -> None:
         """Highlight a specific playlist in the panel."""
         panel = self.query_one("#ps-playlists", LibraryPanel)
@@ -527,7 +579,10 @@ class PlaylistSidebar(Widget):
 
     def on_click(self, event: Click) -> None:
         target = event.widget
-        if target.id == "ps-nav-liked":
+        if target.id == "ps-playlists-refresh":
+            event.stop()
+            self.run_worker(self._do_refresh())
+        elif target.id == "ps-nav-liked":
             event.stop()
             self.post_message(self.NavItemClicked("liked_songs"))
         elif target.id == "ps-nav-recent":
