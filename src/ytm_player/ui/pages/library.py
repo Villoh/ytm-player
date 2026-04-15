@@ -66,9 +66,7 @@ class LibraryPage(Widget):
 
     .track-filter {
         dock: bottom;
-        height: 1;
         display: none;
-        padding: 0 1;
     }
 
     .track-filter.visible {
