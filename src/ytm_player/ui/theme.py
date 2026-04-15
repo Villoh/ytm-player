@@ -139,7 +139,7 @@ class ThemeColors:
         return tc
 
     def _apply_toml_overrides(self, path: Path = THEME_FILE) -> None:
-        """Load app-specific color overrides from theme.toml."""
+        """Load color overrides from theme.toml (any field, not just app-specific)."""
         if not path.exists():
             return
         try:
@@ -149,9 +149,9 @@ class ThemeColors:
             return
 
         colors = data.get("colors", data)
-        for field_name in _APP_VARS:
-            if field_name in colors:
-                setattr(self, field_name, colors[field_name])
+        for f_info in fields(self):
+            if f_info.name in colors:
+                setattr(self, f_info.name, colors[f_info.name])
 
     @classmethod
     def load(cls, path: Path = THEME_FILE) -> Self:

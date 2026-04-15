@@ -262,8 +262,14 @@ class PlaybackBar(Widget):
     """
 
     def compose(self) -> ComposeResult:
+        from ytm_player.config.settings import get_settings
+
+        settings = get_settings()
         with Horizontal(id="pb-outer"):
-            yield AlbumArt(id="pb-art")
+            art = AlbumArt(id="pb-art")
+            if not settings.ui.album_art:
+                art.display = False
+            yield art
             with Vertical(id="pb-content"):
                 with Horizontal(id="pb-top-row"):
                     yield _TrackInfo(id="pb-track-info")
@@ -271,7 +277,7 @@ class PlaybackBar(Widget):
                     yield _RepeatButton(id="pb-repeat")
                     yield _ShuffleButton(id="pb-shuffle")
                 with Horizontal(id="pb-bottom-row"):
-                    yield PlaybackProgress(bar_style="block", id="pb-progress")
+                    yield PlaybackProgress(bar_style=settings.ui.progress_style, id="pb-progress")
 
     def on_click(self, event: Click) -> None:
         """Right-click on the playback bar opens track actions."""

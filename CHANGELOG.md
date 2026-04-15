@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+### v1.5.7 (2026-04-15)
+
+**New**
+- Track filter on Library and Context pages — press `/` to filter tracks by title, artist, or album in real-time. Enter keeps filtered view, Escape clears it. Queue integration preserved (fixes [#43](https://github.com/peternaame-boop/ytm-player/issues/43), thanks @dmnmsc; fixes [#46](https://github.com/peternaame-boop/ytm-player/issues/46), thanks @valkyrieglasc)
+- Optimistic sidebar updates — creating or deleting a playlist updates the sidebar instantly without an API round-trip or delay (thanks @Villoh, PR [#41](https://github.com/peternaame-boop/ytm-player/pull/41))
+
+**Fixes**
+- Fixed app crash when opening album from artist page — `DuplicateIds` caused by uncancelled background workers on page navigation. Workers now cancelled on page removal (fixes [#44](https://github.com/peternaame-boop/ytm-player/issues/44), thanks @dmnmsc)
+- Fixed like/unlike toggle always showing "Like" — `likeStatus` was stripped during track normalization and not updated after rating. Now preserved and updated in real-time (fixes [#45](https://github.com/peternaame-boop/ytm-player/issues/45), thanks @dmnmsc)
+- Fixed `album_art = false` and `progress_style = "line"` config options being ignored (fixes [#42](https://github.com/peternaame-boop/ytm-player/issues/42), thanks @valkyrieglasc)
+- Fixed `theme.toml` base color overrides (background, primary, etc.) not applying after Textual theme integration — user customizations now override the active theme (fixes [#42](https://github.com/peternaame-boop/ytm-player/issues/42))
+
+---
+
 ### v1.5.6 (2026-04-10)
 
 **New**

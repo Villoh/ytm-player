@@ -68,6 +68,12 @@ class TrackTable(DataTable):
             self.track = track
             self.index = index
 
+    class FilterRequested(Message):
+        """Emitted when the user presses / to start filtering."""
+
+    class FilterClosed(Message):
+        """Emitted when the filter is dismissed."""
+
     def __init__(
         self,
         *,
@@ -87,7 +93,9 @@ class TrackTable(DataTable):
         )
         self._show_index = show_index
         self._show_album = show_album
+        self._all_tracks: list[dict] = []
         self._tracks: list[dict] = []
+        self._filtered_map: list[int] = []
         self._row_keys: list[RowKey] = []
         self._playing_video_id: str | None = None
         self._playing_index: int | None = None
@@ -95,6 +103,9 @@ class TrackTable(DataTable):
         self._suppress_select_on_refocus: bool = False
         self._sort_column: str | None = None
         self._sort_reverse: bool = False
+        self._filter_text: str = ""
+        self._filter_active: bool = False
+        self._filter_timer: object | None = None
         # Column resize drag state.
         self._resize_col: Column | None = None
         self._resize_start_x: int = 0
@@ -103,11 +114,17 @@ class TrackTable(DataTable):
 
     @property
     def tracks(self) -> list[dict]:
+        """Return ALL tracks regardless of filter (for queue integration)."""
+        return list(self._all_tracks)
+
+    @property
+    def visible_tracks(self) -> list[dict]:
+        """Return only visible (possibly filtered) tracks."""
         return list(self._tracks)
 
     @property
     def track_count(self) -> int:
-        return len(self._tracks)
+        return len(self._all_tracks)
 
     @property
     def selected_track(self) -> dict | None:
@@ -142,15 +159,21 @@ class TrackTable(DataTable):
         """Replace the table contents with a new list of tracks."""
         self.clear()
         # Stamp each track with its original playlist position.
+        self._all_tracks = []
         self._tracks = []
+        self._filtered_map = []
         for i, track in enumerate(tracks):
             t = dict(track)
             t["_original_index"] = i
+            self._all_tracks.append(t)
             self._tracks.append(t)
+            self._filtered_map.append(i)
         self._row_keys = []
         self._playing_index = None
         self._sort_column = None
         self._sort_reverse = False
+        self._filter_text = ""
+        self._filter_active = False
 
         for i, track in enumerate(self._tracks):
             row_key = self._add_track_row(i, track)
@@ -160,12 +183,18 @@ class TrackTable(DataTable):
 
     def append_tracks(self, tracks: list[dict]) -> None:
         """Append additional tracks without clearing existing ones."""
-        start_idx = len(self._tracks)
+        start_idx = len(self._all_tracks)
         for i, track in enumerate(tracks, start=start_idx):
             t = dict(track)
             t["_original_index"] = i
+            self._all_tracks.append(t)
+            # If filter is active, only add matching tracks to visible table.
+            if self._filter_active and self._filter_text:
+                if not self._matches_filter(t, self._filter_text):
+                    continue
             self._tracks.append(t)
-            row_key = self._add_track_row(i, t)
+            self._filtered_map.append(i)
+            row_key = self._add_track_row(len(self._tracks) - 1, t)
             self._row_keys.append(row_key)
 
     def _add_track_row(self, index: int, track: dict) -> RowKey:
@@ -370,7 +399,8 @@ class TrackTable(DataTable):
             return
         row_idx = event.cursor_row
         if 0 <= row_idx < len(self._tracks):
-            self.post_message(self.TrackSelected(self._tracks[row_idx], row_idx))
+            original_idx = self._filtered_map[row_idx] if self._filtered_map else row_idx
+            self.post_message(self.TrackSelected(self._tracks[row_idx], original_idx))
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         """Forward row highlight as a TrackHighlighted message."""
@@ -396,6 +426,56 @@ class TrackTable(DataTable):
         key = event.column_key.value
         if key in self._SORTABLE_KEYS:
             self.sort_by(key)
+
+    # -- Filtering --------------------------------------------------------
+
+    def apply_filter(self, query: str) -> None:
+        """Filter visible rows by query. Empty string restores all tracks."""
+        self._filter_text = query.strip().lower()
+        if self._filter_timer is not None:
+            try:
+                self._filter_timer.stop()
+            except Exception:
+                pass
+        if not self._filter_text:
+            self._tracks = list(self._all_tracks)
+            self._filtered_map = list(range(len(self._all_tracks)))
+            self._reload_sorted()
+            return
+        self._filter_timer = self.set_timer(0.15, self._execute_filter)
+
+    def _execute_filter(self) -> None:
+        """Rebuild the table with only matching tracks (debounced)."""
+        self._filter_timer = None
+        self._tracks = []
+        self._filtered_map = []
+        for i, track in enumerate(self._all_tracks):
+            if self._matches_filter(track, self._filter_text):
+                self._tracks.append(track)
+                self._filtered_map.append(i)
+        self._reload_sorted()
+
+    @staticmethod
+    def _matches_filter(track: dict, query: str) -> bool:
+        """Check if a track matches the filter (title + artist + album)."""
+        title = (track.get("title") or "").lower()
+        artist = extract_artist(track).lower()
+        album = (track.get("album") or "").lower()
+        return query in title or query in artist or query in album
+
+    def show_filter(self) -> None:
+        """Signal that filter mode should begin."""
+        self._filter_active = True
+        self.post_message(self.FilterRequested())
+
+    def clear_filter(self) -> None:
+        """Remove the filter, restoring all tracks."""
+        self._filter_text = ""
+        self._filter_active = False
+        self._tracks = list(self._all_tracks)
+        self._filtered_map = list(range(len(self._all_tracks)))
+        self._reload_sorted()
+        self.post_message(self.FilterClosed())
 
     # -- Sorting ----------------------------------------------------------
 
@@ -423,6 +503,7 @@ class TrackTable(DataTable):
 
         current_track = self.selected_track
         self._tracks.sort(key=key_fn, reverse=self._sort_reverse)
+        self._filtered_map = [t["_original_index"] for t in self._tracks]
         self._reload_sorted()
 
         if current_track:
@@ -467,9 +548,16 @@ class TrackTable(DataTable):
                     self.move_cursor(row=self.row_count - 1)
             case Action.SELECT:
                 if self.cursor_row is not None and 0 <= self.cursor_row < len(self._tracks):
-                    self.post_message(
-                        self.TrackSelected(self._tracks[self.cursor_row], self.cursor_row)
+                    original_idx = (
+                        self._filtered_map[self.cursor_row]
+                        if self._filtered_map
+                        else self.cursor_row
                     )
+                    self.post_message(
+                        self.TrackSelected(self._tracks[self.cursor_row], original_idx)
+                    )
+            case Action.FILTER:
+                self.show_filter()
             case Action.SORT_TITLE:
                 self.sort_by("title")
             case Action.SORT_ARTIST:
@@ -483,6 +571,7 @@ class TrackTable(DataTable):
                     self._sort_reverse = not self._sort_reverse
                     current_track = self.selected_track
                     self._tracks.reverse()
+                    self._filtered_map = [t["_original_index"] for t in self._tracks]
                     self._reload_sorted()
                     if current_track:
                         vid = current_track.get("video_id")
