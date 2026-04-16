@@ -6,6 +6,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+### v1.5.9 (2026-04-16)
+
+**Fixes**
+- Fixed `gc` (jump to current track) crashing on Queue and Liked Songs — `scroll_to_cursor()` doesn't exist on Textual's `DataTable`. Removed the bogus calls; `move_cursor()` already scrolls by default (fixes [#52](https://github.com/peternaame-boop/ytm-player/issues/52), thanks @dmnmsc)
+- Fixed Queue "Now Playing" header not updating on track change — `call_from_thread()` raises `RuntimeError` when called from the same thread as the app, and the bare `except` was silently swallowing it. Player events are already on the main thread, so we now call the update method directly (fixes [#56](https://github.com/peternaame-boop/ytm-player/issues/56), thanks @dmnmsc)
+
+---
+
+### v1.5.8 (2026-04-16)
+
+**New**
+- Track filter (`/`) extended to Queue and Liked Songs pages — search by title or artist, debounced, queue/reorder/delete operations correctly map filtered indices to real positions (fixes [#48](https://github.com/peternaame-boop/ytm-player/issues/48), thanks @dmnmsc)
+- Liked Songs loading status — footer now shows "loading more…" while background fetch runs for libraries beyond 300 tracks (fixes [#51](https://github.com/peternaame-boop/ytm-player/issues/51), thanks @dmnmsc)
+
+**Fixes**
+- Fixed RTL text bleed across visual boundaries — RTL track titles were appearing duplicated at row edges and bleeding into the playback bar's volume/repeat/shuffle area. All user text fragments are now wrapped with Unicode FSI/PDI isolation marks. Includes a regression test that mechanically prevents the bug from reappearing
+- Fixed app crash on artist→album→album navigation — `DuplicateIds` race when navigating between two ContextPages with the same widget ID. Each ContextPage instance now uses a unique sequence-based ID (fixes [#47](https://github.com/peternaame-boop/ytm-player/issues/47), thanks @dmnmsc)
+- Fixed `g c` (jump to current track) doing nothing — action was wired to the keymap but no page implemented it. Now works on Library, Context, Browse, Search, Queue, Liked Songs, and Recently Played (fixes [#49](https://github.com/peternaame-boop/ytm-player/issues/49), thanks @dmnmsc)
+- Fixed `g space` (current context) crashing — was navigating to ContextPage without required `context_type`/`context_id`. Now extracts album info from the currently playing track, or shows a notification if unavailable (fixes [#50](https://github.com/peternaame-boop/ytm-player/issues/50), thanks @dmnmsc)
+
+---
+
+### v1.5.7 (2026-04-15)
+
+**New**
+- Track filter on Library and Context pages — press `/` to filter tracks by title, artist, or album in real-time. Enter keeps filtered view, Escape clears it. Queue integration preserved (fixes [#43](https://github.com/peternaame-boop/ytm-player/issues/43), thanks @dmnmsc; fixes [#46](https://github.com/peternaame-boop/ytm-player/issues/46), thanks @valkyrieglasc)
+- Optimistic sidebar updates — creating or deleting a playlist updates the sidebar instantly without an API round-trip or delay (thanks @Villoh, PR [#41](https://github.com/peternaame-boop/ytm-player/pull/41))
+
+**Fixes**
+- Fixed app crash when opening album from artist page — `DuplicateIds` caused by uncancelled background workers on page navigation. Workers now cancelled on page removal (fixes [#44](https://github.com/peternaame-boop/ytm-player/issues/44), thanks @dmnmsc)
+- Fixed like/unlike toggle always showing "Like" — `likeStatus` was stripped during track normalization and not updated after rating. Now preserved and updated in real-time (fixes [#45](https://github.com/peternaame-boop/ytm-player/issues/45), thanks @dmnmsc)
+- Fixed `album_art = false` and `progress_style = "line"` config options being ignored (fixes [#42](https://github.com/peternaame-boop/ytm-player/issues/42), thanks @valkyrieglasc)
+- Fixed `theme.toml` base color overrides (background, primary, etc.) not applying after Textual theme integration — user customizations now override the active theme (fixes [#42](https://github.com/peternaame-boop/ytm-player/issues/42))
+
+---
+
 ### v1.5.6 (2026-04-10)
 
 **New**

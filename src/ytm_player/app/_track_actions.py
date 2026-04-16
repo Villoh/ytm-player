@@ -158,6 +158,7 @@ class TrackActionsMixin:
                     async def _rate(vid: str, r: str, lbl: str) -> None:
                         try:
                             await self.ytmusic.rate_song(vid, r)
+                            track["likeStatus"] = r
                             self.notify(lbl, timeout=2)
                         except Exception:
                             self.notify(

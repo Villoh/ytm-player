@@ -45,7 +45,7 @@ YTM_DARK = Theme(
 class ThemeColors:
     """Resolved color values for Rich Text rendering in widget render() methods.
 
-    Populated from the active Textual theme via watch_theme.  App-specific
+    Populated from the active Textual theme via watch_theme. App-specific
     variables (playback bar, lyrics, etc.) are read from the theme's
     ``variables`` dict, which user themes can set in their ``[variables]``
     section.
@@ -80,7 +80,7 @@ class ThemeColors:
 def load_user_themes(themes_dir: Path = THEMES_DIR) -> list[Theme]:
     """Load user-defined themes from the themes/ config directory.
 
-    Each TOML file must have at least ``name`` and ``primary``.  An optional
+    Each TOML file must have at least ``name`` and ``primary``. An optional
     ``[variables]`` section maps directly to Textual CSS variables, which is
     where ytm-player-specific colors (playback bar, lyrics, etc.) can be set.
 

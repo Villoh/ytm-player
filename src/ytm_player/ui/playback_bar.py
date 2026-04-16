@@ -72,25 +72,25 @@ class _TrackInfo(Widget):
             artist_w = min(len(self.artist), max_w // 3)
             album_w = max_w - title_w - artist_w - 8
 
-            # LRI (U+2066) ... PDI (U+2069) isolates the track info so
-            # RTL titles don't pull adjacent widgets (volume, etc.) into
-            # the RTL BiDi context.
-            from ytm_player.utils.bidi import reorder_rtl_line
+            # FSI...PDI isolates each fragment so RTL titles don't pull
+            # adjacent widgets (volume, repeat, shuffle) into the RTL BiDi
+            # context.  Apply isolate AFTER truncate (PDI must not be cut).
+            from ytm_player.utils.bidi import isolate_bidi, reorder_rtl_line
 
             result.append(
-                truncate(reorder_rtl_line(self.title), title_w),
+                isolate_bidi(truncate(reorder_rtl_line(self.title), title_w)),
                 style=f"bold {theme.foreground}",
             )
             if self.artist:
                 result.append(" \u2014 ", style=theme.muted_text)
                 result.append(
-                    truncate(reorder_rtl_line(self.artist), artist_w),
+                    isolate_bidi(truncate(reorder_rtl_line(self.artist), artist_w)),
                     style=theme.secondary,
                 )
             if self.album:
                 result.append(" \u2014 ", style=theme.muted_text)
                 result.append(
-                    truncate(reorder_rtl_line(self.album), max(0, album_w)),
+                    isolate_bidi(truncate(reorder_rtl_line(self.album), max(0, album_w))),
                     style=theme.muted_text,
                 )
         else:
@@ -262,8 +262,14 @@ class PlaybackBar(Widget):
     """
 
     def compose(self) -> ComposeResult:
+        from ytm_player.config.settings import get_settings
+
+        settings = get_settings()
         with Horizontal(id="pb-outer"):
-            yield AlbumArt(id="pb-art")
+            art = AlbumArt(id="pb-art")
+            if not settings.ui.album_art:
+                art.display = False
+            yield art
             with Vertical(id="pb-content"):
                 with Horizontal(id="pb-top-row"):
                     yield _TrackInfo(id="pb-track-info")
@@ -271,7 +277,7 @@ class PlaybackBar(Widget):
                     yield _RepeatButton(id="pb-repeat")
                     yield _ShuffleButton(id="pb-shuffle")
                 with Horizontal(id="pb-bottom-row"):
-                    yield PlaybackProgress(bar_style="block", id="pb-progress")
+                    yield PlaybackProgress(bar_style=settings.ui.progress_style, id="pb-progress")
 
     def on_click(self, event: Click) -> None:
         """Right-click on the playback bar opens track actions."""

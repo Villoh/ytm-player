@@ -10,7 +10,7 @@ from textual.containers import Horizontal, Vertical
 from textual.events import Click
 from textual.reactive import reactive
 from textual.widget import Widget
-from textual.widgets import DataTable, Label, Static
+from textual.widgets import DataTable, Input, Label, Static
 from textual.worker import Worker, WorkerState
 
 from ytm_player.config.keymap import Action
@@ -130,6 +130,15 @@ class ContextPage(Widget):
     .artist-right:focus-within {
         border: solid $accent;
     }
+
+    .track-filter {
+        dock: bottom;
+        display: none;
+    }
+
+    .track-filter.visible {
+        display: block;
+    }
     """
 
     loading: reactive[bool] = reactive(True)
@@ -157,11 +166,17 @@ class ContextPage(Widget):
         yield Label("Loading...", id="context-loading", classes="context-loading")
         yield Label("", id="context-error", classes="context-error")
         yield Vertical(id="context-content")
+        yield Input(placeholder="/ Filter tracks...", id="track-filter", classes="track-filter")
 
     def on_mount(self) -> None:
         self.query_one("#context-error").display = False
         self.query_one("#context-content").display = False
         self._load_data()
+
+    def on_remove(self) -> None:
+        """Cancel background workers when page is removed (prevents DuplicateIds crash)."""
+        for worker in self.workers:
+            worker.cancel()
 
     def _load_data(self) -> None:
         """Start an async worker to fetch context data."""
@@ -457,6 +472,57 @@ class ContextPage(Widget):
                 context_type="album",
                 context_id=album["browseId"],
             )
+
+    # ── Track filter ──────────────────────────────────────────────────
+
+    def on_track_table_filter_requested(self, event: TrackTable.FilterRequested) -> None:
+        try:
+            f = self.query_one("#track-filter", Input)
+            f.value = ""
+            f.add_class("visible")
+            f.focus()
+        except Exception:
+            pass
+
+    def on_track_table_filter_closed(self, event: TrackTable.FilterClosed) -> None:
+        try:
+            f = self.query_one("#track-filter", Input)
+            f.remove_class("visible")
+            self.query_one("#context-tracks", TrackTable).focus()
+        except Exception:
+            pass
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id == "track-filter":
+            try:
+                self.query_one("#context-tracks", TrackTable).apply_filter(event.value)
+            except Exception:
+                pass
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "track-filter":
+            f = self.query_one("#track-filter", Input)
+            f.remove_class("visible")
+            try:
+                self.query_one("#context-tracks", TrackTable).focus()
+            except Exception:
+                pass
+
+    def on_key(self, event: object) -> None:
+        """Handle Escape in filter input."""
+        from textual.events import Key
+
+        if not isinstance(event, Key):
+            return
+        if event.key == "escape":
+            try:
+                f = self.query_one("#track-filter", Input)
+                if f.has_class("visible"):
+                    event.stop()
+                    event.prevent_default()
+                    self.query_one("#context-tracks", TrackTable).clear_filter()
+            except Exception:
+                pass
 
     # ── Action handling ───────────────────────────────────────────────
 

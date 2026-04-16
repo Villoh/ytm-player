@@ -64,6 +64,7 @@ else:
     IPC_PORT_FILE = None  # Not used on Unix.
 
 KEYMAP_FILE = CONFIG_DIR / "keymap.toml"
+THEME_FILE = CONFIG_DIR / "theme.toml"
 THEMES_DIR = CONFIG_DIR / "themes"
 RECENT_PLAYLISTS_FILE = CONFIG_DIR / "recent_playlists.json"
 SESSION_STATE_FILE = CONFIG_DIR / "session.json"

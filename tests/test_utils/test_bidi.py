@@ -12,8 +12,11 @@ still works when bidi_mode="reorder" is explicitly set.
 import pytest
 
 from ytm_player.utils.bidi import (
+    FSI,
+    PDI,
     _do_reorder,
     has_rtl,
+    isolate_bidi,
     reorder_rtl_line,
     reset_bidi_cache,
     wrap_rtl_line,
@@ -146,3 +149,79 @@ class TestDoReorderEdgeCases:
 
     def test_single_word(self):
         assert _do_reorder("مرحبا") == "مرحبا"
+
+
+# ── isolate_bidi ─────────────────────────────────────────────────────
+
+
+class TestIsolateBidi:
+    """isolate_bidi wraps RTL-containing text in FSI...PDI to prevent
+    BiDi bleed across visual chunks (table cells, playback bar fragments)."""
+
+    def test_arabic_wrapped(self):
+        assert isolate_bidi("مرحبا") == f"{FSI}مرحبا{PDI}"
+
+    def test_hebrew_wrapped(self):
+        assert isolate_bidi("שלום") == f"{FSI}שלום{PDI}"
+
+    def test_pure_latin_unchanged_by_default(self):
+        assert isolate_bidi("Hello") == "Hello"
+
+    def test_pure_latin_wrapped_when_forced(self):
+        assert isolate_bidi("Hello", only_if_rtl=False) == f"{FSI}Hello{PDI}"
+
+    def test_empty_unchanged(self):
+        assert isolate_bidi("") == ""
+
+    def test_idempotent(self):
+        once = isolate_bidi("مرحبا")
+        twice = isolate_bidi(once)
+        assert once == twice
+
+    def test_mixed_content_wrapped(self):
+        result = isolate_bidi("Song مرحبا")
+        assert result.startswith(FSI)
+        assert result.endswith(PDI)
+        assert "مرحبا" in result
+
+    def test_zero_cell_width_via_rich(self):
+        """The contract: isolation marks must not consume display columns."""
+        from rich.cells import cell_len
+
+        plain = "مرحبا"
+        wrapped = isolate_bidi(plain)
+        assert cell_len(wrapped) == cell_len(plain)
+
+
+# ── Render-site enforcement (regression guard) ───────────────────────
+
+
+class TestIsolateBidiCallSites:
+    """Verify that every render site that displays user-supplied text
+    calls isolate_bidi.  This guards against re-introducing the BiDi
+    bleed bug where Arabic titles appear duplicated at row edges or
+    bleed into adjacent widgets in the playback bar.
+
+    If you move or rename these render sites, update this test —
+    do NOT just delete entries without ensuring isolation is preserved.
+    """
+
+    REQUIRED_SITES = {
+        "src/ytm_player/ui/widgets/track_table.py": "isolate_bidi",
+        "src/ytm_player/ui/playback_bar.py": "isolate_bidi",
+        "src/ytm_player/ui/sidebars/lyrics_sidebar.py": "isolate_bidi",
+    }
+
+    def test_render_sites_call_isolate_bidi(self):
+        import pathlib
+
+        repo_root = pathlib.Path(__file__).parent.parent.parent
+        for rel_path, token in self.REQUIRED_SITES.items():
+            full_path = repo_root / rel_path
+            assert full_path.exists(), f"{rel_path} does not exist"
+            text = full_path.read_text(encoding="utf-8")
+            assert token in text, (
+                f"{rel_path} must call {token} to prevent RTL BiDi bleed. "
+                "Wrap user text fragments (title, artist, album, lyrics) "
+                "with isolate_bidi() AFTER truncate()."
+            )

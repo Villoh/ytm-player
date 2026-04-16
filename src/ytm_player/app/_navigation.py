@@ -171,6 +171,12 @@ class NavigationMixin:
         page_cls = page_map.get(page_name)
         if page_cls is None:
             return _PlaceholderPage(page_name, id=f"page-{page_name}")
+        # ContextPage uses unique IDs because back-to-back navigation between
+        # contexts (e.g. album → album) can race the previous instance's
+        # removal, causing DuplicateIds when the new one mounts.
+        if page_name == "context":
+            self._context_seq = getattr(self, "_context_seq", 0) + 1
+            return page_cls(id=f"page-context-{self._context_seq}", **kwargs)
         return page_cls(id=f"page-{page_name}", **kwargs)
 
     def _get_current_page(self) -> Widget | None:

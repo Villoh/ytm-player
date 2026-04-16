@@ -261,7 +261,8 @@ class LibraryPanel(Widget):
         """Optimistically insert *item* at the top of the panel."""
         self._items.insert(0, item)
         self._filtered_items.insert(0, item)
-        lbl = _BouncingLabel(self._format_item(item))
+        full_text = self._format_item(item)
+        lbl = _BouncingLabel(full_text)
         self._bouncing_labels.insert(0, lbl)
         list_view = self.query_one(ListView)
         list_view.insert(0, [ListItem(lbl)])

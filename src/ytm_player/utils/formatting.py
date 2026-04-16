@@ -133,6 +133,7 @@ def normalize_tracks(raw_tracks: list[dict]) -> list[dict]:
                 "duration": duration,
                 "thumbnail_url": thumbnail,
                 "is_video": t.get("isVideo", t.get("is_video", False)),
+                "likeStatus": t.get("likeStatus"),
             }
         )
     if skipped:

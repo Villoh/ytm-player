@@ -204,6 +204,46 @@ class YTMPlayerApp(
             if key not in variables:
                 variables[key] = default
 
+        # Apply theme.toml overrides on top (user customizations win over everything).
+        from ytm_player.config.paths import THEME_FILE
+
+        if THEME_FILE.exists():
+            try:
+                import tomllib
+
+                with open(THEME_FILE, "rb") as f:
+                    data = tomllib.load(f)
+                colors = data.get("colors", data)
+                # Map underscore field names to CSS dash-case variable names.
+                field_to_css = {
+                    "background": "background",
+                    "foreground": "foreground",
+                    "primary": "primary",
+                    "secondary": "secondary",
+                    "accent": "accent",
+                    "success": "success",
+                    "warning": "warning",
+                    "error": "error",
+                    "surface": "surface",
+                    "border": "border",
+                    "text": "text",
+                    "muted_text": "text-muted",
+                    "playback_bar_bg": "playback-bar-bg",
+                    "active_tab": "active-tab",
+                    "inactive_tab": "inactive-tab",
+                    "selected_item": "selected-item",
+                    "progress_filled": "progress-filled",
+                    "progress_empty": "progress-empty",
+                    "lyrics_played": "lyrics-played",
+                    "lyrics_current": "lyrics-current",
+                    "lyrics_upcoming": "lyrics-upcoming",
+                }
+                for field_name, css_name in field_to_css.items():
+                    if field_name in colors:
+                        variables[css_name] = colors[field_name]
+            except Exception:
+                pass
+
         return variables
 
     def _register_themes(self) -> None:
