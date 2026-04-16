@@ -198,7 +198,20 @@ class KeyHandlingMixin:
             case Action.RECENTLY_PLAYED:
                 await self.navigate_to("recently_played")
             case Action.CURRENT_CONTEXT:
-                await self.navigate_to("context")
+                track = self.queue.current_track
+                if track:
+                    album_id = track.get("album_id")
+                    album = track.get("album")
+                    if not album_id and isinstance(album, dict):
+                        album_id = album.get("id")
+                    if album_id:
+                        await self.navigate_to("context", context_type="album", context_id=album_id)
+                    else:
+                        self.notify(
+                            "No album info for current track", severity="warning", timeout=2
+                        )
+                else:
+                    self.notify("No track playing", severity="warning", timeout=2)
 
             case Action.GO_BACK:
                 await self.navigate_to("back")

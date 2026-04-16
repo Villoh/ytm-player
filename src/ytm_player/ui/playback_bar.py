@@ -72,25 +72,25 @@ class _TrackInfo(Widget):
             artist_w = min(len(self.artist), max_w // 3)
             album_w = max_w - title_w - artist_w - 8
 
-            # LRI (U+2066) ... PDI (U+2069) isolates the track info so
-            # RTL titles don't pull adjacent widgets (volume, etc.) into
-            # the RTL BiDi context.
-            from ytm_player.utils.bidi import reorder_rtl_line
+            # FSI...PDI isolates each fragment so RTL titles don't pull
+            # adjacent widgets (volume, repeat, shuffle) into the RTL BiDi
+            # context.  Apply isolate AFTER truncate (PDI must not be cut).
+            from ytm_player.utils.bidi import isolate_bidi, reorder_rtl_line
 
             result.append(
-                truncate(reorder_rtl_line(self.title), title_w),
+                isolate_bidi(truncate(reorder_rtl_line(self.title), title_w)),
                 style=f"bold {theme.foreground}",
             )
             if self.artist:
                 result.append(" \u2014 ", style=theme.muted_text)
                 result.append(
-                    truncate(reorder_rtl_line(self.artist), artist_w),
+                    isolate_bidi(truncate(reorder_rtl_line(self.artist), artist_w)),
                     style=theme.secondary,
                 )
             if self.album:
                 result.append(" \u2014 ", style=theme.muted_text)
                 result.append(
-                    truncate(reorder_rtl_line(self.album), max(0, album_w)),
+                    isolate_bidi(truncate(reorder_rtl_line(self.album), max(0, album_w))),
                     style=theme.muted_text,
                 )
         else:

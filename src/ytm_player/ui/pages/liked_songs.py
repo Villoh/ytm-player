@@ -9,7 +9,7 @@ from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.reactive import reactive
 from textual.widget import Widget
-from textual.widgets import DataTable, Label, Static
+from textual.widgets import DataTable, Input, Label, Static
 from textual.widgets.data_table import RowKey
 
 from ytm_player.config.keymap import Action
@@ -62,6 +62,13 @@ class LikedSongsPage(Widget):
         content-align: center middle;
         color: $text-muted;
     }
+    .track-filter {
+        dock: bottom;
+        display: none;
+    }
+    .track-filter.visible {
+        display: block;
+    }
     """
 
     track_count: reactive[int] = reactive(0)
@@ -70,6 +77,9 @@ class LikedSongsPage(Widget):
         super().__init__(**kwargs)
         self._row_keys: list[RowKey] = []
         self._tracks: list[dict] = []
+        self._filtered_indices: list[int] = []
+        self._filter_text: str = ""
+        self._filter_timer: Any = None
         self._restore_cursor_row = cursor_row
 
     def compose(self) -> ComposeResult:
@@ -86,6 +96,7 @@ class LikedSongsPage(Widget):
             classes="liked-table",
         )
         yield Static("", id="liked-footer", classes="liked-footer")
+        yield Input(placeholder="/ Filter tracks...", id="track-filter", classes="track-filter")
 
     def on_mount(self) -> None:
         table = self.query_one("#liked-table", DataTable)
@@ -121,9 +132,10 @@ class LikedSongsPage(Widget):
 
         # Kick off background fetch if the first batch was full (likely more tracks).
         if len(self._tracks) >= self._FIRST_BATCH:
+            self._update_footer(loading_more=True)
             self.run_worker(self._fetch_remaining_liked(), group="liked-remaining")
 
-    def _refresh_table(self) -> None:
+    def _refresh_table(self, loading_more: bool = False) -> None:
         table = self.query_one("#liked-table", DataTable)
         loading = self.query_one("#liked-loading", Label)
         table.clear()
@@ -138,7 +150,12 @@ class LikedSongsPage(Widget):
         loading.display = False
         table.display = True
 
+        # Build the visible (possibly filtered) list and index map.
+        self._filtered_indices = []
         for i, track in enumerate(self._tracks):
+            if self._filter_text and not self._matches_filter(track, self._filter_text):
+                continue
+            self._filtered_indices.append(i)
             title = track.get("title", "Unknown")
             artist = extract_artist(track)
             dur = extract_duration(track)
@@ -147,14 +164,34 @@ class LikedSongsPage(Widget):
             self._row_keys.append(row_key)
 
         self.track_count = len(self._tracks)
-        footer = self.query_one("#liked-footer", Static)
-        footer.update(f"{len(self._tracks)} liked songs")
+        self._update_footer(loading_more=loading_more)
 
         # Restore cursor position from navigation state.
         row = self._restore_cursor_row
         self._restore_cursor_row = None
         if row is not None and 0 <= row < table.row_count:
             table.move_cursor(row=row)
+
+    def _update_footer(self, loading_more: bool = False) -> None:
+        try:
+            footer = self.query_one("#liked-footer", Static)
+            total = len(self._tracks)
+            shown = len(self._filtered_indices) if self._filter_text else total
+            if self._filter_text:
+                text = f"{shown}/{total} liked songs"
+            else:
+                text = f"{total} liked songs"
+            if loading_more:
+                text += " (loading more…)"
+            footer.update(text)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _matches_filter(track: dict, query: str) -> bool:
+        title = (track.get("title") or "").lower()
+        artist = extract_artist(track).lower()
+        return query in title or query in artist
 
     async def _fetch_remaining_liked(self) -> None:
         """Background fetch for liked songs beyond the first batch."""
@@ -169,30 +206,20 @@ class LikedSongsPage(Widget):
             )
         except Exception:
             logger.debug("Background fetch for remaining liked songs failed", exc_info=True)
+            self._update_footer()
             return
 
         # Slice off the tracks we already have.
         remaining_raw = remaining_raw[len(self._tracks) :]
         if not remaining_raw:
+            self._update_footer()
             return
 
         remaining = normalize_tracks(remaining_raw)
-        start_idx = len(self._tracks)
         self._tracks.extend(remaining)
-
+        # Rebuild table to honor any active filter while keeping current scroll/cursor.
         try:
-            table = self.query_one("#liked-table", DataTable)
-            for i, track in enumerate(remaining, start=start_idx):
-                title = track.get("title", "Unknown")
-                artist = extract_artist(track)
-                dur = extract_duration(track)
-                dur_str = format_duration(dur) if dur else "--:--"
-                row_key = table.add_row(str(i + 1), title, artist, dur_str, key=f"liked_{i}")
-                self._row_keys.append(row_key)
-
-            self.track_count = len(self._tracks)
-            footer = self.query_one("#liked-footer", Static)
-            footer.update(f"{len(self._tracks)} liked songs")
+            self._refresh_table()
         except Exception:
             logger.debug("Failed to append remaining liked songs", exc_info=True)
 
@@ -207,10 +234,20 @@ class LikedSongsPage(Widget):
             pass
         return state
 
+    def _resolve_row_idx(self, row: int) -> int | None:
+        """Map a visible row index to the original index in self._tracks."""
+        if self._filter_text:
+            if 0 <= row < len(self._filtered_indices):
+                return self._filtered_indices[row]
+            return None
+        if 0 <= row < len(self._tracks):
+            return row
+        return None
+
     async def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         event.stop()
-        idx = event.cursor_row
-        if 0 <= idx < len(self._tracks):
+        idx = self._resolve_row_idx(event.cursor_row)
+        if idx is not None:
             queue = self.app.queue  # type: ignore[attr-defined]
             queue.clear()
             queue.add_multiple(self._tracks)
@@ -237,15 +274,94 @@ class LikedSongsPage(Widget):
             case Action.GO_BOTTOM:
                 if table.row_count > 0:
                     table.move_cursor(row=table.row_count - 1)
+            case Action.JUMP_TO_CURRENT:
+                queue = self.app.queue  # type: ignore[attr-defined]
+                current = queue.current_track if queue else None
+                if current and current.get("video_id"):
+                    vid = current["video_id"]
+                    # Find in visible (possibly filtered) rows.
+                    visible = (
+                        [self._tracks[i] for i in self._filtered_indices]
+                        if self._filter_text
+                        else self._tracks
+                    )
+                    for i, t in enumerate(visible):
+                        if t.get("video_id") == vid:
+                            table.move_cursor(row=i)
+                            table.scroll_to_cursor()
+                            break
             case Action.SELECT:
-                if table.cursor_row is not None and 0 <= table.cursor_row < len(self._tracks):
+                idx = self._resolve_row_idx(table.cursor_row)
+                if idx is not None:
                     queue = self.app.queue  # type: ignore[attr-defined]
                     queue.clear()
                     queue.add_multiple(self._tracks)
-                    queue.jump_to_real(table.cursor_row)
-                    await self.app.play_track(self._tracks[table.cursor_row])  # type: ignore[attr-defined]
+                    queue.jump_to_real(idx)
+                    await self.app.play_track(self._tracks[idx])  # type: ignore[attr-defined]
             case Action.ADD_TO_QUEUE:
-                if table.cursor_row is not None and 0 <= table.cursor_row < len(self._tracks):
+                idx = self._resolve_row_idx(table.cursor_row)
+                if idx is not None:
                     queue = self.app.queue  # type: ignore[attr-defined]
-                    queue.add(self._tracks[table.cursor_row])
+                    queue.add(self._tracks[idx])
                     self.app.notify("Added to queue", timeout=2)
+            case Action.FILTER:
+                self._show_filter()
+
+    # ── Filter wiring ────────────────────────────────────────────────
+
+    def _show_filter(self) -> None:
+        try:
+            f = self.query_one("#track-filter", Input)
+            f.value = ""
+            f.add_class("visible")
+            f.focus()
+        except Exception:
+            pass
+
+    def _hide_filter(self) -> None:
+        try:
+            f = self.query_one("#track-filter", Input)
+            f.remove_class("visible")
+            self.query_one("#liked-table", DataTable).focus()
+        except Exception:
+            pass
+
+    def _apply_filter(self, query: str) -> None:
+        self._filter_text = query.strip().lower()
+        # Cancel any pending debounce timer.
+        if self._filter_timer is not None:
+            try:
+                self._filter_timer.stop()
+            except Exception:
+                pass
+            self._filter_timer = None
+        # Empty query: refresh immediately.
+        if not self._filter_text:
+            self._refresh_table()
+            return
+        self._filter_timer = self.set_timer(0.15, self._refresh_table)
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id == "track-filter":
+            self._apply_filter(event.value)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "track-filter":
+            self._hide_filter()
+
+    def on_key(self, event: object) -> None:
+        from textual.events import Key
+
+        if not isinstance(event, Key):
+            return
+        if event.key == "escape":
+            try:
+                f = self.query_one("#track-filter", Input)
+                if f.has_class("visible"):
+                    event.stop()
+                    event.prevent_default()
+                    self._filter_text = ""
+                    self._refresh_table()
+                    self._hide_filter()
+            except Exception:
+                pass

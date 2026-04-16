@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+### v1.5.8 (2026-04-16)
+
+**New**
+- Track filter (`/`) extended to Queue and Liked Songs pages — search by title or artist, debounced, queue/reorder/delete operations correctly map filtered indices to real positions (fixes [#48](https://github.com/peternaame-boop/ytm-player/issues/48), thanks @dmnmsc)
+- Liked Songs loading status — footer now shows "loading more…" while background fetch runs for libraries beyond 300 tracks (fixes [#51](https://github.com/peternaame-boop/ytm-player/issues/51), thanks @dmnmsc)
+
+**Fixes**
+- Fixed RTL text bleed across visual boundaries — RTL track titles were appearing duplicated at row edges and bleeding into the playback bar's volume/repeat/shuffle area. All user text fragments are now wrapped with Unicode FSI/PDI isolation marks. Includes a regression test that mechanically prevents the bug from reappearing
+- Fixed app crash on artist→album→album navigation — `DuplicateIds` race when navigating between two ContextPages with the same widget ID. Each ContextPage instance now uses a unique sequence-based ID (fixes [#47](https://github.com/peternaame-boop/ytm-player/issues/47), thanks @dmnmsc)
+- Fixed `g c` (jump to current track) doing nothing — action was wired to the keymap but no page implemented it. Now works on Library, Context, Browse, Search, Queue, Liked Songs, and Recently Played (fixes [#49](https://github.com/peternaame-boop/ytm-player/issues/49), thanks @dmnmsc)
+- Fixed `g space` (current context) crashing — was navigating to ContextPage without required `context_type`/`context_id`. Now extracts album info from the currently playing track, or shows a notification if unavailable (fixes [#50](https://github.com/peternaame-boop/ytm-player/issues/50), thanks @dmnmsc)
+
+---
+
 ### v1.5.7 (2026-04-15)
 
 **New**

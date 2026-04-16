@@ -184,6 +184,16 @@ class RecentlyPlayedPage(Widget):
             case Action.GO_BOTTOM:
                 if table.row_count > 0:
                     table.move_cursor(row=table.row_count - 1)
+            case Action.JUMP_TO_CURRENT:
+                queue = self.app.queue  # type: ignore[attr-defined]
+                current = queue.current_track if queue else None
+                if current and current.get("video_id"):
+                    vid = current["video_id"]
+                    for i, t in enumerate(self._tracks):
+                        if t.get("video_id") == vid:
+                            table.move_cursor(row=i)
+                            table.scroll_to_cursor()
+                            break
             case Action.SELECT:
                 if table.cursor_row is not None and 0 <= table.cursor_row < len(self._tracks):
                     track = self._tracks[table.cursor_row]

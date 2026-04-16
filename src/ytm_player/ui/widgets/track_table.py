@@ -204,17 +204,17 @@ class TrackTable(DataTable):
         album = track.get("album") or ""
         duration = extract_duration(track)
 
-        from ytm_player.utils.bidi import reorder_rtl_line
+        from ytm_player.utils.bidi import isolate_bidi, reorder_rtl_line
 
         cells: list[str | int] = []
         if self._show_index:
             # Always show original playlist position, not current row number.
             orig = track.get("_original_index", index)
             cells.append(str(orig + 1))
-        cells.append(reorder_rtl_line(title))
-        cells.append(reorder_rtl_line(artist))
+        cells.append(isolate_bidi(reorder_rtl_line(title)))
+        cells.append(isolate_bidi(reorder_rtl_line(artist)))
         if self._show_album:
-            cells.append(reorder_rtl_line(album))
+            cells.append(isolate_bidi(reorder_rtl_line(album)))
         cells.append(format_duration(duration) if duration else "--:--")
 
         video_id = track.get("video_id", f"row_{index}")
@@ -226,6 +226,28 @@ class TrackTable(DataTable):
         """Mark a track as currently playing (updates visual indicator)."""
         self._playing_video_id = video_id
         self._highlight_playing()
+
+    def _jump_to_current(self) -> None:
+        """Move cursor to the currently playing track if visible."""
+        if not self._tracks:
+            return
+        # Prefer the app's current track over our cached _playing_video_id
+        # because a freshly-mounted page won't have received set_playing yet.
+        video_id = self._playing_video_id
+        try:
+            queue = self.app.queue  # type: ignore[attr-defined]
+            current = queue.current_track if queue else None
+            if current and current.get("video_id"):
+                video_id = current["video_id"]
+        except Exception:
+            pass
+        if not video_id:
+            return
+        for i, track in enumerate(self._tracks):
+            if track.get("video_id") == video_id:
+                self.move_cursor(row=i)
+                self.scroll_to_cursor()
+                return
 
     def _highlight_playing(self) -> None:
         """Update the index column to show the playing indicator.
@@ -558,6 +580,8 @@ class TrackTable(DataTable):
                     )
             case Action.FILTER:
                 self.show_filter()
+            case Action.JUMP_TO_CURRENT:
+                self._jump_to_current()
             case Action.SORT_TITLE:
                 self.sort_by("title")
             case Action.SORT_ARTIST:
