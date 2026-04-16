@@ -288,7 +288,6 @@ class LikedSongsPage(Widget):
                     for i, t in enumerate(visible):
                         if t.get("video_id") == vid:
                             table.move_cursor(row=i)
-                            table.scroll_to_cursor()
                             break
             case Action.SELECT:
                 idx = self._resolve_row_idx(table.cursor_row)

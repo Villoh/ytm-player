@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+### v1.5.9 (2026-04-16)
+
+**Fixes**
+- Fixed `gc` (jump to current track) crashing on Queue and Liked Songs — `scroll_to_cursor()` doesn't exist on Textual's `DataTable`. Removed the bogus calls; `move_cursor()` already scrolls by default (fixes [#52](https://github.com/peternaame-boop/ytm-player/issues/52), thanks @dmnmsc)
+- Fixed Queue "Now Playing" header not updating on track change — `call_from_thread()` raises `RuntimeError` when called from the same thread as the app, and the bare `except` was silently swallowing it. Player events are already on the main thread, so we now call the update method directly (fixes [#56](https://github.com/peternaame-boop/ytm-player/issues/56), thanks @dmnmsc)
+
+---
+
 ### v1.5.8 (2026-04-16)
 
 **New**

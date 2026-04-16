@@ -131,11 +131,15 @@ class QueuePage(Widget):
 
         Does a lightweight update (header + play indicator) instead of
         rebuilding the entire DataTable.
+
+        Player events are dispatched onto the asyncio loop via
+        ``call_soon_threadsafe`` (see services/player.py), so this
+        callback already runs on the main thread — call directly.
         """
         try:
-            self.call_from_thread(self._update_current_track)
+            self._update_current_track()
         except Exception:
-            logger.debug("call_from_thread failed in queue page", exc_info=True)
+            logger.debug("Failed to update queue page on track change", exc_info=True)
 
     def _update_current_track(self) -> None:
         """Lightweight update: refresh header and play indicator without rebuilding the table."""
@@ -297,11 +301,9 @@ class QueuePage(Widget):
                         for visible_row, real_idx in enumerate(self._filtered_indices):
                             if real_idx == cur:
                                 table.move_cursor(row=visible_row)
-                                table.scroll_to_cursor()
                                 break
                     elif 0 <= cur < table.row_count:
                         table.move_cursor(row=cur)
-                        table.scroll_to_cursor()
 
             case Action.SELECT:
                 idx = self._resolve_row_idx(table.cursor_row)

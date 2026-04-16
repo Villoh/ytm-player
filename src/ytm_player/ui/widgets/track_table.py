@@ -246,7 +246,6 @@ class TrackTable(DataTable):
         for i, track in enumerate(self._tracks):
             if track.get("video_id") == video_id:
                 self.move_cursor(row=i)
-                self.scroll_to_cursor()
                 return
 
     def _highlight_playing(self) -> None:

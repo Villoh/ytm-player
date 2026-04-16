@@ -192,7 +192,6 @@ class RecentlyPlayedPage(Widget):
                     for i, t in enumerate(self._tracks):
                         if t.get("video_id") == vid:
                             table.move_cursor(row=i)
-                            table.scroll_to_cursor()
                             break
             case Action.SELECT:
                 if table.cursor_row is not None and 0 <= table.cursor_row < len(self._tracks):
