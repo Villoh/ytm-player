@@ -99,6 +99,14 @@ class LastFMSettings:
     password_hash: str = ""
 
 
+@dataclass
+class LoggingSettings:
+    level: str = "WARNING"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+    max_bytes: int = 5 * 1024 * 1024  # 5 MB per file
+    backup_count: int = 3  # rotate up to 3 old log files
+    keep_crashes: int = 10  # max number of crash files to keep
+
+
 SECTION_MAP: dict[str, type] = {
     "general": GeneralSettings,
     "playback": PlaybackSettings,
@@ -111,6 +119,7 @@ SECTION_MAP: dict[str, type] = {
     "lyrics": LyricsSettings,
     "discord": DiscordSettings,
     "lastfm": LastFMSettings,
+    "logging": LoggingSettings,
 }
 
 
@@ -127,6 +136,7 @@ class Settings:
     lyrics: LyricsSettings = field(default_factory=LyricsSettings)
     discord: DiscordSettings = field(default_factory=DiscordSettings)
     lastfm: LastFMSettings = field(default_factory=LastFMSettings)
+    logging: LoggingSettings = field(default_factory=LoggingSettings)
 
     @classmethod
     def load(cls, path: Path = CONFIG_FILE) -> Self:
