@@ -246,7 +246,7 @@ class Player:
                 try:
                     await coro_fn(*call_args)
                 except Exception:
-                    logger.debug("Async callback error for %s", event, exc_info=True)
+                    logger.exception("Async callback failed (event=%s)", event)
 
             task = asyncio.create_task(_safe_wrapper())
             self._background_tasks.add(task)
@@ -257,7 +257,7 @@ class Player:
             try:
                 sync_fn(*call_args)
             except Exception:
-                logger.debug("Sync callback error for %s", event, exc_info=True)
+                logger.exception("Sync callback failed (event=%s)", event)
 
         for cb in list(self._callbacks[event]):
             try:
@@ -275,7 +275,7 @@ class Player:
                     else:
                         cb(*args)
             except Exception:
-                logger.debug("Error in %s callback", event, exc_info=True)
+                logger.exception("Failed to schedule %s callback", event)
 
     # ── mpv observers ───────────────────────────────────────────────
 
