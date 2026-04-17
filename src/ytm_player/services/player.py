@@ -354,7 +354,8 @@ class Player:
             await asyncio.to_thread(self._play_sync, url)
             self._dispatch(PlayerEvent.TRACK_CHANGE, track_info)
         except Exception as exc:
-            self._current_track = None
+            with self._skip_lock:
+                self._current_track = None
             logger.error("Failed to play %s: %s", track_info.get("video_id", "?"), exc)
             self._dispatch(PlayerEvent.ERROR, exc)
 
@@ -381,11 +382,11 @@ class Player:
         self._mpv.pause = not self._mpv.pause
 
     async def stop(self) -> None:
-        if self._current_track is not None:
-            with self._skip_lock:
+        with self._skip_lock:
+            if self._current_track is not None:
                 self._end_file_skip += 1
+            self._current_track = None
         self._mpv.stop()
-        self._current_track = None
 
     async def seek(self, seconds: float) -> None:
         """Seek relative to the current position."""
