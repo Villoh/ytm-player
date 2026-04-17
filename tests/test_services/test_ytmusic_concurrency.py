@@ -24,6 +24,7 @@ def ytmusic_service():
     svc._auth_manager = None
     svc._user = None
     svc._consecutive_api_failures = 0
+    svc._order_lock = asyncio.Lock()  # needed since we bypass __init__
 
     fake_client = MagicMock()
     # Real send_request impl we want to be restored.
@@ -42,9 +43,7 @@ def ytmusic_service():
 class TestSendRequestRaceCondition:
     """C3: concurrent get_playlist(order=...) must not corrupt _send_request."""
 
-    async def test_concurrent_order_calls_restore_original_send_request(
-        self, ytmusic_service
-    ):
+    async def test_concurrent_order_calls_restore_original_send_request(self, ytmusic_service):
         """Run two get_playlist(order=...) calls concurrently and assert
         client._send_request is the ORIGINAL function after both complete.
 

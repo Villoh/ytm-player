@@ -38,6 +38,9 @@ class YTMusicService:
         self._user = user or None  # normalise "" → None
         self._ytm: YTMusic | None = None
         self._consecutive_api_failures: int = 0
+        # Serializes get_playlist(order=...) monkey-patches so concurrent
+        # calls don't stack patches on client._send_request.
+        self._order_lock = asyncio.Lock()
 
     @property
     def client(self) -> YTMusic:
@@ -252,21 +255,24 @@ class YTMusicService:
             params = self._ORDER_PARAMS.get(order or "")
             if params:
                 # Temporarily inject sort params into the browse request.
-                client = self.client
-                original_send = client._send_request
+                # Serialize this section so two concurrent get_playlist(order=...)
+                # calls don't stack patches on client._send_request and leak.
+                async with self._order_lock:
+                    client = self.client
+                    original_send = client._send_request
 
-                def _patched_send(endpoint: str, body: dict, *a: Any, **kw: Any) -> Any:
-                    if endpoint == "browse" and isinstance(body, dict):
-                        body["params"] = params
-                    return original_send(endpoint, body, *a, **kw)
+                    def _patched_send(endpoint: str, body: dict, *a: Any, **kw: Any) -> Any:
+                        if endpoint == "browse" and isinstance(body, dict):
+                            body["params"] = params
+                        return original_send(endpoint, body, *a, **kw)
 
-                try:
-                    client._send_request = _patched_send
-                    return await self._call(
-                        client.get_playlist, playlist_id, timeout=timeout, limit=limit
-                    )
-                finally:
-                    client._send_request = original_send
+                    try:
+                        client._send_request = _patched_send
+                        return await self._call(
+                            client.get_playlist, playlist_id, timeout=timeout, limit=limit
+                        )
+                    finally:
+                        client._send_request = original_send
             return await self._call(
                 self.client.get_playlist, playlist_id, timeout=timeout, limit=limit
             )
