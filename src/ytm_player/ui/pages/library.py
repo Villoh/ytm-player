@@ -119,6 +119,11 @@ class LibraryPage(Widget):
                     exclusive=True,
                 )
 
+    def on_remove(self) -> None:
+        """Cancel background workers (e.g. _fetch_remaining) when page is removed."""
+        for worker in self.workers:
+            worker.cancel()
+
     def get_nav_state(self) -> dict[str, Any]:
         """Return state to preserve when navigating away."""
         state: dict[str, Any] = {}
