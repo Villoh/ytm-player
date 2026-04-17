@@ -40,20 +40,37 @@ if sys.platform == "win32":
                 os.environ["PATH"] = str(_d) + os.pathsep + os.environ.get("PATH", "")
                 break
 
+
+# python-mpv calls ctypes.find_library("mpv") at import time. If libmpv
+# isn't discoverable (no system mpv, or a CI-runner environment quirk),
+# that raises OSError before any of OUR code runs — meaning the module
+# can't even be imported for test discovery, IPC subcommands, or the
+# `ytm doctor` command. We keep the import soft: substitute a stub when
+# it fails so the module loads, and surface the real install instructions
+# only when something actually tries to construct a Player.
+class _MpvUnavailableError(RuntimeError):
+    """Raised when python-mpv tried to load libmpv at module import and failed."""
+
+
 try:
-    import mpv
+    import mpv  # type: ignore[import-not-found]
 except OSError as _exc:
-    if sys.platform == "win32":
-        raise OSError(
-            "Cannot find mpv library (libmpv-2.dll).\n\n"
-            "If you installed mpv via scoop, the DLL may be missing from PATH.\n"
-            "Try:  scoop install mpv\n"
-            "Then verify the DLL exists:  dir %USERPROFILE%\\scoop\\apps\\mpv\\current\\libmpv-2.dll\n\n"
-            "If the DLL is missing, install the mpv-dev or mpv-git package, or download\n"
-            "libmpv from https://sourceforge.net/projects/mpv-player-windows/files/libmpv/\n"
-            "and place the DLL in the mpv directory or somewhere on your PATH."
-        ) from _exc
-    raise
+    _IMPORT_ERROR_MSG = (
+        "Cannot load libmpv. Install mpv:\n"
+        "  Linux:   sudo apt install mpv libmpv-dev   (or your distro equivalent)\n"
+        "  macOS:   brew install mpv\n"
+        "  Windows: scoop install mpv  (or download libmpv-2.dll from\n"
+        "           https://sourceforge.net/projects/mpv-player-windows/files/libmpv/\n"
+        "           and place it on PATH)\n\n"
+        f"Original ctypes error: {_exc}"
+    )
+
+    def _stub_mpv(*_args: Any, **_kwargs: Any) -> Any:
+        raise _MpvUnavailableError(_IMPORT_ERROR_MSG)
+
+    from types import SimpleNamespace as _SimpleNamespace
+
+    mpv = _SimpleNamespace(MPV=_stub_mpv, ShutdownError=_MpvUnavailableError)  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 

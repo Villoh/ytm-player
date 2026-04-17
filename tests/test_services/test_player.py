@@ -122,7 +122,9 @@ class TestTryRecoverState:
         succeeds → second mpv.play() succeeds → _current_track is the new track,
         NOT None.
         """
-        import mpv as _mpv
+        # Use the mpv proxy from services.player so this test works whether
+        # libmpv is genuinely importable or replaced with the stub.
+        from ytm_player.services.player import mpv as _mpv
 
         # First mpv.play() raises ShutdownError; second succeeds.
         player._mpv.play = MagicMock(side_effect=[_mpv.ShutdownError("simulated crash"), None])
