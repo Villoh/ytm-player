@@ -65,11 +65,27 @@ class TestRestoreSessionResilience:
         h = _fresh_session_host()
         good = tmp_path / "session.json"
         good.write_text(
-            '{"volume": 42, "repeat": "all", "shuffle": false, '
-            '"queue_tracks": [], "queue_index": 0}',
+            '{"schema_version": 1, "volume": 42, "repeat": "all", '
+            '"shuffle": false, "queue_tracks": [], "queue_index": 0}',
             encoding="utf-8",
         )
         monkeypatch.setattr("ytm_player.config.paths.SESSION_STATE_FILE", good, raising=False)
         await h._restore_session_state()
         h.player.set_volume.assert_awaited_once_with(42)
         h.queue.set_repeat.assert_called_once_with(RepeatMode.ALL)
+
+
+class TestSchemaVersion:
+    async def test_mismatched_schema_version_discards_state(self, tmp_path, monkeypatch):
+        """A session.json with a different schema_version is discarded."""
+        h = _fresh_session_host()
+        bad = tmp_path / "session.json"
+        bad.write_text(
+            '{"schema_version": 99, "volume": 42, "repeat": "all"}',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr("ytm_player.config.paths.SESSION_STATE_FILE", bad, raising=False)
+        await h._restore_session_state()
+        # Defaults applied — volume 80, repeat OFF — not the file's 42 / ALL.
+        h.player.set_volume.assert_awaited_once_with(80)
+        h.queue.set_repeat.assert_called_once_with(RepeatMode.OFF)
