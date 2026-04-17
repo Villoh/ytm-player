@@ -88,3 +88,33 @@ class TestPlayCurrentTrackLocking:
         )
         # ERROR event should have fired.
         assert len(errors) == 1
+
+
+class TestTryRecoverState:
+    """I4: _try_recover() must clear _current_track so the next play()
+    doesn't increment _end_file_skip for a track mpv won't fire end-file for."""
+
+    async def test_try_recover_clears_current_track(self, player):
+        """After mpv recovery, _current_track must be None.
+
+        The bug: _try_recover only resets _end_file_skip = 0.  If
+        _current_track stays set, the next play() call sees it != None
+        and increments _end_file_skip — eating the legitimate end-of-track
+        event from the new playback.
+        """
+        # Pretend a track was playing when mpv crashed.
+        player._current_track = {"video_id": "stale", "title": "Stale"}
+        player._end_file_skip = 7  # arbitrary leftover
+
+        # _try_recover re-creates _mpv via _init_mpv.  Patch _init_mpv to
+        # return a fresh mock so we don't actually init mpv.
+        new_mock_mpv = MagicMock()
+        new_mock_mpv.volume = 80
+        with patch.object(player, "_init_mpv", return_value=new_mock_mpv):
+            ok = player._try_recover()
+
+        assert ok is True
+        assert player._current_track is None, (
+            "_try_recover must clear _current_track to avoid skip-counter leak"
+        )
+        assert player._end_file_skip == 0
