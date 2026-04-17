@@ -1,5 +1,9 @@
 """Tests for new settings fields added in Phase 1 and Phase 2."""
 
+import sys
+
+import pytest
+
 from ytm_player.config.settings import (
     DiscordSettings,
     LastFMSettings,
@@ -98,6 +102,10 @@ class TestLyricsSettings:
 
 
 class TestFilePermissions:
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="Windows NTFS doesn't honor POSIX file mode bits",
+    )
     def test_saved_file_permissions(self, tmp_config_dir):
         import os
         import stat

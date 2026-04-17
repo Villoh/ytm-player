@@ -85,12 +85,11 @@ def install_excepthooks(*, crash_dir: Path, keep: int = 10) -> None:
     def _write(traceback_text: str) -> Path | None:
         ts = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
         path = crash_dir / f"ytm-crash-{ts}.log"
+        # O_NOFOLLOW defends against symlink redirection on POSIX; not
+        # exposed by Windows' os module. Fall back to no-op there.
+        flags = os.O_CREAT | os.O_WRONLY | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
         try:
-            fd = os.open(
-                str(path),
-                os.O_CREAT | os.O_WRONLY | os.O_EXCL | os.O_NOFOLLOW,
-                0o600,
-            )
+            fd = os.open(str(path), flags, 0o600)
             try:
                 os.write(fd, traceback_text.encode("utf-8"))
             finally:

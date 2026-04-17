@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 from ytm_player.config.settings import YtDlpSettings
 from ytm_player.services.yt_dlp_options import (
@@ -12,8 +13,10 @@ from ytm_player.services.yt_dlp_options import (
 def test_normalize_cookiefile_expands_home():
     got = normalize_cookiefile("~/cookies.txt")
     assert got is not None
-    assert got.endswith("/cookies.txt")
-    assert got.startswith("/")
+    # Use Path semantics so this works on Windows (backslash) too.
+    p = Path(got)
+    assert p.name == "cookies.txt"
+    assert p.is_absolute()
 
 
 def test_normalize_cookiefile_empty_none():
@@ -65,7 +68,7 @@ def test_apply_configured_options_converts_all_fields():
     opts = apply_configured_yt_dlp_options({"quiet": True}, settings)
 
     assert opts["quiet"] is True
-    assert opts["cookiefile"].endswith("/cookies.txt")
+    assert Path(opts["cookiefile"]).name == "cookies.txt"
     assert opts["remote_components"] == ["ejs:github"]
     assert opts["js_runtimes"] == {"bun": {"path": "/tmp/bun"}}
 
