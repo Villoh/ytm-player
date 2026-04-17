@@ -436,11 +436,12 @@ class Player:
         try:
             logger.info("Re-initializing mpv instance...")
             with self._skip_lock:
-                # Clear both: skip counter has no meaning across mpv
-                # instances, and the previous track is gone with the old
-                # mpv (no end-file event will ever fire for it).
+                # Reset skip counter — it has no meaning across mpv instances.
+                # Do NOT clear _current_track: _try_recover is only called from
+                # within play() which has already set _current_track to the
+                # NEW track we're about to play. Clearing it would break
+                # downstream readers (MPRIS, Discord, _on_end_file guard).
                 self._end_file_skip = 0
-                self._current_track = None
             self._mpv = self._init_mpv()
 
             # Restore volume if possible.

@@ -88,30 +88,56 @@ class TestPlayCurrentTrackLocking:
 
 
 class TestTryRecoverState:
-    """I4: _try_recover() must clear _current_track so the next play()
-    doesn't increment _end_file_skip for a track mpv won't fire end-file for."""
+    """Regression: _try_recover() must NOT clear _current_track.
 
-    async def test_try_recover_clears_current_track(self, player):
-        """After mpv recovery, _current_track must be None.
+    _try_recover is only ever called from within play(), which has already
+    set _current_track to the new track being started. Clearing it breaks
+    MPRIS, Discord, Last.fm, and the _on_end_file guard for the recovered
+    track — auto-advance silently breaks until the next manual play.
+    """
 
-        The bug: _try_recover only resets _end_file_skip = 0.  If
-        _current_track stays set, the next play() call sees it != None
-        and increments _end_file_skip — eating the legitimate end-of-track
-        event from the new playback.
+    def test_try_recover_preserves_current_track(self, player):
+        """Regression: _try_recover must NOT clear _current_track.
+
+        It's only called from play() which has already set _current_track
+        to the new track we're starting. Clearing it would break MPRIS,
+        Discord, and the _on_end_file guard for the recovered track.
         """
-        # Pretend a track was playing when mpv crashed.
-        player._current_track = {"video_id": "stale", "title": "Stale"}
+        player._current_track = {"video_id": "abc", "title": "X"}
         player._end_file_skip = 7  # arbitrary leftover
 
-        # _try_recover re-creates _mpv via _init_mpv.  Patch _init_mpv to
-        # return a fresh mock so we don't actually init mpv.
         new_mock_mpv = MagicMock()
         new_mock_mpv.volume = 80
         with patch.object(player, "_init_mpv", return_value=new_mock_mpv):
             ok = player._try_recover()
 
         assert ok is True
-        assert player._current_track is None, (
-            "_try_recover must clear _current_track to avoid skip-counter leak"
+        assert player._current_track == {"video_id": "abc", "title": "X"}, (
+            "_try_recover must NOT clear _current_track"
         )
         assert player._end_file_skip == 0
+
+    async def test_play_with_recovery_keeps_current_track_set(self, player):
+        """End-to-end: play() → _play_sync raises ShutdownError → _try_recover
+        succeeds → second mpv.play() succeeds → _current_track is the new track,
+        NOT None.
+        """
+        import mpv as _mpv
+
+        # First mpv.play() raises ShutdownError; second succeeds.
+        player._mpv.play = MagicMock(side_effect=[_mpv.ShutdownError("simulated crash"), None])
+        player._mpv.pause = False
+
+        # _try_recover replaces _mpv with a fresh instance.
+        new_mpv = MagicMock()
+        new_mpv.play = MagicMock(return_value=None)
+        new_mpv.pause = False
+        player._init_mpv = MagicMock(return_value=new_mpv)
+        player._loop = None  # Skip volume restore branch.
+
+        track = {"video_id": "abc", "title": "X"}
+        await player.play("http://example.com/stream", track)
+
+        assert player._current_track == track, (
+            "After successful recovery, _current_track must reflect the new track"
+        )
