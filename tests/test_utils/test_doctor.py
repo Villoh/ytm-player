@@ -29,9 +29,8 @@ class TestGatherDiagnostics:
         assert platform.system() in report
 
     def test_includes_log_path(self):
-        from ytm_player.utils.doctor import gather_diagnostics
-
         from ytm_player.config.paths import LOG_FILE
+        from ytm_player.utils.doctor import gather_diagnostics
 
         report = gather_diagnostics()
         assert str(LOG_FILE) in report
