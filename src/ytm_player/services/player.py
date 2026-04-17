@@ -40,20 +40,37 @@ if sys.platform == "win32":
                 os.environ["PATH"] = str(_d) + os.pathsep + os.environ.get("PATH", "")
                 break
 
+
+# python-mpv calls ctypes.find_library("mpv") at import time. If libmpv
+# isn't discoverable (no system mpv, or a CI-runner environment quirk),
+# that raises OSError before any of OUR code runs — meaning the module
+# can't even be imported for test discovery, IPC subcommands, or the
+# `ytm doctor` command. We keep the import soft: substitute a stub when
+# it fails so the module loads, and surface the real install instructions
+# only when something actually tries to construct a Player.
+class _MpvUnavailableError(RuntimeError):
+    """Raised when python-mpv tried to load libmpv at module import and failed."""
+
+
 try:
-    import mpv
+    import mpv  # type: ignore[import-not-found]
 except OSError as _exc:
-    if sys.platform == "win32":
-        raise OSError(
-            "Cannot find mpv library (libmpv-2.dll).\n\n"
-            "If you installed mpv via scoop, the DLL may be missing from PATH.\n"
-            "Try:  scoop install mpv\n"
-            "Then verify the DLL exists:  dir %USERPROFILE%\\scoop\\apps\\mpv\\current\\libmpv-2.dll\n\n"
-            "If the DLL is missing, install the mpv-dev or mpv-git package, or download\n"
-            "libmpv from https://sourceforge.net/projects/mpv-player-windows/files/libmpv/\n"
-            "and place the DLL in the mpv directory or somewhere on your PATH."
-        ) from _exc
-    raise
+    _IMPORT_ERROR_MSG = (
+        "Cannot load libmpv. Install mpv:\n"
+        "  Linux:   sudo apt install mpv libmpv-dev   (or your distro equivalent)\n"
+        "  macOS:   brew install mpv\n"
+        "  Windows: scoop install mpv  (or download libmpv-2.dll from\n"
+        "           https://sourceforge.net/projects/mpv-player-windows/files/libmpv/\n"
+        "           and place it on PATH)\n\n"
+        f"Original ctypes error: {_exc}"
+    )
+
+    def _stub_mpv(*_args: Any, **_kwargs: Any) -> Any:
+        raise _MpvUnavailableError(_IMPORT_ERROR_MSG)
+
+    from types import SimpleNamespace as _SimpleNamespace
+
+    mpv = _SimpleNamespace(MPV=_stub_mpv, ShutdownError=_MpvUnavailableError)  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -246,7 +263,7 @@ class Player:
                 try:
                     await coro_fn(*call_args)
                 except Exception:
-                    logger.debug("Async callback error for %s", event, exc_info=True)
+                    logger.exception("Async callback failed (event=%s)", event)
 
             task = asyncio.create_task(_safe_wrapper())
             self._background_tasks.add(task)
@@ -257,7 +274,7 @@ class Player:
             try:
                 sync_fn(*call_args)
             except Exception:
-                logger.debug("Sync callback error for %s", event, exc_info=True)
+                logger.exception("Sync callback failed (event=%s)", event)
 
         for cb in list(self._callbacks[event]):
             try:
@@ -275,7 +292,7 @@ class Player:
                     else:
                         cb(*args)
             except Exception:
-                logger.debug("Error in %s callback", event, exc_info=True)
+                logger.exception("Failed to schedule %s callback", event)
 
     # ── mpv observers ───────────────────────────────────────────────
 
@@ -354,7 +371,8 @@ class Player:
             await asyncio.to_thread(self._play_sync, url)
             self._dispatch(PlayerEvent.TRACK_CHANGE, track_info)
         except Exception as exc:
-            self._current_track = None
+            with self._skip_lock:
+                self._current_track = None
             logger.error("Failed to play %s: %s", track_info.get("video_id", "?"), exc)
             self._dispatch(PlayerEvent.ERROR, exc)
 
@@ -381,11 +399,11 @@ class Player:
         self._mpv.pause = not self._mpv.pause
 
     async def stop(self) -> None:
-        if self._current_track is not None:
-            with self._skip_lock:
+        with self._skip_lock:
+            if self._current_track is not None:
                 self._end_file_skip += 1
+            self._current_track = None
         self._mpv.stop()
-        self._current_track = None
 
     async def seek(self, seconds: float) -> None:
         """Seek relative to the current position."""
@@ -435,6 +453,11 @@ class Player:
         try:
             logger.info("Re-initializing mpv instance...")
             with self._skip_lock:
+                # Reset skip counter — it has no meaning across mpv instances.
+                # Do NOT clear _current_track: _try_recover is only called from
+                # within play() which has already set _current_track to the
+                # NEW track we're about to play. Clearing it would break
+                # downstream readers (MPRIS, Discord, _on_end_file guard).
                 self._end_file_skip = 0
             self._mpv = self._init_mpv()
 

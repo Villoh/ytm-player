@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [master, dev]
   pull_request:
     branches: [master]
 
@@ -10,20 +10,41 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+          cache: pip
       - run: pip install ruff==0.15.1
       - run: ruff check src/ tests/
       - run: ruff format --check src/ tests/
 
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.12", "3.13"]
+    runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      # mpv install is best-effort. services/player.py tolerates a missing
+      # libmpv at module-import time by substituting a stub, so test
+      # discovery works on any runner. Where mpv IS available, the real
+      # python-mpv module loads and the existing tests exercise it.
+      - name: Install mpv (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y mpv libmpv-dev
+      - name: Install mpv (macOS)
+        if: runner.os == 'macOS'
+        run: brew install mpv || true
+      - name: Install mpv (Windows)
+        if: runner.os == 'Windows'
+        run: choco install mpv -y || exit 0
+        shell: pwsh
       - run: pip install -e ".[dev]"
       - run: pytest --cov=ytm_player --cov-report=term-missing

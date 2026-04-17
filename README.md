@@ -650,6 +650,32 @@ Or reduce the limit in `config.toml`:
 max_size_mb = 512
 ```
 
+### Logs and diagnostics
+
+ytm-player writes a rotating log file to:
+
+- Linux/macOS: `~/.config/ytm-player/logs/ytm.log`
+- Windows: `%APPDATA%\ytm-player\logs\ytm.log`
+
+Crash tracebacks for any unhandled exception (main thread or background
+thread) are saved to the `crashes/` directory next to the log file.
+
+For verbose logs, launch with `--debug`:
+
+```bash
+ytm --debug
+```
+
+When reporting a bug, please run:
+
+```bash
+ytm doctor
+```
+
+and paste the output into your GitHub issue. It includes the version,
+your Python and mpv versions, paths, the last 50 log lines, and the
+most recent crash trace if any.
+
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.

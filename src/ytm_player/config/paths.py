@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import os
 import sys
-import tempfile
 from pathlib import Path
 
 SECURE_FILE_MODE = 0o600
@@ -68,8 +67,20 @@ THEME_FILE = CONFIG_DIR / "theme.toml"
 THEMES_DIR = CONFIG_DIR / "themes"
 RECENT_PLAYLISTS_FILE = CONFIG_DIR / "recent_playlists.json"
 SESSION_STATE_FILE = CONFIG_DIR / "session.json"
+UPDATE_CHECK_CACHE = CONFIG_DIR / "update_check.json"
 HISTORY_DB = CONFIG_DIR / "history.db"
-CRASH_LOG = Path(tempfile.gettempdir()) / "ytm-crash.log"
+
+# Log files (rotated by RotatingFileHandler).
+LOG_DIR = CONFIG_DIR / "logs"
+LOG_FILE = LOG_DIR / "ytm.log"
+
+# Crash tracebacks (kept indefinitely; pruned to last 10 by setup_logging).
+CRASH_DIR = CONFIG_DIR / "crashes"
+
+# CRASH_LOG kept for backwards-compatibility with anything that imports it,
+# but new crash files are written to CRASH_DIR/ytm-crash-<timestamp>.log
+# via install_excepthooks().  Do not append to this file in new code.
+CRASH_LOG = CRASH_DIR / "ytm-crash.log"
 
 _dirs_ensured = False
 
@@ -90,7 +101,7 @@ def ensure_dirs() -> None:
     global _dirs_ensured
     if _dirs_ensured:
         return
-    for _dir in (CONFIG_DIR, CACHE_DIR, THEMES_DIR):
+    for _dir in (CONFIG_DIR, CACHE_DIR, THEMES_DIR, LOG_DIR, CRASH_DIR):
         _dir.mkdir(parents=True, exist_ok=True)
         secure_chmod(_dir, SECURE_DIR_MODE)
     _dirs_ensured = True

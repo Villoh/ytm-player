@@ -222,7 +222,7 @@ class HistoryManager:
 
             await self._db.commit()
         except OSError as exc:
-            logger.warning("Failed to log play to history database: %s", exc)
+            logger.exception("Failed to log play (video_id=%r)", video_id)
             raise RuntimeError(f"Failed to write to history database: {exc}") from exc
 
     async def get_play_history(self, limit: int = 100) -> list[dict]:

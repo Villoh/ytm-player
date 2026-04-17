@@ -73,14 +73,44 @@ class PlaybackMixin:
         except Exception:
             logger.debug("Playback bar not ready during play_track", exc_info=True)
 
-        # Resolve the stream URL.
-        try:
-            stream_info = await self.stream_resolver.resolve(video_id)
-        except Exception:
-            logger.debug("Stream resolution raised for %s", video_id, exc_info=True)
-            stream_info = None
+        # Try local audio cache first (previously downloaded or replayed track).
+        stream_info = None
+        if self.cache:
+            try:
+                cached_path = await self.cache.get(video_id)
+            except Exception:
+                logger.debug("Cache lookup failed for %s", video_id, exc_info=True)
+                cached_path = None
+
+            if cached_path is not None:
+                # Build a minimal StreamInfo pointing at the local file.
+                # Downstream code (Discord, Last.fm, MPRIS) only reads
+                # .url and .duration — duration comes from the track dict.
+                from ytm_player.services.stream import StreamInfo
+
+                stream_info = StreamInfo(
+                    url=str(cached_path),
+                    video_id=video_id,
+                    format=cached_path.suffix.lstrip(".") or "opus",
+                    bitrate=0,  # unknown for cached files
+                    duration=track.get("duration") or 0,
+                    expires_at=float("inf"),  # local files don't expire
+                    thumbnail_url=track.get("thumbnail_url"),
+                )
+                logger.info("Cache hit for %s — playing from %s", video_id, cached_path)
+
+        # Resolve via yt-dlp if no cache hit.
+        if stream_info is None:
+            try:
+                stream_info = await self.stream_resolver.resolve(video_id)
+            except Exception:
+                logger.debug("Stream resolution raised for %s", video_id, exc_info=True)
+                stream_info = None
 
         if stream_info is None:
+            # Stream resolve failed — clear debounce so user can retry.
+            self._last_play_video_id = ""
+            self._last_play_time = 0.0
             self._consecutive_failures += 1
             title = track.get("title", video_id)
             self.notify(
@@ -117,6 +147,9 @@ class PlaybackMixin:
             await self.player.play(stream_info.url, track)
         except Exception:
             logger.debug("player.play() failed for %s", video_id, exc_info=True)
+            # play() failed — clear debounce so user can retry.
+            self._last_play_video_id = ""
+            self._last_play_time = 0.0
             self._consecutive_failures += 1
             if self._consecutive_failures < _MAX_CONSECUTIVE_FAILURES:
                 next_track = self.queue.next_track()
@@ -290,13 +323,13 @@ class PlaybackMixin:
             try:
                 self.mpris.update_position(int(self.player.position * 1_000_000))
             except Exception:
-                logger.debug("Failed to update MPRIS position", exc_info=True)
+                logger.exception("MPRIS position update failed")
 
         if self.mac_media and self.player.is_playing:
             try:
                 self.mac_media.update_position(int(self.player.position * 1_000_000))
             except Exception:
-                logger.debug("Failed to update macOS media position", exc_info=True)
+                logger.exception("macOS Now Playing position update failed")
 
         # Check Last.fm scrobble threshold.
         if self.lastfm and self.lastfm.is_connected and self.player.is_playing:
@@ -307,7 +340,7 @@ class PlaybackMixin:
                     exclusive=True,
                 )
             except Exception:
-                logger.debug("Failed to check Last.fm scrobble", exc_info=True)
+                logger.exception("Last.fm scrobble check failed")
 
     def _on_track_change(self, track: dict) -> None:
         """Handle track change event from the player.
@@ -400,7 +433,7 @@ class PlaybackMixin:
                     lambda s=status, svc=mpris: self.run_worker(svc.update_playback_status(s))
                 )
             except Exception:
-                logger.debug("Failed to update MPRIS playback status", exc_info=True)
+                logger.exception("MPRIS playback status update failed")
 
         if self.mac_media:
             status = "Paused" if paused else "Playing"
@@ -410,7 +443,7 @@ class PlaybackMixin:
                     lambda s=status, svc=mac_media: self.run_worker(svc.update_playback_status(s))
                 )
             except Exception:
-                logger.debug("Failed to update macOS media status", exc_info=True)
+                logger.exception("macOS Now Playing playback status update failed")
 
         # Update Discord presence on pause/resume.
         if self.discord and self.discord.is_connected:
@@ -430,7 +463,7 @@ class PlaybackMixin:
                         )
                     )
             except Exception:
-                logger.debug("Failed to update Discord presence", exc_info=True)
+                logger.exception("Discord RPC presence update failed")
 
     # ── History logging ──────────────────────────────────────────────
 
