@@ -13,3 +13,30 @@ htmlcov/
 PRD.md
 .claude/
 uv.lock
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Python tooling caches
+.mypy_cache/
+.ruff_cache/
+
+# Build / test artifacts
+*.log
+result
+.direnv/
+
+# Browser automation
+.playwright-mcp/
+
+# Temp / scratch
+*.tmp
