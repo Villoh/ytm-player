@@ -575,6 +575,19 @@ def cache_clear() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Diagnostics (standalone)
+# ---------------------------------------------------------------------------
+
+
+@main.command()
+def doctor() -> None:
+    """Print diagnostics suitable for pasting into a GitHub issue."""
+    from ytm_player.utils.doctor import gather_diagnostics
+
+    click.echo(gather_diagnostics())
+
+
+# ---------------------------------------------------------------------------
 # Config (standalone)
 # ---------------------------------------------------------------------------
 
