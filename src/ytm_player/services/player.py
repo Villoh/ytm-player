@@ -436,7 +436,11 @@ class Player:
         try:
             logger.info("Re-initializing mpv instance...")
             with self._skip_lock:
+                # Clear both: skip counter has no meaning across mpv
+                # instances, and the previous track is gone with the old
+                # mpv (no end-file event will ever fire for it).
                 self._end_file_skip = 0
+                self._current_track = None
             self._mpv = self._init_mpv()
 
             # Restore volume if possible.
