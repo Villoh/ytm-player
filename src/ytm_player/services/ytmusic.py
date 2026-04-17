@@ -60,6 +60,11 @@ class YTMusicService:
             self._consecutive_api_failures = 0
             return result
         except Exception:
+            logger.exception(
+                "ytmusicapi call failed (func=%s, consecutive_failures=%d)",
+                getattr(func, "__name__", str(func)),
+                self._consecutive_api_failures + 1,
+            )
             self._consecutive_api_failures += 1
             if self._consecutive_api_failures >= _MAX_API_FAILURES_BEFORE_REINIT:
                 logger.warning(
