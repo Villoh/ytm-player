@@ -153,11 +153,22 @@ class SessionMixin:
             "theme": self.theme,
         }
         try:
+            import os
+
             from ytm_player.config.paths import SECURE_FILE_MODE, secure_chmod
 
             SESSION_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-            SESSION_STATE_FILE.write_text(json.dumps(state), encoding="utf-8")
-            secure_chmod(SESSION_STATE_FILE, SECURE_FILE_MODE)
+            tmp_path = SESSION_STATE_FILE.with_suffix(SESSION_STATE_FILE.suffix + ".tmp")
+            try:
+                tmp_path.write_text(json.dumps(state), encoding="utf-8")
+                secure_chmod(tmp_path, SECURE_FILE_MODE)
+                os.replace(tmp_path, SESSION_STATE_FILE)
+            finally:
+                if tmp_path.exists():
+                    try:
+                        tmp_path.unlink()
+                    except OSError:
+                        pass
         except Exception:
             logger.warning("Could not save session state", exc_info=True)
 
