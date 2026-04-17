@@ -77,14 +77,11 @@ class TestPlayCurrentTrackLocking:
             await player.play("http://stream", {"video_id": "new", "title": "New"})
 
         # After failure: _current_track should be cleared.
-        assert player._current_track is None, (
-            "play() error path must clear _current_track"
-        )
+        assert player._current_track is None, "play() error path must clear _current_track"
         # Lock should have been acquired at least twice (once for the play
         # setup, once for the cleanup).
         assert len(lock_acquisitions) >= 2, (
-            f"expected >=2 lock acquisitions (setup + error cleanup), "
-            f"got {len(lock_acquisitions)}"
+            f"expected >=2 lock acquisitions (setup + error cleanup), got {len(lock_acquisitions)}"
         )
         # ERROR event should have fired.
         assert len(errors) == 1
