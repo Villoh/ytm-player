@@ -3,13 +3,13 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "ytm-player"
+name = "ytm"
 dynamic = ["version"]
 description = "A full-featured YouTube Music TUI client for the terminal"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
-authors = [{ name = "Peter", email = "peternaame@gmail.com" }]
+authors = [{ name = "Villoh", email = "mikelvillotatic@gmail.com" }]
 keywords = ["youtube-music", "tui", "music-player", "terminal", "textual", "mpv"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -64,12 +64,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/peternaame-boop/ytm-player"
-Repository = "https://github.com/peternaame-boop/ytm-player"
-"Bug Tracker" = "https://github.com/peternaame-boop/ytm-player/issues"
-"AUR Package" = "https://aur.archlinux.org/packages/ytm-player-git"
-"Gentoo Package" = "https://gitweb.gentoo.org/repo/proj/guru.git/tree/media-sound/ytm-player"
-Changelog = "https://github.com/peternaame-boop/ytm-player/blob/master/CHANGELOG.md"
+Homepage = "https://github.com/Villoh/ytm"
+Repository = "https://github.com/Villoh/ytm"
+"Bug Tracker" = "https://github.com/Villoh/ytm/issues"
+Changelog = "https://github.com/Villoh/ytm/blob/master/CHANGELOG.md"
 
 [project.scripts]
 ytm = "ytm_player.cli:main"

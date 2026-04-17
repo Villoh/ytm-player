@@ -59,7 +59,7 @@ def _error(msg: str) -> NoReturn:
 def _require_tui() -> None:
     """Exit with an error if the TUI is not currently running."""
     if not is_tui_running():
-        _error("ytm-player is not running. Launch with `ytm` first.")
+        _error("ytm is not running. Launch with `ytm` first.")
 
 
 def _ipc(command: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -67,7 +67,7 @@ def _ipc(command: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
     try:
         return ipc_request(command, args)
     except (ConnectionRefusedError, FileNotFoundError, OSError):
-        _error("TUI is not responding. Is ytm-player running?")
+        _error("TUI is not responding. Is ytm running?")
 
 
 def _require_auth() -> Path:
@@ -84,7 +84,7 @@ def _require_auth() -> Path:
 
 
 @click.group(invoke_without_command=True)
-@click.version_option(version=__version__, prog_name="ytm-player")
+@click.version_option(version=__version__, prog_name="ytm")
 @click.option(
     "--json",
     "compact_json",
@@ -100,7 +100,7 @@ def _require_auth() -> Path:
 )
 @click.pass_context
 def main(ctx: click.Context, compact_json: bool, debug: bool) -> None:
-    """ytm-player -- a full-featured YouTube Music TUI client.
+    """ytm -- a full-featured YouTube Music TUI client.
 
     Launch without arguments to start the interactive TUI.
     Use subcommands for headless / scripting control.

@@ -16,29 +16,26 @@ SECURE_DIR_MODE = 0o700
 
 # --- Platform-aware base directories ---
 
+
 if sys.platform == "win32":
     _app_data = os.environ.get("APPDATA", str(Path.home() / "AppData" / "Roaming"))
     _local_data = os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))
-    CONFIG_DIR = Path(_app_data) / "ytm-player"
-    CACHE_DIR = Path(_local_data) / "ytm-player" / "audio"
-    CACHE_DB = Path(_local_data) / "ytm-player" / "cache.db"
+    CONFIG_DIR = Path(_app_data) / "ytm"
+    CACHE_DIR = Path(_local_data) / "ytm" / "audio"
+    CACHE_DB = Path(_local_data) / "ytm" / "cache.db"
 else:
     _xdg_config = os.environ.get("XDG_CONFIG_HOME")
     _xdg_cache = os.environ.get("XDG_CACHE_HOME")
-    CONFIG_DIR = (
-        (Path(_xdg_config) / "ytm-player")
-        if _xdg_config
-        else (Path.home() / ".config" / "ytm-player")
-    )
+    CONFIG_DIR = (Path(_xdg_config) / "ytm") if _xdg_config else (Path.home() / ".config" / "ytm")
     CACHE_DIR = (
-        (Path(_xdg_cache) / "ytm-player" / "audio")
+        (Path(_xdg_cache) / "ytm" / "audio")
         if _xdg_cache
-        else (Path.home() / ".cache" / "ytm-player" / "audio")
+        else (Path.home() / ".cache" / "ytm" / "audio")
     )
     CACHE_DB = (
-        (Path(_xdg_cache) / "ytm-player" / "cache.db")
+        (Path(_xdg_cache) / "ytm" / "cache.db")
         if _xdg_cache
-        else (Path.home() / ".cache" / "ytm-player" / "cache.db")
+        else (Path.home() / ".cache" / "ytm" / "cache.db")
     )
 
 CONFIG_FILE = CONFIG_DIR / "config.toml"
@@ -57,9 +54,7 @@ if sys.platform == "win32":
     SOCKET_PATH = None  # Not used on Windows.
 else:
     _xdg_runtime = os.environ.get("XDG_RUNTIME_DIR")
-    SOCKET_PATH = (
-        (Path(_xdg_runtime) / "ytm-player.sock") if _xdg_runtime else (CONFIG_DIR / "ytm.sock")
-    )
+    SOCKET_PATH = (Path(_xdg_runtime) / "ytm.sock") if _xdg_runtime else (CONFIG_DIR / "ytm.sock")
     IPC_PORT_FILE = None  # Not used on Unix.
 
 KEYMAP_FILE = CONFIG_DIR / "keymap.toml"

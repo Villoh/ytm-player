@@ -274,7 +274,7 @@ def match_tracks(
 ) -> list[MatchResult]:
     """Search YTM for each Spotify track and categorize matches."""
     if not _HAS_SPOTIFY_DEPS:
-        click.echo("Spotify import requires extra dependencies: pip install ytm-player[spotify]")
+        click.echo("Spotify import requires extra dependencies: pip install ytm[spotify]")
         return []
 
     # Pre-allocate results list so we can slot them back in order.
@@ -318,7 +318,7 @@ def _display_candidate(idx: int, candidate: dict) -> str:
 def run_import(spotify_url: str, auth_file: Path) -> None:
     """Orchestrate the full interactive Spotify → YTM import flow."""
     if not _HAS_SPOTIFY_DEPS:
-        click.echo("Spotify import requires extra dependencies: pip install ytm-player[spotify]")
+        click.echo("Spotify import requires extra dependencies: pip install ytm[spotify]")
         return
     console = Console()
 

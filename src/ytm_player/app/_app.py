@@ -104,7 +104,7 @@ class YTMPlayerApp(
     coordinates playback through the Player and QueueManager.
     """
 
-    TITLE = "ytm-player"
+    TITLE = "ytm"
     SUB_TITLE = "YouTube Music TUI"
 
     CSS = """

@@ -57,7 +57,7 @@ try:
 
         @dbus_property(access=PropertyAccess.READ)
         def Identity(self) -> "s":  # type: ignore[override]
-            return "ytm-player"
+            return "ytm"
 
         @dbus_property(access=PropertyAccess.READ)
         def CanQuit(self) -> "b":  # type: ignore[override]
@@ -73,7 +73,7 @@ try:
 
         @dbus_property(access=PropertyAccess.READ)
         def DesktopEntry(self) -> "s":  # type: ignore[override]
-            return "ytm-player"
+            return "ytm"
 
         @dbus_property(access=PropertyAccess.READ)
         def SupportedUriSchemes(self) -> "as":  # type: ignore[override]
