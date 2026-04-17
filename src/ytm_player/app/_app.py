@@ -19,6 +19,7 @@ from ytm_player.app._session import SessionMixin
 from ytm_player.app._sidebar import SidebarMixin
 from ytm_player.app._track_actions import TrackActionsMixin
 from ytm_player.config import KeyMap, get_keymap
+from ytm_player.config.paths import THEME_FILE  # noqa: F401  # module-level for monkeypatch
 from ytm_player.config.settings import Settings, get_settings
 from ytm_player.ipc import IPCServer, remove_pid, write_pid
 from ytm_player.services.auth import AuthManager
@@ -42,6 +43,44 @@ from ytm_player.ui.theme import ThemeColors, get_theme
 logger = logging.getLogger(__name__)
 
 _POSITION_POLL_INTERVAL = 0.5
+
+# Cache for theme.toml so get_css_variables doesn't re-parse TOML on
+# every CSS resolution.  Invalidated when the file's mtime changes
+# (covers user edits via `ytm config` or external editors).
+_theme_toml_cache: dict | None = None
+_theme_toml_mtime: float | None = None
+
+
+def _read_theme_toml_cached() -> dict:
+    """Return the [colors] section of theme.toml, cached by file mtime."""
+    global _theme_toml_cache, _theme_toml_mtime
+
+    # Re-read the THEME_FILE binding dynamically (tests monkeypatch this module attribute).
+    path = globals().get("THEME_FILE")
+    if path is None:
+        return {}
+
+    try:
+        if not path.exists():
+            _theme_toml_cache = {}
+            _theme_toml_mtime = None
+            return _theme_toml_cache
+
+        mtime = path.stat().st_mtime
+        if _theme_toml_cache is not None and _theme_toml_mtime == mtime:
+            return _theme_toml_cache
+
+        import tomllib
+
+        with open(path, "rb") as f:
+            data = tomllib.load(f)
+        # The file may have a [colors] table OR be a flat top-level dict.
+        colors = data.get("colors", data)
+        _theme_toml_cache = colors if isinstance(colors, dict) else {}
+        _theme_toml_mtime = mtime
+        return _theme_toml_cache
+    except Exception:
+        return {}
 
 
 # ── Main Application ────────────────────────────────────────────────
@@ -202,44 +241,35 @@ class YTMPlayerApp(
                 variables[key] = default
 
         # Apply theme.toml overrides on top (user customizations win over everything).
-        from ytm_player.config.paths import THEME_FILE
-
-        if THEME_FILE.exists():
-            try:
-                import tomllib
-
-                with open(THEME_FILE, "rb") as f:
-                    data = tomllib.load(f)
-                colors = data.get("colors", data)
-                # Map underscore field names to CSS dash-case variable names.
-                field_to_css = {
-                    "background": "background",
-                    "foreground": "foreground",
-                    "primary": "primary",
-                    "secondary": "secondary",
-                    "accent": "accent",
-                    "success": "success",
-                    "warning": "warning",
-                    "error": "error",
-                    "surface": "surface",
-                    "border": "border",
-                    "text": "text",
-                    "muted_text": "text-muted",
-                    "playback_bar_bg": "playback-bar-bg",
-                    "active_tab": "active-tab",
-                    "inactive_tab": "inactive-tab",
-                    "selected_item": "selected-item",
-                    "progress_filled": "progress-filled",
-                    "progress_empty": "progress-empty",
-                    "lyrics_played": "lyrics-played",
-                    "lyrics_current": "lyrics-current",
-                    "lyrics_upcoming": "lyrics-upcoming",
-                }
-                for field_name, css_name in field_to_css.items():
-                    if field_name in colors:
-                        variables[css_name] = colors[field_name]
-            except Exception:
-                pass
+        colors = _read_theme_toml_cached()
+        if colors:
+            # Map underscore field names to CSS dash-case variable names.
+            field_to_css = {
+                "background": "background",
+                "foreground": "foreground",
+                "primary": "primary",
+                "secondary": "secondary",
+                "accent": "accent",
+                "success": "success",
+                "warning": "warning",
+                "error": "error",
+                "surface": "surface",
+                "border": "border",
+                "text": "text",
+                "muted_text": "text-muted",
+                "playback_bar_bg": "playback-bar-bg",
+                "active_tab": "active-tab",
+                "inactive_tab": "inactive-tab",
+                "selected_item": "selected-item",
+                "progress_filled": "progress-filled",
+                "progress_empty": "progress-empty",
+                "lyrics_played": "lyrics-played",
+                "lyrics_current": "lyrics-current",
+                "lyrics_upcoming": "lyrics-upcoming",
+            }
+            for field_name, css_name in field_to_css.items():
+                if field_name in colors:
+                    variables[css_name] = colors[field_name]
 
         return variables
 
