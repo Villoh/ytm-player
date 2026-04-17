@@ -107,7 +107,7 @@ class AlbumArt(Widget):
             h = self.size.height
             if w < 2 or h < 1:
                 return
-            rendered = self._image_to_half_blocks(img_bytes, w, h)
+            rendered = await asyncio.to_thread(self._image_to_half_blocks, img_bytes, w, h)
 
             # Cache it.
             _ART_CACHE[url] = rendered
