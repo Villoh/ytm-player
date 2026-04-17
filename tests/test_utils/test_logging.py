@@ -39,11 +39,7 @@ class TestSetupLogging:
         log_file = tmp_path / "ytm.log"
         setup_logging(level="INFO", log_file=log_file)
         setup_logging(level="INFO", log_file=log_file)
-        rotating = [
-            h
-            for h in logging.getLogger().handlers
-            if isinstance(h, RotatingFileHandler)
-        ]
+        rotating = [h for h in logging.getLogger().handlers if isinstance(h, RotatingFileHandler)]
         assert len(rotating) == 1
 
     def test_writes_to_file(self, tmp_path: Path):
@@ -99,12 +95,8 @@ class TestInstallExcepthooks:
         try:
             raise RuntimeError("thread boom")
         except RuntimeError:
-            args = threading.ExceptHookArgs(
-                exc_type=type(sys.exc_info()[1]),
-                exc_value=sys.exc_info()[1],
-                exc_traceback=sys.exc_info()[2],
-                thread=threading.current_thread(),
-            )
+            ei = sys.exc_info()
+            args = threading.ExceptHookArgs((type(ei[1]), ei[1], ei[2], threading.current_thread()))
             threading.excepthook(args)
 
         files = sorted(crash_dir.glob("ytm-crash-*.log"))
@@ -131,6 +123,40 @@ class TestInstallExcepthooks:
 
         files = sorted(crash_dir.glob("ytm-crash-*.log"))
         assert len(files) == 3, f"expected 3, got {len(files)}: {files}"
+
+    def test_keyboard_interrupt_does_not_create_crash_file(self, tmp_path: Path):
+        from ytm_player.utils.logging import install_excepthooks
+
+        crash_dir = tmp_path / "crashes"
+        install_excepthooks(crash_dir=crash_dir, keep=5)
+
+        try:
+            raise KeyboardInterrupt()
+        except KeyboardInterrupt:
+            sys.excepthook(*sys.exc_info())
+
+        files = list(crash_dir.glob("ytm-crash-*.log"))
+        assert files == []
+
+    def test_thread_hook_chains_to_default(self, tmp_path: Path, capsys):
+        from ytm_player.utils.logging import install_excepthooks
+
+        crash_dir = tmp_path / "crashes"
+        install_excepthooks(crash_dir=crash_dir, keep=5)
+
+        try:
+            raise RuntimeError("chain me")
+        except RuntimeError:
+            ei = sys.exc_info()
+            args = threading.ExceptHookArgs((type(ei[1]), ei[1], ei[2], threading.current_thread()))
+            threading.excepthook(args)
+
+        # File written.
+        files = list(crash_dir.glob("ytm-crash-*.log"))
+        assert len(files) == 1
+        # Default thread excepthook writes traceback to stderr.
+        captured = capsys.readouterr()
+        assert "chain me" in captured.err
 
     @pytest.fixture(autouse=True)
     def _reset_excepthooks(self):
