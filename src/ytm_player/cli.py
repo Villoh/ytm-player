@@ -92,8 +92,14 @@ def _require_auth() -> Path:
     hidden=True,
     help="Compact JSON output (no indentation).",
 )
+@click.option(
+    "--debug",
+    is_flag=True,
+    default=False,
+    help="Enable verbose DEBUG logging to ~/.config/ytm-player/logs/ytm.log",
+)
 @click.pass_context
-def main(ctx: click.Context, compact_json: bool) -> None:
+def main(ctx: click.Context, compact_json: bool, debug: bool) -> None:
     """ytm-player -- a full-featured YouTube Music TUI client.
 
     Launch without arguments to start the interactive TUI.
@@ -104,13 +110,22 @@ def main(ctx: click.Context, compact_json: bool) -> None:
     ctx.ensure_object(dict)
     ctx.obj["compact"] = compact_json
 
+    if debug and ctx.invoked_subcommand is not None:
+        # Subcommands don't get file logging (multi-process safety),
+        # but with --debug we still want to see something. Stderr is OK
+        # here since subcommands don't take over the screen.
+        import logging as _logging
+
+        _logging.basicConfig(level=_logging.DEBUG, format="%(levelname)s: %(message)s")
+
     if ctx.invoked_subcommand is None:
         # File logging + crash capture only for the long-lived TUI process.
         # Subcommands (ytm play / pause / etc.) are short-lived IPC clients;
         # giving them their own file handler would race the TUI's
         # RotatingFileHandler (not multi-process safe).
+        log_level = "DEBUG" if debug else settings.logging.level
         setup_logging(
-            level=settings.logging.level,
+            level=log_level,
             log_file=LOG_FILE,
             max_bytes=settings.logging.max_bytes,
             backup_count=settings.logging.backup_count,
