@@ -115,3 +115,17 @@ class TestCheckForUpdate:
         assert result is None
         # Cache IS written (we successfully fetched) — just nothing to surface.
         assert cache.exists()
+
+    def test_clock_skew_triggers_fetch(self, tmp_path):
+        """checked_at in the future (clock went backwards) → re-fetch."""
+        cache = tmp_path / "update_check.json"
+        cache.write_text(
+            json.dumps({"checked_at": time.time() + 86400, "latest": "1.5.0"}),
+            encoding="utf-8",
+        )
+        with patch(
+            "ytm_player.services.update_check._fetch_latest_from_pypi",
+            return_value="1.7.0",
+        ):
+            result = check_for_update("1.6.0", cache)
+        assert result == "1.7.0"

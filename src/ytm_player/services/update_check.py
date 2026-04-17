@@ -102,7 +102,9 @@ def check_for_update(current_version: str, cache_file: Path) -> str | None:
     """
     cache = _read_cache(cache_file)
     last_checked = float(cache.get("checked_at", 0) or 0)
-    if time.time() - last_checked < _CHECK_INTERVAL_SECONDS:
+    elapsed = time.time() - last_checked
+    # Negative elapsed (clock went backwards) → treat as stale and re-fetch.
+    if 0 <= elapsed < _CHECK_INTERVAL_SECONDS:
         latest = cache.get("latest")
         if latest and _is_newer(latest, current_version):
             return latest
