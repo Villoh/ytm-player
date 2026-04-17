@@ -49,6 +49,43 @@ def _fresh_playback_host():
 
 
 class TestPlayTrackDebounce:
+    async def test_failed_play_clears_debounce_so_retry_works(self, monkeypatch):
+        """Regression: stream-resolve failure must clear the debounce stamp.
+
+        Otherwise the user clicking the same track again within 1s gets
+        silently no-op'd instead of retrying.
+        """
+        host = _fresh_playback_host()
+        # Resolver returns None — simulating "stream unavailable".
+        host.stream_resolver.resolve = AsyncMock(return_value=None)
+        # No queue advance candidate.
+        host.queue.next_track = MagicMock(return_value=None)
+
+        monkeypatch.setattr("ytm_player.app._playback.time.monotonic", lambda: 100.0)
+
+        track = {"video_id": "abc", "title": "X"}
+        await host.play_track(track)
+
+        # First call set the stamp, then the failure handler should have cleared it.
+        assert host._last_play_video_id == ""
+
+        # Second call within "1s" should NOT be debounced.
+        from ytm_player.services.stream import StreamInfo
+
+        host.stream_resolver.resolve = AsyncMock(
+            return_value=StreamInfo(
+                url="http://x",
+                video_id="abc",
+                format="opus",
+                bitrate=128,
+                duration=200,
+                expires_at=float("inf"),
+                thumbnail_url=None,
+            )
+        )
+        await host.play_track(track)
+        host.player.play.assert_called_once()
+
     async def test_same_video_id_within_1s_is_debounced(self, monkeypatch):
         """Calling play_track twice for same video_id within 1s is a no-op the second time."""
         host = _fresh_playback_host()

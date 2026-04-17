@@ -108,6 +108,9 @@ class PlaybackMixin:
                 stream_info = None
 
         if stream_info is None:
+            # Stream resolve failed — clear debounce so user can retry.
+            self._last_play_video_id = ""
+            self._last_play_time = 0.0
             self._consecutive_failures += 1
             title = track.get("title", video_id)
             self.notify(
@@ -144,6 +147,9 @@ class PlaybackMixin:
             await self.player.play(stream_info.url, track)
         except Exception:
             logger.debug("player.play() failed for %s", video_id, exc_info=True)
+            # play() failed — clear debounce so user can retry.
+            self._last_play_video_id = ""
+            self._last_play_time = 0.0
             self._consecutive_failures += 1
             if self._consecutive_failures < _MAX_CONSECUTIVE_FAILURES:
                 next_track = self.queue.next_track()
