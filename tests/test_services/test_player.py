@@ -28,7 +28,9 @@ def player(monkeypatch):
     mock_mpv_instance.pause = False
     mock_mpv_class = MagicMock(return_value=mock_mpv_instance)
 
-    monkeypatch.setattr("mpv.MPV", mock_mpv_class)
+    # Patch the mpv proxy on the player module — works whether mpv is the
+    # real python-mpv module or the stub substituted when libmpv is absent.
+    monkeypatch.setattr("ytm_player.services.player.mpv.MPV", mock_mpv_class)
 
     p = Player()
     p._mpv = mock_mpv_instance  # ensure tests use the mock
