@@ -80,6 +80,7 @@ class QueuePage(Widget):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._row_keys: list[RowKey] = []
+        self._playing_row: int | None = None  # tracks last play indicator position
         self._track_change_callback: Any = None
         # Filter state — maps visible row index → real queue index.
         self._filter_text: str = ""
@@ -142,9 +143,14 @@ class QueuePage(Widget):
             logger.debug("Failed to update queue page on track change", exc_info=True)
 
     def _update_current_track(self) -> None:
-        """Lightweight update: refresh header and play indicator without rebuilding the table."""
+        """Lightweight update: refresh header and play indicator without rebuilding the table.
+
+        Player events are dispatched onto the asyncio loop via
+        ``call_soon_threadsafe`` (see services/player.py), so this
+        callback already runs on the main thread — call directly.
+        """
         queue = self.app.queue  # type: ignore[attr-defined]
-        current_index = queue.current_index
+        new_index = queue.current_index
         current_track = queue.current_track
 
         # Update the "Now Playing" header.
@@ -159,16 +165,28 @@ class QueuePage(Widget):
         else:
             header.display = False
 
-        # Update the play indicator column without clearing/rebuilding rows.
+        # Only update the previous and new play-indicator cells (O(1) not O(n)).
         table = self.query_one("#queue-table", DataTable)
-        for i, row_key in enumerate(self._row_keys):
-            indicator = "\u25b6" if i == current_index else str(i + 1)
+        old_index = self._playing_row
+
+        if old_index == new_index:
+            return  # Cursor is already showing the right row — no-op.
+
+        # Restore the old row's index number.
+        if old_index is not None and 0 <= old_index < len(self._row_keys):
             try:
-                table.update_cell(row_key, "index", indicator)
+                table.update_cell(self._row_keys[old_index], "index", str(old_index + 1))
             except Exception:
-                # Row may have been removed; fall back to full refresh.
-                self._refresh_queue()
-                return
+                logger.debug("Failed to restore old play indicator", exc_info=True)
+
+        # Set the play indicator on the new row.
+        if new_index is not None and 0 <= new_index < len(self._row_keys):
+            try:
+                table.update_cell(self._row_keys[new_index], "index", "\u25b6")
+            except Exception:
+                logger.debug("Failed to set play indicator", exc_info=True)
+
+        self._playing_row = new_index
 
     # ── Queue rendering ───────────────────────────────────────────────
 
@@ -225,6 +243,7 @@ class QueuePage(Widget):
                 self._row_keys.append(row_key)
 
         self.queue_length = len(tracks)
+        self._playing_row = current_index
         self._update_footer()
 
     def _update_footer(self) -> None:

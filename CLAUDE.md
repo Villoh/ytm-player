@@ -80,6 +80,23 @@ ruff check src/ tests/
 - Test fixtures in `tests/conftest.py`: `sample_track`/`sample_tracks` use `_make_track()` helper to create standardized track dicts; `queue_manager` provides a fresh `QueueManager` instance
 - CI runs on GitHub Actions (ubuntu, Python 3.12): ruff lint + format check, then pytest with coverage
 
+## Logging
+
+Logs go to `~/.config/ytm-player/logs/ytm.log` via `setup_logging()` in
+`src/ytm_player/utils/logging.py`. **Never use `print()`** in
+non-CLI code — Textual's alt-screen swallows stderr.
+
+Conventions:
+- Use `logger = logging.getLogger(__name__)` at module top.
+- For caught exceptions you want to surface in bug reports, use
+  `logger.exception("descriptive message")` — *not* `logger.debug(...,
+  exc_info=True)`, which silently routes to debug level.
+- Reserve `logger.debug` for verbose tracing only enabled with `--debug`.
+- Unhandled crashes are captured by `install_excepthooks()` and written
+  to `~/.config/ytm-player/crashes/`.
+- For diagnostics, run `ytm doctor` — outputs version, paths, recent
+  log, and most recent crash trace, suitable for pasting into issues.
+
 ## AUR Package
 
 This project is published on AUR as `ytm-player-git`. The PKGBUILD lives in `aur/PKGBUILD`.

@@ -246,7 +246,7 @@ class Player:
                 try:
                     await coro_fn(*call_args)
                 except Exception:
-                    logger.debug("Async callback error for %s", event, exc_info=True)
+                    logger.exception("Async callback failed (event=%s)", event)
 
             task = asyncio.create_task(_safe_wrapper())
             self._background_tasks.add(task)
@@ -257,7 +257,7 @@ class Player:
             try:
                 sync_fn(*call_args)
             except Exception:
-                logger.debug("Sync callback error for %s", event, exc_info=True)
+                logger.exception("Sync callback failed (event=%s)", event)
 
         for cb in list(self._callbacks[event]):
             try:
@@ -275,7 +275,7 @@ class Player:
                     else:
                         cb(*args)
             except Exception:
-                logger.debug("Error in %s callback", event, exc_info=True)
+                logger.exception("Failed to schedule %s callback", event)
 
     # ── mpv observers ───────────────────────────────────────────────
 
@@ -354,7 +354,8 @@ class Player:
             await asyncio.to_thread(self._play_sync, url)
             self._dispatch(PlayerEvent.TRACK_CHANGE, track_info)
         except Exception as exc:
-            self._current_track = None
+            with self._skip_lock:
+                self._current_track = None
             logger.error("Failed to play %s: %s", track_info.get("video_id", "?"), exc)
             self._dispatch(PlayerEvent.ERROR, exc)
 
@@ -381,11 +382,11 @@ class Player:
         self._mpv.pause = not self._mpv.pause
 
     async def stop(self) -> None:
-        if self._current_track is not None:
-            with self._skip_lock:
+        with self._skip_lock:
+            if self._current_track is not None:
                 self._end_file_skip += 1
+            self._current_track = None
         self._mpv.stop()
-        self._current_track = None
 
     async def seek(self, seconds: float) -> None:
         """Seek relative to the current position."""
@@ -435,6 +436,11 @@ class Player:
         try:
             logger.info("Re-initializing mpv instance...")
             with self._skip_lock:
+                # Reset skip counter — it has no meaning across mpv instances.
+                # Do NOT clear _current_track: _try_recover is only called from
+                # within play() which has already set _current_track to the
+                # NEW track we're about to play. Clearing it would break
+                # downstream readers (MPRIS, Discord, _on_end_file guard).
                 self._end_file_skip = 0
             self._mpv = self._init_mpv()
 

@@ -18,6 +18,7 @@ class GeneralSettings:
     startup_page: str = "library"
     playback_bar_position: str = "bottom"
     brand_account_id: str = ""
+    check_for_updates: bool = True
 
 
 @dataclass
@@ -99,6 +100,14 @@ class LastFMSettings:
     password_hash: str = ""
 
 
+@dataclass
+class LoggingSettings:
+    level: str = "WARNING"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+    max_bytes: int = 5 * 1024 * 1024  # 5 MB per file
+    backup_count: int = 3  # rotate up to 3 old log files
+    keep_crashes: int = 10  # max number of crash files to keep
+
+
 SECTION_MAP: dict[str, type] = {
     "general": GeneralSettings,
     "playback": PlaybackSettings,
@@ -111,6 +120,7 @@ SECTION_MAP: dict[str, type] = {
     "lyrics": LyricsSettings,
     "discord": DiscordSettings,
     "lastfm": LastFMSettings,
+    "logging": LoggingSettings,
 }
 
 
@@ -127,6 +137,7 @@ class Settings:
     lyrics: LyricsSettings = field(default_factory=LyricsSettings)
     discord: DiscordSettings = field(default_factory=DiscordSettings)
     lastfm: LastFMSettings = field(default_factory=LastFMSettings)
+    logging: LoggingSettings = field(default_factory=LoggingSettings)
 
     @classmethod
     def load(cls, path: Path = CONFIG_FILE) -> Self:
@@ -165,6 +176,8 @@ class Settings:
         return settings
 
     def save(self, path: Path = CONFIG_FILE) -> None:
+        import os
+
         from ytm_player.config.paths import SECURE_FILE_MODE, secure_chmod
 
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -178,8 +191,18 @@ class Settings:
                 lines.append(f"{f_info.name} = {_format_toml_value(value)}")
             lines.append("")
 
-        path.write_text("\n".join(lines), encoding="utf-8")
-        secure_chmod(path, SECURE_FILE_MODE)
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
+        try:
+            tmp_path.write_text("\n".join(lines), encoding="utf-8")
+            secure_chmod(tmp_path, SECURE_FILE_MODE)
+            os.replace(tmp_path, path)
+        finally:
+            # Clean up temp file if replace failed.
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
 
     def _create_default(self, path: Path) -> None:
         self.save(path)

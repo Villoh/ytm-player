@@ -1,0 +1,131 @@
+"""Tests for services/update_check.py — the PyPI version probe."""
+
+from __future__ import annotations
+
+import json
+import time
+from unittest.mock import patch
+
+from ytm_player.services.update_check import (
+    _is_newer,
+    _parse_version,
+    check_for_update,
+)
+
+
+class TestParseVersion:
+    def test_simple(self):
+        assert _parse_version("1.6.0") == (1, 6, 0)
+
+    def test_two_part(self):
+        assert _parse_version("1.6") == (1, 6)
+
+    def test_prerelease_truncated(self):
+        # 1.6.0rc1 parses to (1, 6, 0) and stops at the suffix —
+        # crucially, it must compare LESS than 1.6.0.
+        assert _parse_version("1.6.0rc1") == (1, 6, 0)
+
+    def test_garbage_returns_empty(self):
+        assert _parse_version("garbage") == ()
+
+
+class TestIsNewer:
+    def test_newer_patch(self):
+        assert _is_newer("1.6.1", "1.6.0") is True
+
+    def test_newer_minor(self):
+        assert _is_newer("1.7.0", "1.6.5") is True
+
+    def test_same_version(self):
+        assert _is_newer("1.6.0", "1.6.0") is False
+
+    def test_older(self):
+        assert _is_newer("1.5.9", "1.6.0") is False
+
+    def test_unparseable_returns_false(self):
+        assert _is_newer("garbage", "1.6.0") is False
+
+
+class TestCheckForUpdate:
+    def test_cache_within_24h_skips_network(self, tmp_path):
+        cache = tmp_path / "update_check.json"
+        cache.write_text(
+            json.dumps({"checked_at": time.time(), "latest": "1.7.0"}),
+            encoding="utf-8",
+        )
+        with patch("ytm_player.services.update_check._fetch_latest_from_pypi") as fetch:
+            result = check_for_update("1.6.0", cache)
+        assert result == "1.7.0"
+        fetch.assert_not_called()
+
+    def test_cache_within_24h_no_update_returns_none(self, tmp_path):
+        cache = tmp_path / "update_check.json"
+        cache.write_text(
+            json.dumps({"checked_at": time.time(), "latest": "1.6.0"}),
+            encoding="utf-8",
+        )
+        result = check_for_update("1.6.0", cache)
+        assert result is None
+
+    def test_stale_cache_triggers_fetch(self, tmp_path):
+        cache = tmp_path / "update_check.json"
+        cache.write_text(
+            json.dumps({"checked_at": 0, "latest": "1.5.0"}),
+            encoding="utf-8",
+        )
+        with patch(
+            "ytm_player.services.update_check._fetch_latest_from_pypi",
+            return_value="1.7.0",
+        ):
+            result = check_for_update("1.6.0", cache)
+        assert result == "1.7.0"
+        # Cache should now be updated.
+        new_cache = json.loads(cache.read_text(encoding="utf-8"))
+        assert new_cache["latest"] == "1.7.0"
+
+    def test_no_cache_file_triggers_fetch(self, tmp_path):
+        cache = tmp_path / "missing.json"
+        with patch(
+            "ytm_player.services.update_check._fetch_latest_from_pypi",
+            return_value="1.7.0",
+        ):
+            result = check_for_update("1.6.0", cache)
+        assert result == "1.7.0"
+        assert cache.exists()
+
+    def test_network_failure_returns_none(self, tmp_path):
+        cache = tmp_path / "missing.json"
+        with patch(
+            "ytm_player.services.update_check._fetch_latest_from_pypi",
+            return_value=None,
+        ):
+            result = check_for_update("1.6.0", cache)
+        assert result is None
+        # Cache NOT written on failure.
+        assert not cache.exists()
+
+    def test_pypi_returns_older_version(self, tmp_path):
+        """Should not surface an "update" if PyPI has an older version (e.g. yanked)."""
+        cache = tmp_path / "missing.json"
+        with patch(
+            "ytm_player.services.update_check._fetch_latest_from_pypi",
+            return_value="1.5.0",
+        ):
+            result = check_for_update("1.6.0", cache)
+        assert result is None
+        # Cache IS written (we successfully fetched) — just nothing to surface.
+        assert cache.exists()
+
+    def test_clock_skew_triggers_fetch(self, tmp_path):
+        """checked_at in the future (clock went backwards) → re-fetch."""
+        cache = tmp_path / "update_check.json"
+        cache.write_text(
+            json.dumps({"checked_at": time.time() + 86400, "latest": "1.5.0"}),
+            encoding="utf-8",
+        )
+        with patch(
+            "ytm_player.services.update_check._fetch_latest_from_pypi",
+            return_value="1.7.0",
+        ):
+            result = check_for_update("1.6.0", cache)
+        assert result == "1.7.0"

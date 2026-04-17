@@ -11,6 +11,8 @@ from ytm_player.ui.sidebars.lyrics_sidebar import LyricsSidebar
 
 logger = logging.getLogger(__name__)
 
+_SESSION_SCHEMA_VERSION = 1
+
 
 class SessionMixin:
     """Persist and restore session state (volume, shuffle, repeat, queue, etc.)."""
@@ -25,6 +27,18 @@ class SessionMixin:
                 state = json.loads(SESSION_STATE_FILE.read_text(encoding="utf-8"))
         except Exception:
             logger.debug("Could not read session state", exc_info=True)
+
+        # Schema version check: discard state from incompatible older/future formats.
+        file_version = state.get("schema_version")
+        if file_version != _SESSION_SCHEMA_VERSION:
+            if file_version is not None:
+                logger.warning(
+                    "Discarding session state — schema_version %r != %d (expected). "
+                    "Settings will reset to defaults.",
+                    file_version,
+                    _SESSION_SCHEMA_VERSION,
+                )
+            state = {}
 
         volume = state.get("volume", self.settings.playback.default_volume)
         await self.player.set_volume(volume)
@@ -141,6 +155,7 @@ class SessionMixin:
                 }
 
         state = {
+            "schema_version": _SESSION_SCHEMA_VERSION,
             "volume": volume,
             "repeat": self.queue.repeat_mode.value,
             "shuffle": self.queue.shuffle_enabled,
@@ -153,11 +168,22 @@ class SessionMixin:
             "theme": self.theme,
         }
         try:
+            import os
+
             from ytm_player.config.paths import SECURE_FILE_MODE, secure_chmod
 
             SESSION_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-            SESSION_STATE_FILE.write_text(json.dumps(state), encoding="utf-8")
-            secure_chmod(SESSION_STATE_FILE, SECURE_FILE_MODE)
+            tmp_path = SESSION_STATE_FILE.with_suffix(SESSION_STATE_FILE.suffix + ".tmp")
+            try:
+                tmp_path.write_text(json.dumps(state), encoding="utf-8")
+                secure_chmod(tmp_path, SECURE_FILE_MODE)
+                os.replace(tmp_path, SESSION_STATE_FILE)
+            finally:
+                if tmp_path.exists():
+                    try:
+                        tmp_path.unlink()
+                    except OSError:
+                        pass
         except Exception:
             logger.warning("Could not save session state", exc_info=True)
 
