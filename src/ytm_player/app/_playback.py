@@ -290,13 +290,13 @@ class PlaybackMixin:
             try:
                 self.mpris.update_position(int(self.player.position * 1_000_000))
             except Exception:
-                logger.debug("Failed to update MPRIS position", exc_info=True)
+                logger.exception("MPRIS position update failed")
 
         if self.mac_media and self.player.is_playing:
             try:
                 self.mac_media.update_position(int(self.player.position * 1_000_000))
             except Exception:
-                logger.debug("Failed to update macOS media position", exc_info=True)
+                logger.exception("macOS Now Playing position update failed")
 
         # Check Last.fm scrobble threshold.
         if self.lastfm and self.lastfm.is_connected and self.player.is_playing:
@@ -307,7 +307,7 @@ class PlaybackMixin:
                     exclusive=True,
                 )
             except Exception:
-                logger.debug("Failed to check Last.fm scrobble", exc_info=True)
+                logger.exception("Last.fm scrobble check failed")
 
     def _on_track_change(self, track: dict) -> None:
         """Handle track change event from the player.
@@ -400,7 +400,7 @@ class PlaybackMixin:
                     lambda s=status, svc=mpris: self.run_worker(svc.update_playback_status(s))
                 )
             except Exception:
-                logger.debug("Failed to update MPRIS playback status", exc_info=True)
+                logger.exception("MPRIS playback status update failed")
 
         if self.mac_media:
             status = "Paused" if paused else "Playing"
@@ -410,7 +410,7 @@ class PlaybackMixin:
                     lambda s=status, svc=mac_media: self.run_worker(svc.update_playback_status(s))
                 )
             except Exception:
-                logger.debug("Failed to update macOS media status", exc_info=True)
+                logger.exception("macOS Now Playing playback status update failed")
 
         # Update Discord presence on pause/resume.
         if self.discord and self.discord.is_connected:
@@ -430,7 +430,7 @@ class PlaybackMixin:
                         )
                     )
             except Exception:
-                logger.debug("Failed to update Discord presence", exc_info=True)
+                logger.exception("Discord RPC presence update failed")
 
     # ── History logging ──────────────────────────────────────────────
 
