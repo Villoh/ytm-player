@@ -6,6 +6,59 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+### v1.6.0 (2026-04-17)
+
+A polish release focused on diagnostics, stability, security, and performance.
+51 commits, 65 new tests (491 total), no headline user-facing features — but a
+lot of friction removed from "what do I do when something breaks?"
+
+**New**
+
+- `ytm doctor` command — prints a one-paste diagnostic report (version, Python, mpv, OS, recent log lines, most recent crash trace). Drop the output into a bug report and you've given me everything I need to triage.
+- File-based logging — logs now go to `~/.config/ytm-player/logs/ytm.log` (rotated, 5×1MB by default). Previously, log output disappeared into Textual's alt-screen and was unrecoverable. New `[logging]` config section exposes level + rotation knobs. New `--debug` CLI flag enables verbose tracing.
+- Crash file capture — unhandled exceptions from any thread now write a full traceback to `~/.config/ytm-player/crashes/` so you have something to attach to issues even when the app is dead.
+- Local audio cache now serves replays — previously the `CacheManager` indexed downloaded tracks but `play_track()` never asked it. Cached files (downloads + replayed tracks under your `[cache] max_size_gb`) now bypass yt-dlp entirely for instant playback with no network round-trip.
+- Update notifications on startup — a background worker checks PyPI once per 24 hours and surfaces a one-time toast when a newer version is available. Silent on network failure, cache lives at `~/.config/ytm-player/update_check.json`. Opt out by setting `check_for_updates = false` in `[general]`.
+- Session.json schema versioning — `schema_version` field lets future format changes detect-and-discard incompatible state instead of silently misbehaving.
+
+**Fixes — security**
+
+- IPC socket is now created owner-only via `umask(0o077)` around `bind()`, in addition to the existing `chmod 0600`.
+
+**Fixes — concurrency / stability**
+
+- Player no longer races on track changes — `_current_track` writes during `play()` and `stop()` are now under `_skip_lock`, preventing torn reads from MPRIS, Discord, Last.fm, and the end-of-track callback during rapid skips (C1).
+- mpv crash recovery no longer silently breaks subsequent playback — when `_play_sync` catches `mpv.ShutdownError` and `_try_recover` succeeds, `_current_track` and the `TRACK_CHANGE` event payload now stay consistent. (Two issues here: an initial fix went too far and cleared `_current_track` mid-`play()`, breaking MPRIS/Discord/Last.fm and stopping auto-advance after recovery — caught in final review and reverted.)
+- `ytmusic.get_playlist(order=...)` is now safe under concurrent calls — the function monkey-patches ytmusicapi's internal `_send_request` to inject the `order` parameter, but two concurrent calls would corrupt the patch state. Now serialized with an `asyncio.Lock` (C3).
+- Settings.toml and session.json writes are now atomic — uses `os.replace` after writing to a `.tmp` sibling, so power loss / `kill -9` mid-write can no longer leave you with a half-written file that crashes startup.
+- Session.json corruption no longer crashes startup — bad JSON or schema mismatch falls back to defaults silently. First launch (file absent) stays silent; format mismatch on existing files logs a warning.
+- Play failures no longer block retry within 1 second — the double-click debounce stamp now clears on stream-resolution failure or `player.play()` exception, so clicking the same track again after a failure isn't silently swallowed.
+- Update check no longer pins users to a stale "latest" if the system clock ever ran fast — negative cache age now triggers a re-fetch.
+- Bare `except:` swallows promoted to `logger.exception` in 6 high-impact spots (player callbacks, ytmusic API failures, MPRIS/Discord/Last.fm errors, history logging) — failures that previously vanished now show up in `~/.config/ytm-player/logs/ytm.log` with a stack trace.
+
+**Performance**
+
+- Theme switches feel instant — `theme.toml` is now mtime-cached in `get_css_variables` instead of being parsed from disk on every CSS variable lookup. Edits to `theme.toml` still pick up automatically (mtime invalidates the cache).
+- Queue page play-indicator update is O(1) instead of O(n) — switching tracks no longer rewrites every row in queues with hundreds of tracks; only the changed cells are touched.
+- Album art rendering moved off the event loop — `_image_to_half_blocks` (PIL resize + per-pixel iteration) now runs in `asyncio.to_thread`, so loading a thumbnail never blocks input handling.
+- Library page background workers cancel on page removal — the "fetch remaining tracks" worker for large libraries no longer keeps running after you've navigated away.
+
+**Project**
+
+- Multi-OS CI — workflow now runs on Ubuntu / macOS / Windows × Python 3.12 / 3.13 (was Ubuntu / 3.12 only). Pip cache enabled. `dev` branch now triggers CI too.
+- Dependabot configured for weekly grouped pip + GitHub Actions updates.
+- Issue templates (bug + feature) — bug template requires `ytm doctor` output; feature template asks contributors to bundle related ideas.
+- PR template, CODEOWNERS, SECURITY.md (private vulnerability reporting), CONTRIBUTING.md (dev setup, ruff order, logging conventions, RTL guard, PR norms).
+- `.gitattributes` enforces LF line endings; `.gitignore` expanded for IDE/OS junk, `result` (Nix), `*.log`, etc.
+- Repo metadata: description, homepage, 9 topics (`tui`, `textual`, `music-player`, `youtube-music`, `terminal`, `mpv`, `python`, `vim-keybindings`, `cli`), GitHub Discussions enabled.
+
+**Tests**
+
+- 65 new tests, 491 total (was 426). New coverage areas: logging + excepthook setup, doctor diagnostics, cache contract, session restore resilience, schema versioning, update check + clock skew, IPC dispatch + seek parsing, key normalization, navigation back-stack invariants, playback debounce + cache-hit path, atomic writes, settings load.
+- Help-page coverage enforcement test — fails CI if any `Action` enum member is missing from `ACTION_DESCRIPTIONS` or `ACTION_CATEGORIES` in `ui/pages/help.py`. Catches the "added a new keybind, forgot to document it" drift forever.
+
+---
+
 ### v1.5.9 (2026-04-16)
 
 **Fixes**
