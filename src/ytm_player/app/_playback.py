@@ -73,12 +73,39 @@ class PlaybackMixin:
         except Exception:
             logger.debug("Playback bar not ready during play_track", exc_info=True)
 
-        # Resolve the stream URL.
-        try:
-            stream_info = await self.stream_resolver.resolve(video_id)
-        except Exception:
-            logger.debug("Stream resolution raised for %s", video_id, exc_info=True)
-            stream_info = None
+        # Try local audio cache first (previously downloaded or replayed track).
+        stream_info = None
+        if self.cache:
+            try:
+                cached_path = await self.cache.get(video_id)
+            except Exception:
+                logger.debug("Cache lookup failed for %s", video_id, exc_info=True)
+                cached_path = None
+
+            if cached_path is not None:
+                # Build a minimal StreamInfo pointing at the local file.
+                # Downstream code (Discord, Last.fm, MPRIS) only reads
+                # .url and .duration — duration comes from the track dict.
+                from ytm_player.services.stream import StreamInfo
+
+                stream_info = StreamInfo(
+                    url=str(cached_path),
+                    video_id=video_id,
+                    format=cached_path.suffix.lstrip(".") or "opus",
+                    bitrate=0,  # unknown for cached files
+                    duration=track.get("duration") or 0,
+                    expires_at=float("inf"),  # local files don't expire
+                    thumbnail_url=track.get("thumbnail_url"),
+                )
+                logger.info("Cache hit for %s — playing from %s", video_id, cached_path)
+
+        # Resolve via yt-dlp if no cache hit.
+        if stream_info is None:
+            try:
+                stream_info = await self.stream_resolver.resolve(video_id)
+            except Exception:
+                logger.debug("Stream resolution raised for %s", video_id, exc_info=True)
+                stream_info = None
 
         if stream_info is None:
             self._consecutive_failures += 1
