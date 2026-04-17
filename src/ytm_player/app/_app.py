@@ -468,6 +468,8 @@ class YTMPlayerApp(
             startup = "library"
         await self.navigate_to(startup)
 
+        self._start_update_check()
+
     async def on_unmount(self) -> None:
         """Clean up services and remove PID file."""
         self._save_session_state()
@@ -512,3 +514,30 @@ class YTMPlayerApp(
 
         if self.cache:
             await self.cache.close()
+
+    def _start_update_check(self) -> None:
+        """Background-check PyPI for a newer release; toast once if found."""
+        if not self.settings.general.check_for_updates:
+            return
+
+        async def _run() -> None:
+            from ytm_player import __version__
+            from ytm_player.config.paths import UPDATE_CHECK_CACHE
+            from ytm_player.services.update_check import check_for_update
+
+            try:
+                import asyncio
+
+                latest = await asyncio.to_thread(check_for_update, __version__, UPDATE_CHECK_CACHE)
+            except Exception:
+                logger.debug("Update check failed", exc_info=True)
+                return
+
+            if latest:
+                self.notify(
+                    f"ytm-player {latest} is available (you have {__version__}). "
+                    f"Run: pip install -U ytm-player",
+                    timeout=8,
+                )
+
+        self.run_worker(_run(), group="update-check", exclusive=True)

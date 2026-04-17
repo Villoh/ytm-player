@@ -66,6 +66,7 @@ KEYMAP_FILE = CONFIG_DIR / "keymap.toml"
 THEME_FILE = CONFIG_DIR / "theme.toml"
 RECENT_PLAYLISTS_FILE = CONFIG_DIR / "recent_playlists.json"
 SESSION_STATE_FILE = CONFIG_DIR / "session.json"
+UPDATE_CHECK_CACHE = CONFIG_DIR / "update_check.json"
 HISTORY_DB = CONFIG_DIR / "history.db"
 
 # Log files (rotated by RotatingFileHandler).

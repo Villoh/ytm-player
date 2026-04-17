@@ -18,6 +18,7 @@ class GeneralSettings:
     startup_page: str = "library"
     playback_bar_position: str = "bottom"
     brand_account_id: str = ""
+    check_for_updates: bool = True
 
 
 @dataclass
