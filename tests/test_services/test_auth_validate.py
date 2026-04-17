@@ -183,6 +183,10 @@ class TestSetupCLI:
         monkeypatch.setattr("ytm_player.cli.AuthManager", lambda **kwargs: mock_auth)
         mock_settings = MagicMock()
         mock_settings.yt_dlp.cookies_file = None
+        mock_settings.logging.level = "WARNING"
+        mock_settings.logging.max_bytes = 5 * 1024 * 1024
+        mock_settings.logging.backup_count = 3
+        mock_settings.logging.keep_crashes = 10
         monkeypatch.setattr("ytm_player.cli.get_settings", lambda: mock_settings)
 
         return runner.invoke(main, ["setup"])
@@ -234,6 +238,10 @@ class TestSetupCLI:
         monkeypatch.setattr("ytm_player.cli.AuthManager", lambda **kwargs: mock_auth)
         mock_settings = MagicMock()
         mock_settings.yt_dlp.cookies_file = None
+        mock_settings.logging.level = "WARNING"
+        mock_settings.logging.max_bytes = 5 * 1024 * 1024
+        mock_settings.logging.backup_count = 3
+        mock_settings.logging.keep_crashes = 10
         monkeypatch.setattr("ytm_player.cli.get_settings", lambda: mock_settings)
 
         result = runner.invoke(main, ["setup"])
@@ -250,6 +258,10 @@ class TestSetupCLI:
         monkeypatch.setattr("ytm_player.cli.AuthManager", lambda **kwargs: mock_auth)
         mock_settings = MagicMock()
         mock_settings.yt_dlp.cookies_file = None
+        mock_settings.logging.level = "WARNING"
+        mock_settings.logging.max_bytes = 5 * 1024 * 1024
+        mock_settings.logging.backup_count = 3
+        mock_settings.logging.keep_crashes = 10
         monkeypatch.setattr("ytm_player.cli.get_settings", lambda: mock_settings)
 
         result = runner.invoke(main, ["setup"], input="N\n")

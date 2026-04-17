@@ -13,7 +13,6 @@ import os
 os.environ["LC_NUMERIC"] = "C"
 
 import json
-import logging
 import shutil
 import sqlite3
 import subprocess
@@ -30,12 +29,15 @@ from ytm_player.config.paths import (
     CACHE_DIR,
     CONFIG_DIR,
     CONFIG_FILE,
+    CRASH_DIR,
     HISTORY_DB,
+    LOG_FILE,
     ensure_dirs,
 )
 from ytm_player.config.settings import get_settings
 from ytm_player.ipc import ipc_request, is_tui_running
 from ytm_player.services.auth import AuthManager
+from ytm_player.utils.logging import install_excepthooks, setup_logging
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -97,28 +99,28 @@ def main(ctx: click.Context, compact_json: bool) -> None:
     Launch without arguments to start the interactive TUI.
     Use subcommands for headless / scripting control.
     """
-    logging.basicConfig(
-        level=logging.WARNING,
-        format="%(levelname)s: %(message)s",
-    )
     ensure_dirs()
+    settings = get_settings()
     ctx.ensure_object(dict)
     ctx.obj["compact"] = compact_json
 
     if ctx.invoked_subcommand is None:
-        import traceback as _tb
+        # File logging + crash capture only for the long-lived TUI process.
+        # Subcommands (ytm play / pause / etc.) are short-lived IPC clients;
+        # giving them their own file handler would race the TUI's
+        # RotatingFileHandler (not multi-process safe).
+        setup_logging(
+            level=settings.logging.level,
+            log_file=LOG_FILE,
+            max_bytes=settings.logging.max_bytes,
+            backup_count=settings.logging.backup_count,
+        )
+        install_excepthooks(crash_dir=CRASH_DIR, keep=settings.logging.keep_crashes)
 
         from ytm_player.app import YTMPlayerApp
 
         app = YTMPlayerApp()
-        try:
-            app.run()
-        except Exception:
-            from ytm_player.config.paths import CRASH_LOG
-
-            with open(CRASH_LOG, "a", encoding="utf-8") as _f:
-                _f.write(_tb.format_exc())
-            raise
+        app.run()
 
 
 # ---------------------------------------------------------------------------
