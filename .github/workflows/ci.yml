@@ -20,19 +20,31 @@ jobs:
       - run: ruff format --check src/ tests/
 
   test:
-    # Multi-OS matrix is pending — libmpv discovery on macOS/Windows runners
-    # is unreliable (see issue #61). Until that's fixed, CI runs Linux only.
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.12", "3.13"]
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - run: sudo apt-get update && sudo apt-get install -y mpv libmpv-dev
+      # mpv install is best-effort. services/player.py tolerates a missing
+      # libmpv at module-import time by substituting a stub, so test
+      # discovery works on any runner. Where mpv IS available, the real
+      # python-mpv module loads and the existing tests exercise it.
+      - name: Install mpv (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y mpv libmpv-dev
+      - name: Install mpv (macOS)
+        if: runner.os == 'macOS'
+        run: brew install mpv || true
+      - name: Install mpv (Windows)
+        if: runner.os == 'Windows'
+        run: choco install mpv -y || exit 0
+        shell: pwsh
       - run: pip install -e ".[dev]"
       - run: pytest --cov=ytm_player --cov-report=term-missing
