@@ -417,3 +417,71 @@ class TestSanitizeTitleForLyricLookup:
     def test_case_insensitive_match(self):
         assert sanitize_title_for_lyric_lookup("Song Name (OFFICIAL VIDEO)") == "Song Name"
         assert sanitize_title_for_lyric_lookup("Song Name (official video)") == "Song Name"
+
+    # ── Featured-artist annotations ──
+
+    def test_strips_feat_dot(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (feat. Bob)") == "Song Name"
+
+    def test_strips_ft_dot(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (ft. Bob)") == "Song Name"
+
+    def test_strips_featuring(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (featuring Bob)") == "Song Name"
+
+    def test_strips_feat_brackets(self):
+        assert sanitize_title_for_lyric_lookup("Song Name [feat. Bob & Alice]") == "Song Name"
+
+    def test_strips_feat_multiple_artists(self):
+        assert (
+            sanitize_title_for_lyric_lookup("Song Name (feat. Bob, Alice & Carol)") == "Song Name"
+        )
+
+    # ── Versions / re-releases / editions ──
+
+    def test_strips_remix(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (Remix)") == "Song Name"
+
+    def test_strips_remastered(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (Remastered)") == "Song Name"
+
+    def test_strips_remastered_with_year(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (Remastered 2009)") == "Song Name"
+        assert sanitize_title_for_lyric_lookup("Song Name (Remastered 2020)") == "Song Name"
+
+    def test_strips_remaster_no_ed(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (Remaster)") == "Song Name"
+
+    def test_strips_deluxe(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (Deluxe)") == "Song Name"
+
+    def test_strips_deluxe_edition(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (Deluxe Edition)") == "Song Name"
+
+    # ── Performance / arrangement annotations ──
+
+    def test_strips_live(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (Live)") == "Song Name"
+
+    def test_strips_live_at_venue(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (Live at Wembley Stadium)") == "Song Name"
+
+    def test_strips_acoustic(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (Acoustic)") == "Song Name"
+
+    # ── Combined patterns ──
+
+    def test_strips_combined_feat_remastered_hd(self):
+        assert sanitize_title_for_lyric_lookup("Song (feat. Bob) (Remastered 2020) (HD)") == "Song"
+
+    def test_strips_combined_official_video_remix(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (Official Video) [Remix]") == "Song Name"
+
+    def test_strips_combined_with_artist_prefix(self):
+        assert (
+            sanitize_title_for_lyric_lookup(
+                "Queen - Bohemian Rhapsody (Remastered 2011) (Official Video)",
+                artist="Queen",
+            )
+            == "Bohemian Rhapsody"
+        )

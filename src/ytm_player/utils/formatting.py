@@ -216,23 +216,44 @@ def copy_to_clipboard(text: str) -> bool:
 
 
 # Patterns commonly found in YouTube/YouTube Music titles that aren't
-# part of the actual song name. Stripped (case-insensitively) so LRCLIB
-# lookups can match the canonical title.
-_LYRIC_NOISE_PATTERNS = (
-    r"\s*\(\s*official\s*(music\s*)?(video|audio|lyric|lyrics)\s*\)\s*",
-    r"\s*\[\s*official\s*(music\s*)?(video|audio|lyric|lyrics)\s*\]\s*",
-    r"\s*\(\s*lyric(s)?\s*video\s*\)\s*",
-    r"\s*\[\s*lyric(s)?\s*video\s*\]\s*",
-    r"\s*\(\s*audio\s*\)\s*",
-    r"\s*\[\s*audio\s*\]\s*",
-    r"\s*\(\s*official\s*\)\s*",
-    r"\s*\[\s*official\s*\]\s*",
-    r"\s*\(\s*hd\s*\)\s*",
-    r"\s*\[\s*hd\s*\]\s*",
-    r"\s*\(\s*4k\s*\)\s*",
-    r"\s*\[\s*4k\s*\]\s*",
-    r"\s*\(\s*video\s*\)\s*",
-    r"\s*\[\s*video\s*\]\s*",
+# part of the actual song name. Consolidated into a single compiled regex
+# so sanitisation is one pass rather than N.
+#
+# The body alternation matches everything *inside* one set of brackets
+# (round or square). `[^)\]]*` keeps each alternative from gobbling
+# across nested closing brackets.
+_LYRIC_NOISE_RE = re.compile(
+    r"""
+    \s*                                  # leading whitespace
+    [\(\[]\s*                            # opening bracket
+    (?:
+        # ── "Official"-style descriptors ──
+        official\s*(?:music\s*)?(?:video|audio|lyric|lyrics)
+      | lyrics?\s*video
+      | official
+      | audio
+      | video
+      | hd
+      | 4k
+
+        # ── Featured-artist annotations ──
+        # (feat. X), (ft. X), (featuring X) — non-greedy on contents,
+        # bounded by the closing bracket via [^)\]]*.
+      | (?:feat\.?|ft\.?|featuring)\b[^)\]]*
+
+        # ── Versions / re-releases / editions ──
+      | remaster(?:ed)?(?:\s+\d{4})?     # Remastered, Remastered 2009
+      | remix
+      | deluxe(?:\s+edition)?            # Deluxe, Deluxe Edition
+
+        # ── Performance / arrangement annotations ──
+      | live(?:\s+[^)\]]*)?              # Live, Live at X
+      | acoustic
+    )
+    \s*[\)\]]                            # closing bracket
+    \s*                                  # trailing whitespace
+    """,
+    re.IGNORECASE | re.VERBOSE,
 )
 
 
@@ -240,7 +261,8 @@ def sanitize_title_for_lyric_lookup(title: str, artist: str = "") -> str:
     """Strip common noise from a track title for better LRCLIB matching.
 
     Removes parenthesized/bracketed annotations like "(Official Music Video)",
-    "[Lyrics]", "(Audio)", "(HD)", and the "Artist - " prefix if *artist*
+    "[Lyrics]", "(Audio)", "(HD)", "(feat. Bob)", "(Remastered 2020)",
+    "(Live)", "(Deluxe Edition)", and the "Artist - " prefix if *artist*
     is provided. Preserves everything else untouched.
 
     Returns the cleaned title. If sanitization would empty the title,
@@ -248,12 +270,14 @@ def sanitize_title_for_lyric_lookup(title: str, artist: str = "") -> str:
     """
     if not title:
         return title
-    cleaned = title
-    for pattern in _LYRIC_NOISE_PATTERNS:
-        cleaned = re.sub(pattern, " ", cleaned, flags=re.IGNORECASE)
+    # Replace each match with a single space, then collapse runs so that
+    # back-to-back annotations don't leave double spaces behind.
+    cleaned = _LYRIC_NOISE_RE.sub(" ", title)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
     if artist:
-        prefix = f"{artist} - "
-        if cleaned.lower().startswith(prefix.lower()):
-            cleaned = cleaned[len(prefix) :]
+        cleaned_lower = cleaned.lower()
+        prefix_lower = f"{artist.lower()} - "
+        if cleaned_lower.startswith(prefix_lower):
+            cleaned = cleaned[len(prefix_lower) :]
     cleaned = cleaned.strip()
     return cleaned if cleaned else title
