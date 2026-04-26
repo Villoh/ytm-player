@@ -55,6 +55,8 @@ A reliability and quality release driven by a multi-agent expert audit. Hardens 
 
 - Playlist radio — right-click any sidebar playlist and choose "Start Radio", or click the "[▶ Start Radio]" button in the playlist header (Library and Context pages). Seeds a radio queue via `RDAMPL` + playlist ID.
 - "Add to Library" button now only shows for playlists you don't own. Both header buttons were previously invisible due to a layout bug (Label taking full width); fixed with `width: auto`.
+- Configurable home shelf count — set `home_shelves` under `[ui]` in `config.toml` to control how many recommendation shelves are fetched on the Browse > For You tab (default: 3, range: 1–25).
+- For You shelves scroll as a single section instead of each shelf scrolling independently, with subtle separators and colored section titles for readability.
 
 **Fixes**
 
