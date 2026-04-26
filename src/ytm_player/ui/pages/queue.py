@@ -14,7 +14,6 @@ from textual.widgets.data_table import RowKey
 
 from ytm_player.config.keymap import Action
 from ytm_player.services.player import PlayerEvent
-from ytm_player.services.queue import RepeatMode
 from ytm_player.utils.formatting import extract_artist, extract_duration, format_duration
 
 logger = logging.getLogger(__name__)
@@ -247,20 +246,10 @@ class QueuePage(Widget):
         self._update_footer()
 
     def _update_footer(self) -> None:
-        """Update the footer bar with repeat, shuffle, and track count info."""
+        """Update the footer bar with track count info."""
         queue = self.app.queue  # type: ignore[attr-defined]
-        repeat = queue.repeat_mode
-        shuffle = queue.shuffle_enabled
         count = queue.length
-
-        repeat_label = {
-            RepeatMode.OFF: "Off",
-            RepeatMode.ALL: "All",
-            RepeatMode.ONE: "One",
-        }.get(repeat, "Off")
-
-        shuffle_label = "On" if shuffle else "Off"
-        footer_text = f"Repeat: {repeat_label}  Shuffle: {shuffle_label}  Tracks: {count}"
+        footer_text = f"Tracks: {count}"
 
         try:
             footer = self.query_one("#queue-footer", Static)
