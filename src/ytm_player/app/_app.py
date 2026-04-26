@@ -117,6 +117,13 @@ class YTMPlayerApp(
         align-horizontal: right;
     }
 
+    /* When the lyrics sidebar is open, shift the toast rack left
+       so notifications don't cover the lyrics. The lyrics sidebar
+       is 40 cells wide; +1 for its left border. */
+    Screen.lyrics-open ToastRack {
+        margin-right: 41;
+    }
+
     Toast {
         background: $surface;
     }
@@ -254,7 +261,7 @@ class YTMPlayerApp(
             "progress-filled": variables.get("primary", "#ff0000"),
             "progress-empty": variables.get("surface", "#555555"),
             "lyrics-played": variables.get("text-muted", "#999999"),
-            "lyrics-current": variables.get("success", "#2ecc71"),
+            "lyrics-current": variables.get("accent", variables.get("primary", "#ff4e45")),
             "lyrics-upcoming": variables.get("text", "#aaaaaa"),
         }
         for key, default in app_defaults.items():
@@ -321,7 +328,7 @@ class YTMPlayerApp(
                 progress_filled=v.get("progress-filled", t.primary),
                 progress_empty=v.get("progress-empty", t.surface or "#555555"),
                 lyrics_played=v.get("lyrics-played", t.secondary or "#999999"),
-                lyrics_current=v.get("lyrics-current", t.success or "#2ecc71"),
+                lyrics_current=v.get("lyrics-current", t.accent or t.primary or "#ff4e45"),
                 lyrics_upcoming=v.get("lyrics-upcoming", t.foreground or "#aaaaaa"),
             )
             tc._apply_toml_overrides()

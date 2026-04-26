@@ -57,6 +57,16 @@ class SidebarMixin:
                 ls.add_class("hidden")
         except Exception:
             logger.debug("Failed to apply lyrics sidebar visibility", exc_info=True)
+        # Toggle the screen-level "lyrics-open" class so app CSS rules
+        # (e.g. ToastRack offset) can react to lyrics being visible.
+        try:
+            screen = self.screen
+            if visible:
+                screen.add_class("lyrics-open")
+            else:
+                screen.remove_class("lyrics-open")
+        except Exception:
+            logger.debug("Failed to toggle lyrics-open class on screen", exc_info=True)
         try:
             header = self.query_one("#app-header", HeaderBar)
             header.set_lyrics_state(visible)
