@@ -111,3 +111,13 @@ omit = [
     "src/ytm_player/ui/*",
     "src/ytm_player/__main__.py",
 ]
+
+[tool.pyright]
+# Point Pyright at the project's venv so editor IDEs (VS Code / Pylance)
+# can resolve textual / pytest / ytmusicapi etc. without flooding the
+# Problems panel with false-positive "Import could not be resolved"
+# errors. Mixin-attribute errors (PlaybackMixin not seeing self.player
+# etc.) remain as a known limitation — addressing those needs Protocol
+# stubs; deferred to v1.7.
+venvPath = "."
+venv = ".venv"
