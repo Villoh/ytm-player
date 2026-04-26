@@ -119,9 +119,11 @@ class YTMPlayerApp(
 
     /* When the lyrics sidebar is open, shift the toast rack left
        so notifications don't cover the lyrics. The lyrics sidebar
-       is 40 cells wide; +1 for its left border. */
+       is 40 cells wide; +1 for its left border. Use offset (post-
+       layout) since Textual's own ToastRack DEFAULT_CSS sets margins
+       that would override a margin rule. */
     Screen.lyrics-open ToastRack {
-        margin-right: 41;
+        offset: -41 0;
     }
 
     Toast {
