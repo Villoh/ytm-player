@@ -449,6 +449,18 @@ class SearchPage(Widget):
             self._restore_results = None
             self._restore_cursor_row = None
 
+        # Auto-focus the search input ONLY on fresh entry. If we restored
+        # results from the page-state cache, leave focus on whatever the
+        # user might want to interact with (results table) so navigation
+        # back doesn't steal focus.
+        has_restored_query = bool(self._restore_results and any(self._restore_results.values()))
+        if not has_restored_query:
+            try:
+                search_input = self.query_one("#search-input", Input)
+                search_input.focus()
+            except Exception:
+                logger.debug("Failed to focus search input on fresh entry", exc_info=True)
+
     def on_unmount(self) -> None:
         """Clean up timers and release data references."""
         if self._debounce_timer is not None:
