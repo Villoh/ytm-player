@@ -117,6 +117,22 @@ class YTMPlayerApp(
         align-horizontal: right;
     }
 
+    Toast {
+        background: $surface;
+    }
+
+    Toast.-information {
+        border-left: thick $primary;
+    }
+
+    Toast.-warning {
+        border-left: thick $warning;
+    }
+
+    Toast.-error {
+        border-left: thick $error;
+    }
+
     #app-body {
         height: 1fr;
         width: 1fr;
