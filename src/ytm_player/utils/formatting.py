@@ -213,3 +213,47 @@ def copy_to_clipboard(text: str) -> bool:
             except Exception:
                 continue
     return False
+
+
+# Patterns commonly found in YouTube/YouTube Music titles that aren't
+# part of the actual song name. Stripped (case-insensitively) so LRCLIB
+# lookups can match the canonical title.
+_LYRIC_NOISE_PATTERNS = (
+    r"\s*\(\s*official\s*(music\s*)?(video|audio|lyric|lyrics)\s*\)\s*",
+    r"\s*\[\s*official\s*(music\s*)?(video|audio|lyric|lyrics)\s*\]\s*",
+    r"\s*\(\s*lyric(s)?\s*video\s*\)\s*",
+    r"\s*\[\s*lyric(s)?\s*video\s*\]\s*",
+    r"\s*\(\s*audio\s*\)\s*",
+    r"\s*\[\s*audio\s*\]\s*",
+    r"\s*\(\s*official\s*\)\s*",
+    r"\s*\[\s*official\s*\]\s*",
+    r"\s*\(\s*hd\s*\)\s*",
+    r"\s*\[\s*hd\s*\]\s*",
+    r"\s*\(\s*4k\s*\)\s*",
+    r"\s*\[\s*4k\s*\]\s*",
+    r"\s*\(\s*video\s*\)\s*",
+    r"\s*\[\s*video\s*\]\s*",
+)
+
+
+def sanitize_title_for_lyric_lookup(title: str, artist: str = "") -> str:
+    """Strip common noise from a track title for better LRCLIB matching.
+
+    Removes parenthesized/bracketed annotations like "(Official Music Video)",
+    "[Lyrics]", "(Audio)", "(HD)", and the "Artist - " prefix if *artist*
+    is provided. Preserves everything else untouched.
+
+    Returns the cleaned title. If sanitization would empty the title,
+    returns the original string unchanged.
+    """
+    if not title:
+        return title
+    cleaned = title
+    for pattern in _LYRIC_NOISE_PATTERNS:
+        cleaned = re.sub(pattern, " ", cleaned, flags=re.IGNORECASE)
+    if artist:
+        prefix = f"{artist} - "
+        if cleaned.lower().startswith(prefix.lower()):
+            cleaned = cleaned[len(prefix) :]
+    cleaned = cleaned.strip()
+    return cleaned if cleaned else title

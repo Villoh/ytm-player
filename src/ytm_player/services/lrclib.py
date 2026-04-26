@@ -21,8 +21,11 @@ async def get_synced_lyrics(
 
     Returns the LRC-format string if available, or None.
     """
+    from ytm_player.utils.formatting import sanitize_title_for_lyric_lookup
+
+    clean_title = sanitize_title_for_lyric_lookup(title, artist)
     params: dict[str, str] = {
-        "track_name": title,
+        "track_name": clean_title,
         "artist_name": artist,
     }
     if duration_seconds is not None:

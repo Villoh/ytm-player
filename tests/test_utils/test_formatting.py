@@ -14,6 +14,7 @@ from ytm_player.utils.formatting import (
     format_size,
     get_video_id,
     normalize_tracks,
+    sanitize_title_for_lyric_lookup,
     truncate,
 )
 
@@ -361,3 +362,58 @@ class TestValidVideoId:
     )
     def test_invalid(self, vid):
         assert not VALID_VIDEO_ID.match(vid)
+
+
+# ── sanitize_title_for_lyric_lookup ──────────────────────────────────
+
+
+class TestSanitizeTitleForLyricLookup:
+    def test_passthrough_clean_title(self):
+        assert sanitize_title_for_lyric_lookup("Bohemian Rhapsody") == "Bohemian Rhapsody"
+
+    def test_strips_official_video(self):
+        assert (
+            sanitize_title_for_lyric_lookup("Bohemian Rhapsody (Official Video)")
+            == "Bohemian Rhapsody"
+        )
+
+    def test_strips_official_music_video_brackets(self):
+        assert (
+            sanitize_title_for_lyric_lookup("Bohemian Rhapsody [Official Music Video]")
+            == "Bohemian Rhapsody"
+        )
+
+    def test_strips_audio(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (Audio)") == "Song Name"
+
+    def test_strips_lyrics_video(self):
+        assert sanitize_title_for_lyric_lookup("Song Name [Lyrics Video]") == "Song Name"
+
+    def test_strips_hd(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (HD)") == "Song Name"
+
+    def test_strips_multiple_annotations(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (Audio) (HD)") == "Song Name"
+
+    def test_strips_artist_prefix_when_provided(self):
+        assert (
+            sanitize_title_for_lyric_lookup("Queen - Bohemian Rhapsody", artist="Queen")
+            == "Bohemian Rhapsody"
+        )
+
+    def test_no_artist_no_prefix_strip(self):
+        assert (
+            sanitize_title_for_lyric_lookup("Queen - Bohemian Rhapsody")
+            == "Queen - Bohemian Rhapsody"
+        )
+
+    def test_empty_input_returns_empty(self):
+        assert sanitize_title_for_lyric_lookup("") == ""
+
+    def test_returns_original_if_sanitization_empties_it(self):
+        # Pure noise — would become empty string. Return original instead.
+        assert sanitize_title_for_lyric_lookup("(Official Video)") == "(Official Video)"
+
+    def test_case_insensitive_match(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (OFFICIAL VIDEO)") == "Song Name"
+        assert sanitize_title_for_lyric_lookup("Song Name (official video)") == "Song Name"
