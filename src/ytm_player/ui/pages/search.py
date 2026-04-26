@@ -664,14 +664,19 @@ class SearchPage(Widget):
             except Exception:
                 logger.debug("Failed to log search to history", exc_info=True)
 
+            self._update_loading("")
+        except asyncio.CancelledError:
+            # Worker was cancelled (exclusive collision, navigation away,
+            # focus-change side effect, etc). Clear the loading indicator
+            # so the UI doesn't lie about an in-flight search, then re-raise
+            # so the worker tears down properly.
+            self._update_loading("")
+            raise
         except Exception:
             logger.exception("Search failed for query=%r", query)
             self._update_loading("Search failed. Try again.")
-            return
         finally:
             self.is_loading = False
-
-        self._update_loading("")
 
     async def _search_music(self, query: str) -> dict[str, list[dict[str, Any]]]:
         """Execute filtered searches for each category (music-only mode)."""
