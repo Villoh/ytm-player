@@ -30,6 +30,7 @@ class PlaybackSettings:
     seek_step: int = 5
     gapless: bool = True
     api_timeout: int = 15
+    resume_on_launch: bool = True
 
 
 @dataclass

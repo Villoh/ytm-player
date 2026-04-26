@@ -100,7 +100,13 @@ class SessionMixin:
             except Exception:
                 pass
 
-        # Auto-resume playback if the previous session exited uncleanly.
+        # Restore last-playing track + position if user has resume enabled.
+        # The track is shown paused; the first play_track call for this
+        # video_id seeks to the saved position via _pending_resume_position
+        # (handled in app/_playback.py).
+        if not self.settings.playback.resume_on_launch:
+            return
+
         resume = state.get("resume")
         if resume and isinstance(resume, dict):
             video_id = resume.get("video_id", "")
@@ -117,11 +123,23 @@ class SessionMixin:
                 if resumed:
                     track = self.queue.current_track
                     if track:
-                        # Show the track in the UI without starting playback.
+                        # Stash the resume target so the first play_track
+                        # call for this video_id seeks to the saved position.
+                        self._pending_resume_video_id = video_id
+                        try:
+                            self._pending_resume_position = float(resume.get("position", 0))
+                        except (TypeError, ValueError):
+                            self._pending_resume_position = 0.0
+                        # Show the track + saved position in the UI without
+                        # starting playback.
                         try:
                             bar = self.query_one("#playback-bar", PlaybackBar)
                             bar.update_track(track)
                             bar.update_playback_state(is_playing=False, is_paused=False)
+                            bar.update_position(
+                                self._pending_resume_position,
+                                track.get("duration") or 0,
+                            )
                         except Exception:
                             logger.debug(
                                 "Playback bar not ready during resume restore",
@@ -142,10 +160,11 @@ class SessionMixin:
         queue_tracks = list(self.queue.tracks)
         queue_index = self.queue.current_index
 
-        # Build resume data: save current track + position on unclean exit,
-        # explicitly clear on clean exit (q / C-q).
+        # Save current track + position regardless of clean/unclean exit.
+        # Whether to RESTORE on next launch is gated by
+        # settings.playback.resume_on_launch in _restore_session_state.
         resume = None
-        if not self._clean_exit and self.player and self.player.current_track:
+        if self.player and self.player.current_track:
             video_id = self.player.current_track.get("video_id", "")
             if video_id:
                 resume = {

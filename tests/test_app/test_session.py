@@ -31,6 +31,8 @@ def _fresh_session_host():
     h._sidebar_default = True
     h._lyrics_sidebar_open = False
     h._active_library_playlist_id = None
+    h._pending_resume_video_id = None
+    h._pending_resume_position = 0.0
     return h
 
 
@@ -89,3 +91,46 @@ class TestSchemaVersion:
         # Defaults applied — volume 80, repeat OFF — not the file's 42 / ALL.
         h.player.set_volume.assert_awaited_once_with(80)
         h.queue.set_repeat.assert_called_once_with(RepeatMode.OFF)
+
+
+class TestResumeOnLaunch:
+    async def test_resume_on_launch_disabled_skips_restore(self, tmp_path, monkeypatch):
+        """When resume_on_launch is False, the resume block is skipped."""
+        h = _fresh_session_host()
+        h.settings.playback.resume_on_launch = False
+        good = tmp_path / "session.json"
+        good.write_text(
+            '{"schema_version": 1, "volume": 80, "repeat": "off", '
+            '"shuffle": false, "queue_tracks": [{"video_id": "abc", "title": "X"}], '
+            '"queue_index": 0, "resume": {"video_id": "abc", "position": 42.5}}',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr("ytm_player.config.paths.SESSION_STATE_FILE", good, raising=False)
+        h._pending_resume_video_id = None
+        h._pending_resume_position = 0.0
+        await h._restore_session_state()
+        assert h._pending_resume_video_id is None
+        assert h._pending_resume_position == 0.0
+
+    async def test_resume_on_launch_enabled_sets_pending(self, tmp_path, monkeypatch):
+        """When resume_on_launch is True (default), pending state is populated."""
+        h = _fresh_session_host()
+        h.settings.playback.resume_on_launch = True
+        # Make queue.tracks behave like a real list with a matching video_id.
+        sample_track = {"video_id": "abc", "title": "X", "duration": 200}
+        h.queue.tracks = [sample_track]
+        h.queue.current_track = sample_track
+        h._pending_resume_video_id = None
+        h._pending_resume_position = 0.0
+
+        good = tmp_path / "session.json"
+        good.write_text(
+            '{"schema_version": 1, "volume": 80, "repeat": "off", '
+            '"shuffle": false, "queue_tracks": [{"video_id": "abc", "title": "X"}], '
+            '"queue_index": 0, "resume": {"video_id": "abc", "position": 42.5}}',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr("ytm_player.config.paths.SESSION_STATE_FILE", good, raising=False)
+        await h._restore_session_state()
+        assert h._pending_resume_video_id == "abc"
+        assert h._pending_resume_position == 42.5

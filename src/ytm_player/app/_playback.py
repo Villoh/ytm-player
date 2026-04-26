@@ -170,6 +170,19 @@ class PlaybackMixin:
             return
         self._track_start_position = 0.0
 
+        # Apply pending resume position if this play matches the resumed track.
+        # Cleared on first call regardless — once any track plays, the
+        # resume opportunity is consumed.
+        if self._pending_resume_video_id is not None:
+            if self._pending_resume_video_id == video_id and self._pending_resume_position > 0:
+                try:
+                    await self.player.seek_absolute(self._pending_resume_position)
+                    self._track_start_position = self._pending_resume_position
+                except Exception:
+                    logger.debug("Failed to seek to resume position", exc_info=True)
+            self._pending_resume_video_id = None
+            self._pending_resume_position = 0.0
+
         # Update Discord Rich Presence.
         if self.discord and self.discord.is_connected:
             await self.discord.update(

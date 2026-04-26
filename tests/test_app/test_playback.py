@@ -45,6 +45,8 @@ def _fresh_playback_host():
     p._consecutive_failures = 0
     p._track_start_position = 0.0
     p._advancing = False
+    p._pending_resume_video_id = None
+    p._pending_resume_position = 0.0
     return p
 
 
