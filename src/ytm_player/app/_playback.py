@@ -540,6 +540,7 @@ class PlaybackMixin:
         if not video_id:
             return
         if not self.ytmusic:
+            self.notify("Sign in to like songs", severity="warning", timeout=2)
             return
 
         current_status = (track.get("likeStatus") or "INDIFFERENT").upper()
