@@ -232,6 +232,9 @@ class KeyHandlingMixin:
             case Action.TRACK_ACTIONS:
                 await self._open_track_actions()
 
+            case Action.LIKE_TOGGLE:
+                await self._toggle_like_current()
+
             # -- Navigation actions delegated to the current page --
             case (
                 Action.MOVE_DOWN

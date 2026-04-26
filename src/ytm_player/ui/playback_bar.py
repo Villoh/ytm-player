@@ -207,6 +207,45 @@ class _ShuffleButton(Widget):
                 logger.debug("Failed to update shuffle state display on click", exc_info=True)
 
 
+# Heart icon for the like indicator. Same character, styled differently
+# based on like state (filled accent when liked, muted when not).
+_ICON_HEART = "\u2764"  # Heavy Black Heart
+
+
+class _HeartButton(Widget):
+    """Like-state indicator and click-toggle for the currently-playing track."""
+
+    DEFAULT_CSS = """
+    _HeartButton {
+        height: 1;
+        width: 3;
+        margin: 0 1;
+        content-align: center middle;
+    }
+    _HeartButton:hover {
+        background: $accent 30%;
+    }
+    """
+
+    # likeStatus value: "LIKE", "DISLIKE", "INDIFFERENT", or "" (unknown).
+    like_status: reactive[str] = reactive("")
+
+    def render(self) -> Text:
+        theme = get_theme()
+        if self.like_status == "LIKE":
+            return Text(f" {_ICON_HEART} ", style=f"bold {theme.error}")
+        return Text(f" {_ICON_HEART} ", style=theme.muted_text)
+
+    def on_click(self, event: Click) -> None:
+        """Click toggles like via the app's _toggle_like_current."""
+        event.stop()
+        app = self.app
+        try:
+            self.run_worker(app._toggle_like_current(), exclusive=True)
+        except Exception:
+            logger.debug("Failed to toggle like from heart click", exc_info=True)
+
+
 # ── Main playback bar ─────────────────────────────────────────────
 
 
@@ -273,6 +312,7 @@ class PlaybackBar(Widget):
             with Vertical(id="pb-content"):
                 with Horizontal(id="pb-top-row"):
                     yield _TrackInfo(id="pb-track-info")
+                    yield _HeartButton(id="pb-heart")
                     yield _VolumeDisplay(id="pb-volume")
                     yield _RepeatButton(id="pb-repeat")
                     yield _ShuffleButton(id="pb-shuffle")
@@ -338,6 +378,19 @@ class PlaybackBar(Widget):
         """Update the shuffle state display."""
         shuf = self.query_one("#pb-shuffle", _ShuffleButton)
         shuf.shuffle_on = enabled
+
+    def update_like_status(self, status: str | None) -> None:
+        """Update the heart icon based on the track's likeStatus.
+
+        Accepts 'LIKE', 'DISLIKE', 'INDIFFERENT', None, or an unknown
+        string. Anything other than 'LIKE' shows the muted (not-liked)
+        state.
+        """
+        try:
+            heart = self.query_one("#pb-heart", _HeartButton)
+            heart.like_status = (status or "").upper()
+        except Exception:
+            logger.debug("Failed to update heart like_status display", exc_info=True)
 
 
 # ── Interactive footer bar ────────────────────────────────────────

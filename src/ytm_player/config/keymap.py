@@ -60,6 +60,7 @@ class Action(str, Enum):
     # Actions
     DELETE_ITEM = "delete_item"
     TRACK_ACTIONS = "track_actions"
+    LIKE_TOGGLE = "like_toggle"
     CONTEXT_ACTIONS = "context_actions"
     SELECTED_ACTIONS = "selected_actions"
     ADD_TO_QUEUE = "add_to_queue"
@@ -129,6 +130,7 @@ DEFAULT_BINDINGS: dict[str, list[str]] = {
     # Actions
     "delete_item": ["delete", "d d"],
     "track_actions": ["a"],
+    "like_toggle": ["l"],
     "context_actions": ["g A"],
     "selected_actions": ["g a", "C-space"],
     "add_to_queue": ["Z", "C-z"],

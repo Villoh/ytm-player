@@ -367,6 +367,13 @@ class PlaybackMixin:
         except Exception:
             logger.debug("Failed to update playback bar on track change", exc_info=True)
 
+        # Reflect the new track's like state on the playback bar's heart.
+        try:
+            bar = self.query_one("#playback-bar", PlaybackBar)
+            bar.update_like_status(track.get("likeStatus"))
+        except Exception:
+            logger.debug("Failed to update like status on track change", exc_info=True)
+
         # Un-dim the header lyrics toggle.
         try:
             header = self.query_one("#app-header", HeaderBar)
@@ -515,6 +522,45 @@ class PlaybackMixin:
                 )
             except Exception:
                 logger.exception("Failed to log play history")
+
+    # ── Like toggle ──────────────────────────────────────────────────
+
+    async def _toggle_like_current(self) -> None:
+        """Toggle the like state on the currently-playing track.
+
+        Cycles between LIKE and INDIFFERENT (no rating). Pressing this
+        on a disliked track switches it to LIKE (clearing the dislike).
+        Dislike state is left to the existing track-actions popup.
+        """
+        if not self.player or not self.player.current_track:
+            return
+        track = self.player.current_track
+        video_id = track.get("video_id", "")
+        if not video_id:
+            return
+        if not self.ytmusic:
+            return
+
+        current_status = (track.get("likeStatus") or "INDIFFERENT").upper()
+        new_status = "INDIFFERENT" if current_status == "LIKE" else "LIKE"
+
+        try:
+            await self.ytmusic.rate_song(video_id, new_status)
+        except Exception:
+            logger.exception("Failed to rate song %s as %s", video_id, new_status)
+            self.notify("Couldn't update like state", severity="error", timeout=2)
+            return
+
+        # Update the track dict so subsequent reads reflect the new state.
+        track["likeStatus"] = new_status
+        # Push the new state to the playback bar.
+        try:
+            from ytm_player.ui.playback_bar import PlaybackBar
+
+            bar = self.query_one("#playback-bar", PlaybackBar)
+            bar.update_like_status(new_status)
+        except Exception:
+            logger.debug("Failed to push like status to playback bar", exc_info=True)
 
     # ── Download ─────────────────────────────────────────────────────
 

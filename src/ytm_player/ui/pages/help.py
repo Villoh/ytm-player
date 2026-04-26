@@ -57,6 +57,7 @@ ACTION_DESCRIPTIONS: dict[Action, str] = {
     # Actions
     Action.DELETE_ITEM: "Delete / remove item",
     Action.TRACK_ACTIONS: "Show track actions menu",
+    Action.LIKE_TOGGLE: "Toggle like on the currently playing track",
     Action.CONTEXT_ACTIONS: "Show context actions menu",
     Action.SELECTED_ACTIONS: "Actions for selected items",
     Action.ADD_TO_QUEUE: "Add track to queue",
@@ -116,6 +117,7 @@ ACTION_CATEGORIES: dict[str, list[Action]] = {
     "Actions": [
         Action.DELETE_ITEM,
         Action.TRACK_ACTIONS,
+        Action.LIKE_TOGGLE,
         Action.CONTEXT_ACTIONS,
         Action.SELECTED_ACTIONS,
         Action.ADD_TO_QUEUE,
