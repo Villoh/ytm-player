@@ -171,10 +171,11 @@ class PlaybackMixin:
         self._track_start_position = 0.0
 
         # Apply pending resume position if this play matches the resumed track.
-        # Cleared on first call regardless — once any track plays, the
-        # resume opportunity is consumed.
-        if self._pending_resume_video_id is not None:
-            if self._pending_resume_video_id == video_id and self._pending_resume_position > 0:
+        # Only clear on a match — if the user plays a different track first,
+        # leave pending state intact so they can come back to the resumed
+        # track later.
+        if self._pending_resume_video_id is not None and self._pending_resume_video_id == video_id:
+            if self._pending_resume_position > 0:
                 try:
                     await self.player.seek_absolute(self._pending_resume_position)
                     self._track_start_position = self._pending_resume_position

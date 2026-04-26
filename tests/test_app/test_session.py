@@ -134,3 +134,80 @@ class TestResumeOnLaunch:
         await h._restore_session_state()
         assert h._pending_resume_video_id == "abc"
         assert h._pending_resume_position == 42.5
+
+
+def _save_session_host(tmp_path):
+    """Build a session host wired up enough to call _save_session_state."""
+    h = _fresh_session_host()
+    h.player.current_track = {"video_id": "abc", "title": "X"}
+    h.player.position = 0.0
+    h.player.volume = 80
+    h.queue.tracks = []
+    h.queue.current_index = 0
+    h.queue.repeat_mode = RepeatMode.OFF
+    h.queue.shuffle_enabled = False
+    h.theme = "ytm-dark"
+    # _get_transliteration_state reads from the lyrics sidebar via query_one;
+    # _fresh_session_host already returns MagicMocks, which truthy-evaluate.
+    # Override to a stable False so output is deterministic.
+    h._get_transliteration_state = lambda: False
+    return h
+
+
+class TestSaveSessionResumeGuard:
+    """_save_session_state must not overwrite a valid resume with position 0."""
+
+    def test_resume_skipped_when_position_is_zero(self, tmp_path, monkeypatch):
+        h = _save_session_host(tmp_path)
+        h.player.position = 0.0
+        target = tmp_path / "session.json"
+        monkeypatch.setattr("ytm_player.config.paths.SESSION_STATE_FILE", target, raising=False)
+
+        h._save_session_state()
+
+        import json
+
+        written = json.loads(target.read_text(encoding="utf-8"))
+        assert written["resume"] is None
+
+    def test_resume_skipped_when_position_below_threshold(self, tmp_path, monkeypatch):
+        h = _save_session_host(tmp_path)
+        h.player.position = 0.7
+        target = tmp_path / "session.json"
+        monkeypatch.setattr("ytm_player.config.paths.SESSION_STATE_FILE", target, raising=False)
+
+        h._save_session_state()
+
+        import json
+
+        written = json.loads(target.read_text(encoding="utf-8"))
+        assert written["resume"] is None
+
+    def test_resume_skipped_at_exact_boundary(self, tmp_path, monkeypatch):
+        """position == 1.0 is on the boundary and must NOT be saved (guard is > 1.0)."""
+        h = _save_session_host(tmp_path)
+        h.player.position = 1.0
+        target = tmp_path / "session.json"
+        monkeypatch.setattr("ytm_player.config.paths.SESSION_STATE_FILE", target, raising=False)
+
+        h._save_session_state()
+
+        import json
+
+        written = json.loads(target.read_text(encoding="utf-8"))
+        assert written["resume"] is None
+
+    def test_resume_saved_when_position_above_threshold(self, tmp_path, monkeypatch):
+        h = _save_session_host(tmp_path)
+        h.player.position = 42.5
+        target = tmp_path / "session.json"
+        monkeypatch.setattr("ytm_player.config.paths.SESSION_STATE_FILE", target, raising=False)
+
+        h._save_session_state()
+
+        import json
+
+        written = json.loads(target.read_text(encoding="utf-8"))
+        assert written["resume"] is not None
+        assert written["resume"]["video_id"] == "abc"
+        assert written["resume"]["position"] == 42.5

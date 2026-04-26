@@ -165,3 +165,52 @@ class TestPlayTrackCacheHit:
         host.player.play.assert_called_once()
         played_url = host.player.play.call_args[0][0]
         assert played_url == str(cached_file)
+
+
+def _resume_capable_host():
+    """Host configured to actually reach the resume-apply block in play_track."""
+    from ytm_player.services.stream import StreamInfo
+
+    host = _fresh_playback_host()
+    host.player.seek_absolute = AsyncMock()
+    host.stream_resolver.resolve = AsyncMock(
+        return_value=StreamInfo(
+            url="http://x",
+            video_id="ignored",
+            format="opus",
+            bitrate=128,
+            duration=200,
+            expires_at=float("inf"),
+            thumbnail_url=None,
+        )
+    )
+    return host
+
+
+class TestPlayTrackPendingResume:
+    async def test_pending_resume_kept_when_video_id_does_not_match(self):
+        """User clicks a different track first — resume opportunity preserved."""
+        host = _resume_capable_host()
+        host._pending_resume_video_id = "abc"
+        host._pending_resume_position = 83.0
+
+        await host.play_track({"video_id": "xyz", "title": "Other"})
+
+        # Pending resume left intact for the eventual matching play.
+        assert host._pending_resume_video_id == "abc"
+        assert host._pending_resume_position == 83.0
+        # And we did NOT seek — that's only for the matching track.
+        host.player.seek_absolute.assert_not_called()
+
+    async def test_pending_resume_consumed_when_video_id_matches(self):
+        """First play of the resumed track seeks and clears pending state."""
+        host = _resume_capable_host()
+        host._pending_resume_video_id = "abc"
+        host._pending_resume_position = 83.0
+
+        await host.play_track({"video_id": "abc", "title": "Resumed"})
+
+        host.player.seek_absolute.assert_awaited_once_with(83.0)
+        assert host._pending_resume_video_id is None
+        assert host._pending_resume_position == 0.0
+        assert host._track_start_position == 83.0

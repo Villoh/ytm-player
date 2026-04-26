@@ -163,8 +163,11 @@ class SessionMixin:
         # Save current track + position regardless of clean/unclean exit.
         # Whether to RESTORE on next launch is gated by
         # settings.playback.resume_on_launch in _restore_session_state.
+        # Guard: only save resume if position > 1.0s, so a startup-crash
+        # (or any premature exit) doesn't overwrite a valid prior resume
+        # with "position 0".
         resume = None
-        if self.player and self.player.current_track:
+        if self.player and self.player.current_track and self.player.position > 1.0:
             video_id = self.player.current_track.get("video_id", "")
             if video_id:
                 resume = {
