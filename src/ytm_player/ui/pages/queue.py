@@ -41,7 +41,7 @@ class QueuePage(Widget):
     }
     .queue-now-playing-title {
         text-style: bold;
-        color: $success;
+        color: $primary;
     }
     .queue-now-playing-artist {
         color: $text-muted;

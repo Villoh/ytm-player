@@ -151,7 +151,7 @@ class _RepeatButton(Widget):
     def render(self) -> Text:
         theme = get_theme()
         if self.repeat_mode == "all":
-            return Text(f"{_ICON_REPEAT_ALL} all", style=f"bold {theme.success}")
+            return Text(f"{_ICON_REPEAT_ALL} all", style=f"bold {theme.primary}")
         elif self.repeat_mode == "one":
             return Text(f"{_ICON_REPEAT_ONE} one", style=f"bold {theme.warning}")
         return Text(f"{_ICON_REPEAT_OFF} off", style=theme.muted_text)
@@ -189,7 +189,7 @@ class _ShuffleButton(Widget):
     def render(self) -> Text:
         theme = get_theme()
         if self.shuffle_on:
-            return Text(f"{_ICON_SHUFFLE_ON} on ", style=f"bold {theme.success}")
+            return Text(f"{_ICON_SHUFFLE_ON} on ", style=f"bold {theme.primary}")
         return Text(f"{_ICON_SHUFFLE_OFF} off", style=theme.muted_text)
 
     async def on_click(self, event: Click) -> None:
