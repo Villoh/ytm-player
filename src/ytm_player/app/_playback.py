@@ -7,6 +7,7 @@ import logging
 import time
 from typing import Any
 
+from ytm_player.app._base import YTMHostBase
 from ytm_player.ui.header_bar import HeaderBar
 from ytm_player.ui.playback_bar import PlaybackBar
 from ytm_player.ui.widgets.track_table import TrackTable
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 _MAX_CONSECUTIVE_FAILURES = 5
 
 
-class PlaybackMixin:
+class PlaybackMixin(YTMHostBase):
     """Playback coordination, player event callbacks, history logging, download."""
 
     async def play_track(self, track: dict) -> None:

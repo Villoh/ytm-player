@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from ytm_player.app._base import YTMHostBase
 from ytm_player.ui.header_bar import HeaderBar
 from ytm_player.ui.popups.actions import ActionsPopup
 from ytm_player.ui.sidebars.lyrics_sidebar import LyricsSidebar
@@ -12,7 +13,7 @@ from ytm_player.ui.sidebars.playlist_sidebar import PlaylistSidebar
 logger = logging.getLogger(__name__)
 
 
-class SidebarMixin:
+class SidebarMixin(YTMHostBase):
     """Sidebar toggling and playlist sidebar event handlers."""
 
     # ── Sidebar toggling ────────────────────────────────────────────

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import logging
 
+from ytm_player.app._base import YTMHostBase
+
 logger = logging.getLogger(__name__)
 
 
-class IPCMixin:
+class IPCMixin(YTMHostBase):
     """Handles IPC commands from the CLI."""
 
     async def _handle_ipc_command(self, command: str, args: dict) -> dict:
