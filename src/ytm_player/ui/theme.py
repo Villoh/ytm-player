@@ -46,9 +46,10 @@ YTM_DARK = Theme(
         "selected-item": "#2a2a2a",
         "progress-filled": "#ff0000",
         "progress-empty": "#555555",
-        "lyrics-played": "#999999",
-        "lyrics-current": "#2ecc71",
-        "lyrics-upcoming": "#aaaaaa",
+        # Note: lyrics-* vars intentionally NOT hardcoded here so they
+        # derive from the active theme via from_css_variables fallbacks
+        # (played → text-muted, current → accent, upcoming → text).
+        # This keeps lyric coloring theme-aware on every theme.
     },
 )
 
@@ -127,7 +128,8 @@ class ThemeColors:
                 "lyrics-played", variables.get("text-muted", cls.lyrics_played)
             ),
             lyrics_current=variables.get(
-                "lyrics-current", variables.get("success", cls.lyrics_current)
+                "lyrics-current",
+                variables.get("accent", variables.get("primary", cls.lyrics_current)),
             ),
             lyrics_upcoming=variables.get(
                 "lyrics-upcoming", variables.get("text", cls.lyrics_upcoming)
