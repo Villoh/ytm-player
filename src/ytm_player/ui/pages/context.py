@@ -335,6 +335,28 @@ class ContextPage(Widget):
         ytmusic = self.app.ytmusic  # type: ignore[attr-defined]
         return await ytmusic.get_playlist_remaining(self.context_id, already_have)
 
+    async def _fetch_full_artist_songs(self, browse_id: str, table: TrackTable) -> None:
+        """Background-fetch the full artist songs playlist and swap into the table.
+
+        Silent on failure — if the fetch errors or the playlist is empty,
+        leave the truncated top-5 list in place and log a debug message.
+        """
+        try:
+            data = await self.app.ytmusic.get_playlist(browse_id, limit=100)
+        except Exception:
+            logger.debug("Failed to fetch full artist songs for %s", browse_id, exc_info=True)
+            return
+        raw_tracks = data.get("tracks", []) if isinstance(data, dict) else []
+        if not raw_tracks:
+            return
+        full_tracks = normalize_tracks(raw_tracks)
+        if not full_tracks:
+            return
+        try:
+            table.load_tracks(full_tracks)
+        except Exception:
+            logger.debug("Failed to swap artist songs table contents", exc_info=True)
+
     def _build_artist(self, container: Vertical) -> None:
         data = self._data
         name = data.get("name", "Unknown Artist")
@@ -361,6 +383,18 @@ class ContextPage(Widget):
         top_tracks_table = TrackTable(show_album=False, id="context-tracks")
         left.mount(top_tracks_table)
         top_tracks_table.load_tracks(normalize_tracks(top_songs))
+
+        # ytmusicapi truncates artist songs to ~5 by default. The full list
+        # lives at songs_section["browseId"] as a regular playlist. Fetch
+        # it in the background and silently swap the table contents in
+        # when ready (closes #55).
+        songs_browse_id = songs_section.get("browseId") if isinstance(songs_section, dict) else None
+        if songs_browse_id:
+            self.run_worker(
+                self._fetch_full_artist_songs(songs_browse_id, top_tracks_table),
+                name="fetch-artist-songs",
+                exclusive=True,
+            )
 
         right = Vertical(classes="artist-right")
         columns.mount(right)
