@@ -485,3 +485,52 @@ class TestSanitizeTitleForLyricLookup:
             )
             == "Bohemian Rhapsody"
         )
+
+    # ── Nested parens in feat. annotations ──
+
+    def test_strips_feat_with_nested_parens_junior(self):
+        # Inner `(Junior)` must not leave an orphan `)` behind.
+        assert sanitize_title_for_lyric_lookup("Track (feat. Bob (Junior))") == "Track"
+
+    def test_strips_feat_with_nested_parens_band(self):
+        assert sanitize_title_for_lyric_lookup("Song (feat. Bob (of Band X))") == "Song"
+
+    def test_strips_feat_then_remastered_bracket_boundary(self):
+        # Combined: feat. group followed by a separate [Remastered] group.
+        # Locks the bracket boundary — the feat. branch must stop at its
+        # own `)` and not eat across into the next bracketed annotation.
+        assert sanitize_title_for_lyric_lookup("Song (feat. Bob & Alice) [Remastered]") == "Song"
+
+    # ── Qualifier suffixes for Acoustic / Remix ──
+
+    def test_strips_acoustic_version(self):
+        assert sanitize_title_for_lyric_lookup("Song (Acoustic Version)") == "Song"
+
+    def test_strips_acoustic_mix(self):
+        assert sanitize_title_for_lyric_lookup("Song (Acoustic Mix)") == "Song"
+
+    def test_strips_acoustic_live(self):
+        assert sanitize_title_for_lyric_lookup("Song (Acoustic Live)") == "Song"
+
+    def test_strips_extended_remix(self):
+        assert sanitize_title_for_lyric_lookup("Song (Extended Remix)") == "Song"
+
+    def test_strips_radio_remix(self):
+        assert sanitize_title_for_lyric_lookup("Song (Radio Remix)") == "Song"
+
+    def test_strips_club_remix(self):
+        assert sanitize_title_for_lyric_lookup("Song (Club Remix)") == "Song"
+
+    # ── Negative passthroughs (bracket requirement) ──
+
+    def test_passthrough_remix_culture(self):
+        # No brackets — must NOT be mangled by the remix qualifier branch.
+        assert sanitize_title_for_lyric_lookup("Remix Culture") == "Remix Culture"
+
+    def test_passthrough_live_and_let_die(self):
+        assert sanitize_title_for_lyric_lookup("Live and Let Die") == "Live and Let Die"
+
+    def test_passthrough_acoustic_sessions(self):
+        assert (
+            sanitize_title_for_lyric_lookup("Acoustic Sessions Vol 1") == "Acoustic Sessions Vol 1"
+        )

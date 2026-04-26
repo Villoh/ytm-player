@@ -237,18 +237,22 @@ _LYRIC_NOISE_RE = re.compile(
       | 4k
 
         # ── Featured-artist annotations ──
-        # (feat. X), (ft. X), (featuring X) — non-greedy on contents,
-        # bounded by the closing bracket via [^)\]]*.
-      | (?:feat\.?|ft\.?|featuring)\b[^)\]]*
+        # (feat. X), (ft. X), (featuring X) — bounded by the closing
+        # bracket. The body alternation explicitly excludes `(` from the
+        # plain-char branch so a nested `(...)` MUST be consumed by the
+        # second alternative, leaving the outer `)` available for the
+        # bracket close. This handles things like "feat. Bob (Junior)"
+        # and "feat. Bob (of Band X)" without leaving an orphan `)`.
+      | (?:feat\.?|ft\.?|featuring)\b(?:[^()\]]|\([^)]*\))*
 
         # ── Versions / re-releases / editions ──
       | remaster(?:ed)?(?:\s+\d{4})?     # Remastered, Remastered 2009
-      | remix
+      | (?:[^)\]]+\s+)?remix(?:\s+[^)\]]*)?   # Remix, Extended/Radio/Club Remix
       | deluxe(?:\s+edition)?            # Deluxe, Deluxe Edition
 
         # ── Performance / arrangement annotations ──
       | live(?:\s+[^)\]]*)?              # Live, Live at X
-      | acoustic
+      | acoustic(?:\s+[^)\]]*)?          # Acoustic, Acoustic Version, Acoustic Mix
     )
     \s*[\)\]]                            # closing bracket
     \s*                                  # trailing whitespace
