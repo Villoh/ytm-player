@@ -65,6 +65,22 @@ text bleeds across visual boundaries on some terminals. There's a
 regression test (`TestIsolateBidiCallSites`) that fails CI if a render
 site stops calling `isolate_bidi`.
 
+## Feature requests
+
+Feature requests are welcome. The most useful ones describe the
+problem or preference, not the fix — what you were trying to do, what
+got in your way, what would feel better. Suggested solutions are fine
+as context, but I make the call on what gets built and how.
+
+If a suggestion doesn't match a stated problem, I'll usually ask
+"what's the underlying friction?" before deciding anything. Not
+because I'm dismissing the idea — because I want to make sure I build
+the right thing for you, not just the thing you asked for.
+
+Bundling multiple ideas into one issue is fine and encouraged.
+Bundling bugs with feature requests isn't — file bugs separately so
+they don't get buried.
+
 ## PR norms
 
 - One concern per PR. Don't bundle "fix bug + add feature + refactor".

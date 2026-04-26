@@ -1,0 +1,50 @@
+name: Code improvement
+description: Observation about the code itself — performance, design, thread safety, clarity, etc.
+title: "[Code Improvement]: "
+labels: ["code-quality"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to read the code. This template is
+        for concrete observations about the implementation — perf,
+        thread safety, clarity, design smells — not new user-facing
+        features or bugs. I take these seriously and decide what (if
+        anything) to act on. If you want to drive a fix yourself, a PR
+        is welcome too.
+
+  - type: textarea
+    id: location
+    attributes:
+      label: Where in the code?
+      description: File path and line number(s) if you can — saves me a search.
+      placeholder: src/ytm_player/services/player.py:108
+    validations:
+      required: true
+
+  - type: textarea
+    id: observation
+    attributes:
+      label: What did you notice?
+      description: |
+        What's there now and why it could be better. Concrete beats
+        abstract — "this would be cleaner" without a "because" is hard
+        to act on.
+      placeholder: |
+        The double-checked locking pattern in __new__ isn't actually
+        thread-safe in Python without explicit memory barriers. Most
+        singletons just use `with lock` unconditionally — slightly
+        slower, no race.
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested approach (optional)
+      description: How you'd fix it, if you have a thought.
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
