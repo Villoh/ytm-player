@@ -51,6 +51,11 @@ A reliability and quality release driven by a multi-agent expert audit. Hardens 
 
 ### Unreleased
 
+**New**
+
+- Playlist radio — right-click any sidebar playlist and choose "Start Radio", or click the "[▶ Start Radio]" button in the playlist header (Library and Context pages). Seeds a radio queue via `RDAMPL` + playlist ID.
+- "Add to Library" button now only shows for playlists you don't own. Both header buttons were previously invisible due to a layout bug (Label taking full width); fixed with `width: auto`.
+
 **Fixes**
 
 - macOS built-in keyboard media keys (prev/next) now work — built-in MacBook keyboards send key codes 19/20 (fast-forward/rewind) instead of the standard 17/18 (next/previous) that external keyboards use. The Quartz event tap now maps both sets.
