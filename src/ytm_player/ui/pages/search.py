@@ -532,6 +532,48 @@ class SearchPage(Widget):
         self._last_query = query
         self.run_worker(self._execute_search(query), name="search", exclusive=True)
 
+    def on_key(self, event: object) -> None:
+        """Handle Escape on the search input: hide suggestions + defocus."""
+        from textual.events import Key
+
+        if not isinstance(event, Key):
+            return
+        if event.key != "escape":
+            return
+
+        # Only act when the search input is focused OR the suggestions
+        # dropdown is visible. Otherwise let Escape bubble normally.
+        focused = self.app.focused
+        input_focused = focused is not None and getattr(focused, "id", None) == "search-input"
+
+        suggestions_visible = False
+        try:
+            overlay = self.query_one("#suggestion-overlay", SuggestionList)
+            suggestions_visible = overlay.has_class("visible")
+        except Exception:
+            pass
+
+        if not (input_focused or suggestions_visible):
+            return
+
+        event.stop()
+        event.prevent_default()
+        if suggestions_visible:
+            self._hide_suggestions()
+        # Move focus to the songs results table if it has rows; otherwise
+        # blur entirely so vim-style nav keys reach the app.
+        try:
+            songs_table = self.query_one("#songs-table", TrackTable)
+            if songs_table.row_count > 0:
+                songs_table.focus()
+            else:
+                self.app.set_focus(None)
+        except Exception:
+            try:
+                self.app.set_focus(None)
+            except Exception:
+                logger.debug("Failed to clear focus on Escape", exc_info=True)
+
     # ------------------------------------------------------------------
     # Suggestions
     # ------------------------------------------------------------------
