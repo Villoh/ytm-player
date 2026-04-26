@@ -553,6 +553,9 @@ class PlaybackMixin:
 
         # Update the track dict so subsequent reads reflect the new state.
         track["likeStatus"] = new_status
+        # Notify the user of the change.
+        msg = "Added to Liked songs" if new_status == "LIKE" else "Removed from Liked songs"
+        self.notify(msg, timeout=2)
         # Push the new state to the playback bar.
         try:
             from ytm_player.ui.playback_bar import PlaybackBar
