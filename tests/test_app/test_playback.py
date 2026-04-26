@@ -214,3 +214,75 @@ class TestPlayTrackPendingResume:
         assert host._pending_resume_video_id is None
         assert host._pending_resume_position == 0.0
         assert host._track_start_position == 83.0
+
+
+class TestToggleLikeCurrent:
+    """Cover _toggle_like_current state transitions and no-op guards."""
+
+    async def test_like_to_indifferent(self):
+        """LIKE → INDIFFERENT clears the like and notifies the user."""
+        host = _fresh_playback_host()
+        track = {"video_id": "abc", "title": "X", "likeStatus": "LIKE"}
+        host.player.current_track = track
+        host.ytmusic = MagicMock()
+        host.ytmusic.rate_song = AsyncMock()
+
+        await host._toggle_like_current()
+
+        host.ytmusic.rate_song.assert_awaited_once_with("abc", "INDIFFERENT")
+        assert track["likeStatus"] == "INDIFFERENT"
+        host.notify.assert_called_once_with("Removed from Liked songs", timeout=2)
+
+    async def test_indifferent_to_like(self):
+        """INDIFFERENT → LIKE adds the like and notifies the user."""
+        host = _fresh_playback_host()
+        track = {"video_id": "abc", "title": "X", "likeStatus": "INDIFFERENT"}
+        host.player.current_track = track
+        host.ytmusic = MagicMock()
+        host.ytmusic.rate_song = AsyncMock()
+
+        await host._toggle_like_current()
+
+        host.ytmusic.rate_song.assert_awaited_once_with("abc", "LIKE")
+        assert track["likeStatus"] == "LIKE"
+        host.notify.assert_called_once_with("Added to Liked songs", timeout=2)
+
+    async def test_dislike_to_like(self):
+        """DISLIKE → LIKE clears the dislike (treated as non-LIKE → LIKE)."""
+        host = _fresh_playback_host()
+        track = {"video_id": "abc", "title": "X", "likeStatus": "DISLIKE"}
+        host.player.current_track = track
+        host.ytmusic = MagicMock()
+        host.ytmusic.rate_song = AsyncMock()
+
+        await host._toggle_like_current()
+
+        host.ytmusic.rate_song.assert_awaited_once_with("abc", "LIKE")
+        assert track["likeStatus"] == "LIKE"
+        host.notify.assert_called_once_with("Added to Liked songs", timeout=2)
+
+    async def test_no_auth_notifies_and_skips_rate_song(self):
+        """Not signed in: warn the user and don't touch ytmusic."""
+        host = _fresh_playback_host()
+        track = {"video_id": "abc", "title": "X", "likeStatus": "INDIFFERENT"}
+        host.player.current_track = track
+        # Simulate "not signed in".
+        host.ytmusic = None
+
+        await host._toggle_like_current()
+
+        host.notify.assert_called_once_with("Sign in to like songs", severity="warning", timeout=2)
+        # Track state untouched.
+        assert track["likeStatus"] == "INDIFFERENT"
+
+    async def test_no_current_track_is_silent_noop(self):
+        """No track playing: return immediately, no notify, no rate_song."""
+        host = _fresh_playback_host()
+        host.player.current_track = None
+        host.ytmusic = MagicMock()
+        host.ytmusic.rate_song = AsyncMock()
+
+        await host._toggle_like_current()
+
+        host.ytmusic.rate_song.assert_not_called()
+        host.notify.assert_not_called()
