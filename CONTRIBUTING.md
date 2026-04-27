@@ -88,6 +88,26 @@ they don't get buried.
 - Update `CHANGELOG.md` if your change is user-visible.
 - The CI matrix runs Ubuntu + macOS + Windows on Python 3.10 and 3.14. Make sure all green before requesting review.
 
+## Python version compatibility
+
+The project supports Python 3.10+. Two compatibility patterns matter when editing source:
+
+**3.11+ stdlib symbols** — if you need `tomllib`, `typing.Self`, or `enum.StrEnum`, use a `sys.version_info` shim instead of importing directly:
+
+```python
+import sys
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    # Python 3.10 backport via PyPI
+    import tomli as tomllib  # pyright: ignore[reportMissingImports]
+```
+
+Pyright narrows on `sys.version_info` correctly, so the `# pyright: ignore` only needs to sit on the else branch. `tomli` and `typing_extensions` are already declared as conditional deps in `pyproject.toml` (`python_version < "3.11"`).
+
+**Mixin attribute typing** — mixins in `src/ytm_player/app/_*.py` (PlaybackMixin, SessionMixin, etc.) extend `YTMHostBase` from `app/_base.py`, a `TYPE_CHECKING`-only stub class that mirrors the runtime instance attribute surface. At runtime `YTMHostBase = object` — zero behaviour change. If you add a new instance attribute to `YTMPlayerApp.__init__` and reference it from a mixin, also declare it on `YTMHostBase` so Pyright doesn't emit "Cannot access attribute X" noise.
+
 ## Architecture pointers
 
 - `app/` — main app split into mixins (lifecycle, playback, navigation, etc.)
