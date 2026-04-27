@@ -70,7 +70,7 @@ site stops calling `isolate_bidi`.
 Feature requests are welcome. The most useful ones describe the
 problem or preference, not the fix — what you were trying to do, what
 got in your way, what would feel better. Suggested solutions are fine
-as context, but I make the call on what gets built and how.
+as context, but final scope and design decisions follow the overall direction of the project.
 
 If a suggestion doesn't match a stated problem, I'll usually ask
 "what's the underlying friction?" before deciding anything. Not
