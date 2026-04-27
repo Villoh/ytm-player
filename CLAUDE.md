@@ -54,6 +54,8 @@ System dependency: `mpv` must be installed (`sudo pacman -S mpv` on Arch).
 - **Playback bar keybindings:** Standard transport keys plus `l` to toggle the like state of the currently playing track.
 - **Prefetching:** Next track's stream URL is resolved in background for instant skip.
 - **Page navigation:** `app/_navigation.py` manages a nav stack (max 20) via `navigate_to()`. Each page widget implements `handle_action(action, count)` for vim-style keybinding dispatch.
+- **Lyric current colour:** `theme.py` exports `DEFAULT_LYRIC_CURRENT = "#ff4e45"` as the absolute fallback for the synced-lyrics current-line colour. The fallback chain is `theme.accent` → `theme.primary` → `DEFAULT_LYRIC_CURRENT`, identical across `theme.from_css_variables`, `_app.py:get_css_variables`, and `_app.py:watch_theme`.
+- **Python 3.10 compatibility shims:** Three stdlib symbols added in 3.11+ are backported via `sys.version_info >= (3, 11)` checks (which Pyright narrows correctly): `tomllib` (in `config/keymap.py`, `config/settings.py`, `ui/theme.py`, `app/_app.py`, `tests/test_config/test_settings.py`) falls back to `tomli`; `typing.Self` (in the first three of those files) falls back to `typing_extensions.Self`; `enum.StrEnum` (in `services/queue.py`, `services/player.py`) falls back to a small `(str, Enum)` polyfill mirroring stdlib's `auto()` lowercase-name behaviour. `tomli` and `typing_extensions` are conditional dependencies (`python_version < "3.11"`) so 3.11+ users don't pull them.
 - **LC_NUMERIC quirk:** `cli.py` forces `LC_NUMERIC=C` at import time — mpv segfaults without it. Don't remove this.
 
 ## Pre-commit Checklist
@@ -97,6 +99,13 @@ Conventions:
   to `~/.config/ytm-player/crashes/`.
 - For diagnostics, run `ytm doctor` — outputs version, paths, recent
   log, and most recent crash trace, suitable for pasting into issues.
+
+## CI Workflows
+
+Two GitHub Actions workflows live in `.github/workflows/`:
+
+- `ci.yml` — runs ruff lint + format check, then pytest on the matrix `[3.10, 3.14]` × `[ubuntu, macos, windows]` (6 jobs total).
+- `check-python-versions.yml` — runs monthly (1st of each month, 09:00 UTC) and opens a maintenance issue when CPython releases a new stable major.minor version newer than our matrix ceiling. Idempotent — won't reopen if an issue is already open. Uses pyyaml to parse the matrix robustly.
 
 ## AUR Package
 
