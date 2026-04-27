@@ -294,7 +294,7 @@ Minor logging-hygiene notes for Phase 4: `get_home` (line 167) uses `logger.debu
 
 - **One brand-new high-priority NARROW candidate not yet in any Phase 4 task — and it's a mutation/write path** (matches the pattern Task 1.5 was specifically asked to look for):
   - **`_session.py:211`** (`_save_session_state` outer write catch). Silent loss of the user's queue / current-track / resume position on failure to write `session.json` — the user has no signal anything went wrong unless they tail the log file. Two-step fix in Phase 4: narrow to `(OSError, TypeError)` and add a `self.notify("Could not save session state", severity="warning", timeout=5)` so users know their resume target is stale. Recommend a new dedicated Phase 4 task ("Phase 4.6: session-write failure visibility") rather than rolling into 4.5, because it's both a NARROW *and* a UX-contract change.
-- **Six new "trivial single-call NARROW" candidates that fold into Phase 4.5 (currently `auth.py:329`, `spotify_import.py:69`, `player.py:481`, `_playback.py:387`, `_playback.py:601`):**
+- **Ten new "trivial single-call NARROW" candidates that fold into Phase 4.5 (currently `auth.py:329`, `spotify_import.py:69`, `player.py:481`, `_playback.py:387`, `_playback.py:601`):**
   - `_app.py:493` (header dim during `on_mount`)
   - `_ipc.py:218` (single `get_watch_playlist` call in `_ipc_queue_add`)
   - `_keys.py:189` (TOGGLE_TRANSLITERATION single call)
