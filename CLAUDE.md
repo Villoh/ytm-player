@@ -37,11 +37,11 @@ System dependency: `mpv` must be installed (`sudo pacman -S mpv` on Arch).
 
 ## Architecture
 
-**Entry point:** `ytm` CLI command → `src/ytm_player/cli.py` (Click). Running `ytm` with no args launches the Textual TUI app (`app/` package — split into mixins). Subcommands (`ytm search`, `ytm play`, etc.) communicate with a running TUI instance via Unix socket IPC (`ipc.py`).
+**Entry point:** `ytm` CLI command → `src/ytm_player/cli.py` (Click). Running `ytm` with no args launches the Textual TUI app (`app/` package — split into mixins, all extending `YTMHostBase` from `app/_base.py` which declares the shared attribute surface as a `TYPE_CHECKING`-only stub for clean Pyright type-checking). Subcommands (`ytm search`, `ytm play`, etc.) communicate with a running TUI instance via Unix socket IPC (`ipc.py`).
 
 **Three-layer structure:**
 
-- **`services/`** — Backend singletons: `Player` (mpv wrapper), `QueueManager` (shuffle/repeat), `StreamResolver` (yt-dlp), `YTMusicService` (ytmusicapi), `CacheManager` (LRU audio cache), `HistoryManager` (SQLite via aiosqlite), `AuthManager` (browser cookie extraction), `lrclib` (LRCLIB.net lyrics fallback), `DownloadService` (offline downloads), `SpotifyImport`. Platform-specific: `MPRISService` (Linux D-Bus), `MacOSMediaService` + `MacOSEventTapService` (macOS), `MediaKeysService` (Windows pynput). Optional: `DiscordRPC`, `LastFMService`.
+- **`services/`** — Backend singletons: `Player` (mpv wrapper), `QueueManager` (shuffle/repeat), `StreamResolver` (yt-dlp), `YTMusicService` (ytmusicapi), `CacheManager` (LRU audio cache), `HistoryManager` (SQLite via aiosqlite), `AuthManager` (browser cookie extraction), `lrclib` (LRCLIB.net lyrics fallback — `get_synced_lyrics` runs a title sanitizer that strips `(feat. X)`, `(Remix)`, `(Remastered)`, `(Deluxe)`, `(Live)`, `(Acoustic)`, `(Official Music Video)`, etc., before lookup to improve match rate), `DownloadService` (offline downloads), `SpotifyImport`. Platform-specific: `MPRISService` (Linux D-Bus), `MacOSMediaService` + `MacOSEventTapService` (macOS), `MediaKeysService` (Windows pynput). Optional: `DiscordRPC`, `LastFMService`.
 - **`ui/`** — Textual widgets: `pages/` (library, search, browse, context, queue, etc.), `sidebars/` (playlist list, synced lyrics), `popups/` (modals), `widgets/` (track table, progress bar, album art). Styling via `theme.py` with CSS variables.
 - **`config/`** — `Settings` dataclass loaded from `~/.config/ytm-player/config.toml`. `KeyMap` system supports multi-key vim sequences and count prefixes. All paths centralized in `paths.py`.
 
@@ -50,7 +50,8 @@ System dependency: `mpv` must be installed (`sudo pacman -S mpv` on Arch).
 - **Event-driven playback:** `Player` emits `PlayerEvent` enums (`TRACK_END`, `TRACK_CHANGE`, etc.) dispatched to the Textual event loop via `call_soon_threadsafe`. The app registers callbacks to update UI.
 - **Thread safety:** `Player` and `QueueManager` are singletons with `threading.Lock`. Player events bridge from mpv's callback thread to asyncio.
 - **Track format:** All services use a standardized track dict with keys: `video_id`, `title`, `artist`, `artists` (list of dicts with `name`/`id`), `album`, `album_id`, `duration` (seconds, int or None), `thumbnail_url`, `is_video`. The `normalize_tracks()` function in `utils/formatting.py` converts inconsistent ytmusicapi response shapes into this format — always use it when ingesting API data.
-- **Session persistence:** Volume, queue contents, shuffle/repeat state saved to `session.json` and restored on startup.
+- **Session persistence:** Volume, queue contents, shuffle/repeat state saved to `session.json` and restored on startup. When `[playback] resume_on_launch` is true (default), the last-played track + position are staged into `_pending_resume_video_id` / `_pending_resume_position` on the app and consumed the first time the user presses play, instead of auto-playing on launch.
+- **Playback bar keybindings:** Standard transport keys plus `l` to toggle the like state of the currently playing track.
 - **Prefetching:** Next track's stream URL is resolved in background for instant skip.
 - **Page navigation:** `app/_navigation.py` manages a nav stack (max 20) via `navigate_to()`. Each page widget implements `handle_action(action, count)` for vim-style keybinding dispatch.
 - **LC_NUMERIC quirk:** `cli.py` forces `LC_NUMERIC=C` at import time — mpv segfaults without it. Don't remove this.
