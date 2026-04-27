@@ -76,17 +76,7 @@ jobs:
           name: dist
           path: dist/
       - name: Extract changelog section for this tag
-        id: changelog
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          awk -v ver="### v$version" '
-            $0 ~ "^"ver"( |$)" { found=1; print; next }
-            found && /^### v[0-9]/ { exit }
-            found { print }
-          ' CHANGELOG.md > release_notes.md
-          if [ ! -s release_notes.md ]; then
-            echo "Release ${GITHUB_REF_NAME}" > release_notes.md
-          fi
+        run: python .github/scripts/extract_changelog.py "${GITHUB_REF_NAME}" CHANGELOG.md > release_notes.md
       - uses: softprops/action-gh-release@v3
         with:
           body_path: release_notes.md
