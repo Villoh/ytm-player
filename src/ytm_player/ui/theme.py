@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10 — backport via PyPI
+    import tomli as tomllib
 from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import Self
+
+try:
+    from typing import Self
+except ImportError:  # Python 3.10 — backport via PyPI
+    from typing_extensions import Self
 
 from textual.theme import Theme
 
