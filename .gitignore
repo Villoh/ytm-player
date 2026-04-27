@@ -10,7 +10,6 @@ build/
 .pytest_cache/
 .coverage
 htmlcov/
-PRD.md
 .claude/
 docs/superpowers/
 uv.lock
