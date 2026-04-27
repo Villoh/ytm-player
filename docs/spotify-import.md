@@ -2,7 +2,7 @@
 
 Import your Spotify playlists into YouTube Music — from the TUI or CLI.
 
-![Spotify import popup](screenshot-spotify-import.png)
+![Spotify import popup](images/spotify-import.png)
 
 ## How it works
 
