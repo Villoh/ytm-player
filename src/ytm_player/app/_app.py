@@ -7,6 +7,12 @@ import logging
 import sys
 from typing import Any
 
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    # Python 3.10 backport via PyPI
+    import tomli as tomllib  # pyright: ignore[reportMissingImports]
+
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal
 
@@ -69,8 +75,6 @@ def _read_theme_toml_cached() -> dict:
         mtime = path.stat().st_mtime
         if _theme_toml_cache is not None and _theme_toml_mtime == mtime:
             return _theme_toml_cache
-
-        import tomllib
 
         with open(path, "rb") as f:
             data = tomllib.load(f)

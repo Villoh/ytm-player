@@ -2,6 +2,14 @@
 
 from __future__ import annotations
 
+import sys
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    # Python 3.10 backport via PyPI
+    import tomli as tomllib  # pyright: ignore[reportMissingImports]
+
 from ytm_player.config.settings import Settings
 
 
@@ -78,8 +86,6 @@ class TestAtomicWrites:
 
         # The actual config file should exist and be valid TOML.
         assert config_path.exists()
-        import tomllib
-
         with open(config_path, "rb") as f:
             data = tomllib.load(f)
         assert "general" in data
