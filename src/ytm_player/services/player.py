@@ -152,7 +152,7 @@ class Player:
         """
         # mpv segfaults if LC_NUMERIC is not C.  Textual's async runtime
         # resets locale, so we must force it immediately before mpv init.
-        # On Windows, Python 3.12+ links ucrtbase.dll — calling setlocale on
+        # On Windows, Python (3.5+) links ucrtbase.dll — calling setlocale on
         # the legacy msvcrt.dll does nothing.  locale.setlocale() targets the
         # correct CRT on every platform, but on Linux it can interact badly
         # with thread-local locale, so we use ctypes there.

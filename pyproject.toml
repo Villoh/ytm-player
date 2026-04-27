@@ -121,7 +121,7 @@ omit = [
 # Point Pyright at the project's venv so editor IDEs (VS Code / Pylance)
 # can resolve textual / pytest / ytmusicapi etc. without flooding the
 # Problems panel with false-positive "Import could not be resolved"
-# errors. Mixin-attribute typing is addressed in v1.7 via app/_base.py —
+# errors. Mixin-attribute typing was addressed in v1.7 via app/_base.py —
 # the YTMHostBase TYPE_CHECKING-only stub class declares the full
 # attribute surface mixins inherit at runtime.
 # pythonVersion pinned to the supported floor (matches requires-python)

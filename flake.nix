@@ -16,7 +16,9 @@
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        python = pkgs.python312;
+        # Pinned to a stable middle of the supported range (3.10..3.14).
+        # Bump along with nixpkgs releases.
+        python = pkgs.python313;
 
         # spotifyscraper is not in nixpkgs — build from PyPI.
         spotifyscraper = python.pkgs.buildPythonPackage rec {
