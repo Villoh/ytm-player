@@ -58,7 +58,123 @@ Minor logging-hygiene notes for Phase 4: `get_home` (line 167) uses `logger.debu
 
 ### `services/` other files (43 sites)
 
-(filled in by Task 1.3)
+#### `services/auth.py` (7 sites)
+
+| Line | Method / context | Category | Rationale |
+|---|---|---|---|
+| 131 | `validate()` — wraps `get_account_info()` after the network-error short-circuit on line 128 | KEEP | Network errors (`ConnectionError`, `Timeout`) already re-raise on line 128. The remaining `Exception` catch correctly covers the credentials-expired path (ytmusicapi raises a generic exception on bad cookies/auth) and returns `False` so callers branch to reauth. The two-step pattern is intentional. |
+| 152 | `try_auto_refresh()` — wraps `_extract_and_save(browser)` then `validate()` | KEEP | Best-effort silent refresh on launch — must not crash startup if browser cookie extraction barfs. Returns `False` so the user is prompted to reauth interactively. |
+| 227 | `_detect_browser()` — per-browser `extract_cookies_from_browser(browser)` probe | KEEP | Iterates candidate browsers; each may legitimately fail (browser not installed, locked DB, etc.). Catch + `continue` is the contract. |
+| 306 | `_extract_and_save()` — outer try wrapping `extract_cookies_from_browser(browser)` import + call | KEEP | Returns `False` on any extraction failure so the caller falls back to the manual paste flow. Logs at warning so users can diagnose. |
+| 329 | `_save_youtube_cookies()` — wraps `sapisid_from_cookie(cookie_str)` | **NARROW** | The only thing inside the try is a deterministic helper that should fail with one specific error type when SAPISID is missing (likely `ValueError` or `KeyError`, depending on the helper's contract). Catching `Exception` here masks bugs in `sapisid_from_cookie` itself (e.g. an `AttributeError` from a refactor) and still returns `False` — silently. Should narrow to the actual sentinel that `sapisid_from_cookie` raises on missing cookie. |
+| 367 | `_save_youtube_cookies()` inner per-`authuser` probe — wraps `tempfile.mkstemp` + `YTMusic(tmp_path)` + `get_account_info()` | KEEP | Probing five `x-goog-authuser` indices to find which ones the cookie is logged into. Each probe legitimately fails for un-logged-in indices; the `try/finally` correctly cleans up `tmp_path` regardless. Soft logging-hygiene note: `logger.debug(...)` here drops `exc_info` — minor inconsistency, flag for Phase 4 sweep. |
+| 490 | `_normalize_and_save_headers()` — wraps `ytmusicapi.setup(filepath=..., headers_raw=...)` for the manual-paste path | KEEP | User-visible interactive setup; surfaces the parse error as a printed message and returns `False` so the caller can re-prompt. Uses `logger.error` (not `exception`) — soft logging-hygiene note for Phase 4 (lose the traceback on a bug-class failure). |
+
+#### `services/discord_rpc.py` (4 sites)
+
+| Line | Method / context | Category | Rationale |
+|---|---|---|---|
+| 44 | `connect()` — wraps `AioPresence(_CLIENT_ID).connect()` | KEEP | Optional service. Discord not running, no IPC pipe, etc. — must degrade silently and return `False`. |
+| 55 | `disconnect()` — wraps `self._rpc.close()` | KEEP | Bare `pass` on shutdown path. Silencing all close errors is fine here; nothing downstream cares. |
+| 91 | `update()` — wraps `self._rpc.update(**kwargs)` per-track | KEEP | Per-track presence update; must never crash playback. Sets `_connected = False` so subsequent calls short-circuit. |
+| 101 | `clear()` — wraps `self._rpc.clear()` on pause/stop | KEEP | Same contract as `update()`; degrades to `_connected = False`. |
+
+#### `services/download.py` (1 site)
+
+| Line | Method / context | Category | Rationale |
+|---|---|---|---|
+| 96 | `_download_sync()` — wraps the entire yt-dlp `extract_info(... download=True)` pipeline | KEEP | Returns a `DownloadResult` dataclass with `success=False` and the error string for the UI to render. yt-dlp can raise a wide variety of errors (network, format-not-found, postprocessor failure) and the user-facing contract is "tell me what went wrong, don't crash the TUI". |
+
+#### `services/lastfm.py` (3 sites)
+
+| Line | Method / context | Category | Rationale |
+|---|---|---|---|
+| 70 | `connect()` — wraps `pylast.LastFMNetwork(...)` constructor | KEEP | Optional service; setup failure (bad creds, network down) must not crash startup. Sets `_connected = False`. |
+| 99 | `now_playing()` — wraps `update_now_playing()` per-track | KEEP | Best-effort scrobble notification; per-track failures must not crash playback. |
+| 140 | `check_scrobble()` — wraps `network.scrobble()` | KEEP | Same contract as `now_playing()`. Periodic scrobble call. |
+
+#### `services/lrclib.py` (1 site)
+
+| Line | Method / context | Category | Rationale |
+|---|---|---|---|
+| 42 | `_fetch()` inner closure — wraps `urllib.request.urlopen(...)` + `json.loads(...)` | KEEP | Optional lyrics fallback; LRCLIB returns 404 for unknown songs, network may be down, JSON may be malformed. Returns `None` so the lyrics sidebar shows the empty state. Could be marginally narrowed to `(urllib.error.URLError, json.JSONDecodeError, OSError)` but the catch-all here is genuinely justified — this is a third-party service with a wide failure surface. |
+
+#### `services/macos_eventtap.py` (4 sites)
+
+| Line | Method / context | Category | Rationale |
+|---|---|---|---|
+| 52 | `_event_action()` — wraps `ns_event.subtype()` + `ns_event.data1()` cast | KEEP | NSEvent objects from CoreFoundation can be malformed for non-media subtypes. Returns `None` so the tap callback ignores the event. Mandatory defensive coding around PyObjC bridges. |
+| 106 | `stop()` — wraps `Quartz.CGEventTapEnable(self._tap, False)` | KEEP | Lifecycle teardown; tap may already be invalid. Must not raise during shutdown. |
+| 111 | `stop()` — wraps `Quartz.CFRunLoopStop(self._run_loop)` | KEEP | Same teardown contract. Run loop may have already exited. |
+| 149 | `_run_tap_loop()` — wraps `Quartz.CFMachPortInvalidate(self._tap)` after the run-loop exits | KEEP | Final teardown of the Mach port; happens on the tap thread after `CFRunLoopRun()` returns. Must not raise. |
+
+#### `services/macos_media.py` (3 sites)
+
+| Line | Method / context | Category | Rationale |
+|---|---|---|---|
+| 109 | `stop()` — per-target `command.removeTarget_(target)` loop | KEEP | Lifecycle teardown for MPRemoteCommand handlers; one bad target shouldn't skip the rest. Continue-and-log is correct. |
+| 115 | `stop()` — `MPNowPlayingInfoCenter.setNowPlayingInfo_(None)` | KEEP | Same teardown contract; clearing Now Playing state on shutdown must not crash. |
+| 194 | `_publish_now_playing()` — wraps `setNowPlayingInfo_` + `setPlaybackState_` | KEEP | Per-track publish; PyObjC bridge into a system service. Must not crash playback if the system rejects the dict shape. |
+
+#### `services/mpris.py` (1 site)
+
+| Line | Method / context | Category | Rationale |
+|---|---|---|---|
+| 285 | `start()` — wraps `MessageBus().connect()` | KEEP | Optional Linux-only service. Session bus may not exist (headless, container, broken D-Bus session) — must degrade silently with a single warning and return so the rest of the app starts normally. The file's per-method exemptions (`mpris.py` allows `N802, N803, F821, F722` for D-Bus naming) signal this file is intentionally a special-case wrapper. |
+
+#### `services/player.py` (7 sites)
+
+| Line | Method / context | Category | Rationale |
+|---|---|---|---|
+| 190 | `_init_mpv()` — wraps `instance["gapless-audio"] = "yes"` for the gapless-playback opt-in | KEEP | Setting an mpv property that may not exist on older mpv versions. Failure to enable gapless is non-fatal; player still works without it. Correct degrade. |
+| 276 | `_safe_wrapper()` inside `_dispatch()` — wraps `await coro_fn(*args)` for async callbacks | KEEP | This is the safety net that prevents UI/MPRIS/Discord callback bugs from killing the player thread. Uses `logger.exception` (correct). Removing this catch would let one buggy listener crash playback for everyone. |
+| 287 | `_safe_sync()` inside `_dispatch()` — wraps sync callback invocation | KEEP | Same contract as line 276 for synchronous listeners. |
+| 305 | `_dispatch()` — outer catch around `loop.call_soon_threadsafe(...)` and direct sync calls | KEEP | Defensive outer net for the dispatcher itself — `call_soon_threadsafe` can raise `RuntimeError` if the loop is closed, and direct `cb(*args)` (no-loop fallback) needs the same protection as the in-loop variant. Uses `logger.exception` (correct). |
+| 384 | `play()` — wraps `_play_sync(url)` + `_dispatch(TRACK_CHANGE)` | KEEP | Returns to the caller after dispatching `PlayerEvent.ERROR` (line 388). The error event is the contract — UI listens for it and surfaces "Failed to play …". Uses `logger.error` (no traceback). Soft logging-hygiene note for Phase 4 — `logger.exception` would preserve the traceback for crash reports. |
+| 481 | `_try_recover()` inner — wraps `get_settings().playback.default_volume` access + `self._mpv.volume = ...` | **NARROW** | Recovery hot path. The settings object is a singleton dataclass — if `get_settings()` itself raises, we have a config-load bug, not an mpv issue. The `mpv.volume = X` assignment can legitimately fail on a freshly-reinitialized mpv (e.g. `ShutdownError` if mpv died again immediately). Should narrow to `(mpv.ShutdownError, OSError, AttributeError)` and let unexpected propagate to the outer catch on line 486 so we don't silently fall back to volume=80 because of a config bug. |
+| 486 | `_try_recover()` outer — wraps `_init_mpv()` + volume restore | KEEP | The outer recovery net. If mpv re-init fails, we genuinely don't know what's wrong (libmpv crash, missing DLL, etc.) and need to return `False` so the caller surfaces "playback unavailable". Uses `logger.exception` (correct). |
+
+#### `services/spotify_import.py` (7 sites)
+
+| Line | Method / context | Category | Rationale |
+|---|---|---|---|
+| 69 | `load_spotify_creds()` — wraps `json.loads(SPOTIFY_CREDS_FILE.read_text(...))` | **NARROW** | Two specific failure modes: file unreadable (`OSError`) and malformed JSON (`json.JSONDecodeError`). Catching `Exception` masks bugs in the file-reading path itself. Trivial narrow — already the pattern used in `is_authenticated` (line 109) and `auth.py:351`. |
+| 174 | `extract_spotify_tracks()` — wraps `extract_spotify_tracks_spotipy(url)` | KEEP | Intentional fallback to `spotify_scraper` if spotipy fails (creds expired, API rate-limit, etc.). The whole point of the catch is to swallow the spotipy-side error and try the alternative path. User sees a warning. |
+| 244 | `_search_and_score()` — wraps `ytmusic.search(query, filter='songs', limit=5)` per Spotify track | KEEP | Per-track YTM search inside a thread pool during a bulk import. One bad track must not abort the whole import — returns empty `search_results` so the track is marked `MatchType.NONE` and the user can pick manually. Soft logging-hygiene note: no log at all here, swallows silently. Phase 4 should add at least a `logger.debug` so silent matching failures are diagnosable. |
+| 335 | `import_spotify_playlist()` — wraps the top-level `extract_spotify_tracks(spotify_url)` call | KEEP | User-visible interactive command; surfaces the error to stdout with the actual `exc` text and aborts. The console output IS the user-facing contract. |
+| 352 | `import_spotify_playlist()` — wraps `YTMusic(str(auth_file), user=brand_account)` constructor | KEEP | Same user-visible contract — bad auth file or bad brand account ID surfaces a printed error and aborts. |
+| 412 | `import_spotify_playlist()` — wraps the manual re-search `ytmusic.search(custom_query, ...)` | KEEP | Same per-track-search degrade as line 244 but in the interactive manual-pick branch. Returns `[]` so the menu shows no candidates. |
+| 470 | `import_spotify_playlist()` — wraps `ytmusic.create_playlist(...)` + `video_ids` build | KEEP | Final step — user-visible failure surfaces the actual error. Aborts the import with a printed message. |
+
+#### `services/stream.py` (4 sites)
+
+| Line | Method / context | Category | Rationale |
+|---|---|---|---|
+| 104 | `_reset_ydl()` — wraps `self._ydl.close()` during cache invalidation | KEEP | Bare `pass` on the close-and-discard path. The instance is being thrown out either way; close errors don't matter. |
+| 180 | `_resolve_sync()` outer — catches anything that isn't `yt_dlp.utils.DownloadError` (handled on line 172) | KEEP | The plan flagged this as a NARROW candidate, but reading in context: line 172 already handles the expected `yt_dlp.utils.DownloadError` (network/format errors). Line 180's catch is the "everything else" net for the resolver retry loop — catches things like `urllib.error.URLError` outside yt-dlp, locale/encoding issues, mpv/yt-dlp version mismatches. Correctly logs at warning with `exc_info=True` and returns `None`. The contract is "resolver always returns `Optional[StreamInfo]`, never raises" because callers (Player, prefetch) cannot recover from a raise. Soft logging-hygiene note: `logger.warning(..., exc_info=True)` could be `logger.exception` for consistency; flag for Phase 4. |
+| 272 | `resolve()` — wraps `asyncio.to_thread(_resolve_sync, video_id)` and propagates via `future.set_exception` | KEEP | This catch RE-RAISES after setting the awaiting future's exception. It's not silencing — it's a fan-out so multiple callers awaiting the same `video_id` all see the same error. Correct as written. |
+| 290 | `prefetch()` — wraps `await self.resolve(video_id)` | KEEP | Background prefetch of the next track's stream URL. Must not bubble exceptions because there's no awaiter to catch them — would be unhandled task error. Logs at debug since prefetch failure is recoverable (real `resolve()` call will hit the same error visibly). |
+
+#### `services/update_check.py` (1 site)
+
+| Line | Method / context | Category | Rationale |
+|---|---|---|---|
+| 74 | `_fetch_latest_pypi_version()` — outer "belt-and-braces" catch after the explicit `(URLError, OSError, JSONDecodeError, ValueError)` handler on line 72 | KEEP | Already-narrowed: the expected failure modes are caught on line 72 and return `None`. Line 74 is the explicit `# pragma: no cover` belt-and-braces net for anything else (e.g. an unexpected SSL exception type or a malformed response shape). Returns `None` so the optional update banner is silently skipped. Correct pattern. |
+
+**Summary for services/ other (43 sites):** 40 KEEP, 3 NARROW, 0 PROMOTE. Notable findings:
+
+- **Two new NARROW candidates not in Phase 4 plan:**
+  - `auth.py:329` (`_save_youtube_cookies` SAPISID extraction) — should narrow to whatever `sapisid_from_cookie` raises on missing cookie. Catching `Exception` here masks refactor bugs in the helper. Small fix; bundle into a Phase 4 "trivially-narrowable single-call try blocks" task.
+  - `spotify_import.py:69` (`load_spotify_creds`) — should narrow to `(OSError, json.JSONDecodeError)` to match the existing pattern in `auth.py:109`/`auth.py:351`. Pure consistency fix.
+- **One NARROW candidate in `player.py`:**
+  - `player.py:481` (`_try_recover` volume restore inner catch) — should narrow to `(mpv.ShutdownError, OSError, AttributeError)`. The `get_settings()` lookup inside the try is a config-load path that has no business being silently swallowed inside an mpv-recovery handler. Small refactor; pairs naturally with the broader Player crash-recovery tightening.
+- **Optional services confirmed all KEEP:** `discord_rpc.py`, `lastfm.py`, `mpris.py`, `macos_eventtap.py`, `macos_media.py`, `update_check.py`, `lrclib.py`, `download.py`. Every site is genuinely "this feature must not crash the player". The PyObjC/D-Bus boundaries especially benefit from broad catches because the bridges raise wide exception hierarchies.
+- **Logging-hygiene drift to roll into Phase 4 (Task 4.4 scope expansion):**
+  - `auth.py:368` — `logger.debug(...)` drops `exc_info`, leaving the traceback unrecorded.
+  - `auth.py:491` — `logger.error(...)` without `exc_info`; should be `logger.exception` for parser-failure diagnostics.
+  - `spotify_import.py:244` (`_search_and_score`) — silent swallow with no log at all. Add `logger.debug(..., exc_info=True)` so users importing playlists with many `MatchType.NONE` rows have a way to diagnose.
+  - `stream.py:180` — `logger.warning(..., exc_info=True)` should be `logger.exception` for consistency with the rest of the codebase.
+  - `player.py:387` — `logger.error("Failed to play %s: %s", ...)` drops the traceback that crash-report users would want; consider `logger.exception` here too.
 
 ### `app/_playback.py` (27 sites)
 
