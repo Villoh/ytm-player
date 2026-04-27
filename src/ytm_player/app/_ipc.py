@@ -66,6 +66,8 @@ class IPCMixin(YTMHostBase):
                         or not self.player.current_track.get("video_id")
                     ):
                         return {"ok": False, "error": "no track is playing"}
+                    if not self.ytmusic:
+                        return {"ok": False, "error": "ytmusic not initialized"}
                     await self.ytmusic.rate_song(self.player.current_track["video_id"], "LIKE")
                     return {"ok": True}
 
@@ -76,6 +78,8 @@ class IPCMixin(YTMHostBase):
                         or not self.player.current_track.get("video_id")
                     ):
                         return {"ok": False, "error": "no track is playing"}
+                    if not self.ytmusic:
+                        return {"ok": False, "error": "ytmusic not initialized"}
                     await self.ytmusic.rate_song(self.player.current_track["video_id"], "DISLIKE")
                     return {"ok": True}
 
@@ -86,6 +90,8 @@ class IPCMixin(YTMHostBase):
                         or not self.player.current_track.get("video_id")
                     ):
                         return {"ok": False, "error": "no track is playing"}
+                    if not self.ytmusic:
+                        return {"ok": False, "error": "ytmusic not initialized"}
                     await self.ytmusic.rate_song(
                         self.player.current_track["video_id"], "INDIFFERENT"
                     )

@@ -8,7 +8,7 @@ from ytm_player.app._base import YTMHostBase
 from ytm_player.ui.header_bar import HeaderBar
 from ytm_player.ui.popups.actions import ActionsPopup
 from ytm_player.ui.sidebars.lyrics_sidebar import LyricsSidebar
-from ytm_player.ui.sidebars.playlist_sidebar import PlaylistSidebar
+from ytm_player.ui.sidebars.playlist_sidebar import LibraryPanel, PlaylistSidebar
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +146,8 @@ class SidebarMixin(YTMHostBase):
         """Background fetch remaining tracks and append to the queue."""
         from ytm_player.utils.formatting import normalize_tracks
 
+        if not self.ytmusic:
+            return
         try:
             remaining = await self.ytmusic.get_playlist_remaining(
                 playlist_id, already_have, order="recently_added"
@@ -212,7 +214,9 @@ class SidebarMixin(YTMHostBase):
 
                 title = item.get("title", "this playlist")
 
-                def _on_confirm(confirmed: bool) -> None:
+                def _on_confirm(confirmed: bool | None) -> None:
+                    # ``None`` means the popup was dismissed without an
+                    # explicit choice — treat as "don't delete".
                     if confirmed:
                         self.run_worker(self._delete_sidebar_playlist(item))
 
@@ -248,7 +252,7 @@ class SidebarMixin(YTMHostBase):
             if playlist_id:
                 self.notify(f"Created '{name}'", timeout=2)
                 ps = self.query_one("#playlist-sidebar", PlaylistSidebar)
-                panel = ps.query_one("#ps-playlists")
+                panel = ps.query_one("#ps-playlists", LibraryPanel)
                 panel.prepend_item({"playlistId": playlist_id, "title": name})
             else:
                 self.notify("Failed to create playlist", severity="error", timeout=3)
@@ -278,7 +282,7 @@ class SidebarMixin(YTMHostBase):
             if success:
                 self.notify(f"Removed '{title}'", timeout=2)
                 ps = self.query_one("#playlist-sidebar", PlaylistSidebar)
-                ps.query_one("#ps-playlists").remove_item(raw_id)
+                ps.query_one("#ps-playlists", LibraryPanel).remove_item(raw_id)
             else:
                 self.notify("Failed to remove playlist", severity="error", timeout=3)
         except Exception:

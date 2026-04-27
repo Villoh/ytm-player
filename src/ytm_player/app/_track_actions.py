@@ -122,14 +122,15 @@ class TrackActionsMixin(YTMHostBase):
                     )
             elif action_id == "toggle_like":
                 video_id = get_video_id(track)
-                if video_id and self.ytmusic:
+                ytmusic = self.ytmusic
+                if video_id and ytmusic is not None:
                     is_liked = track.get("likeStatus") == "LIKE" or track.get("liked", False)
                     rating = "INDIFFERENT" if is_liked else "LIKE"
                     label = "Unliked" if is_liked else "Liked"
 
                     async def _rate(vid: str, r: str, lbl: str) -> None:
                         try:
-                            await self.ytmusic.rate_song(vid, r)
+                            await ytmusic.rate_song(vid, r)
                             track["likeStatus"] = r
                             self.notify(lbl, timeout=2)
                         except Exception:

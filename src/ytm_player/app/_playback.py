@@ -21,12 +21,16 @@ _MAX_CONSECUTIVE_FAILURES = 5
 class PlaybackMixin(YTMHostBase):
     """Playback coordination, player event callbacks, history logging, download."""
 
-    async def play_track(self, track: dict) -> None:
+    async def play_track(self, track: dict | None) -> None:
         """Resolve a stream URL and start playback for a track.
 
         This is the main entry point for initiating playback from any
-        page or action.
+        page or action.  ``track`` may be ``None`` when callers pass
+        ``QueueManager.current_track`` on an empty queue — in that case
+        we simply no-op.
         """
+        if track is None:
+            return
         if not self.player or not self.stream_resolver:
             self.notify(
                 "Player is still starting up. Please try again in a moment.", severity="error"
@@ -468,19 +472,21 @@ class PlaybackMixin(YTMHostBase):
                 logger.exception("macOS Now Playing playback status update failed")
 
         # Update Discord presence on pause/resume.
-        if self.discord and self.discord.is_connected:
+        discord = self.discord
+        if discord and discord.is_connected:
             try:
                 if paused:
-                    self.call_later(lambda: self.run_worker(self.discord.clear()))
+                    self.call_later(lambda d=discord: self.run_worker(d.clear()))
                 elif self.player and self.player.current_track:
                     t = self.player.current_track
+                    player = self.player
                     self.call_later(
-                        lambda: self.run_worker(
-                            self.discord.update(
-                                title=t.get("title", ""),
-                                artist=t.get("artist", ""),
-                                album=t.get("album", ""),
-                                position=self.player.position if self.player else 0,
+                        lambda d=discord, p=player, track=t: self.run_worker(
+                            d.update(
+                                title=track.get("title", ""),
+                                artist=track.get("artist", ""),
+                                album=track.get("album", ""),
+                                position=p.position,
                             )
                         )
                     )

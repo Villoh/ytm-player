@@ -16,10 +16,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from typing import Any
+    from typing import Any, Protocol
 
     from textual.app import App
-    from textual.widget import Widget
 
     from ytm_player.config.keymap import KeyMap
     from ytm_player.config.settings import Settings
@@ -36,6 +35,23 @@ if TYPE_CHECKING:
     from ytm_player.services.stream import StreamResolver
     from ytm_player.services.ytmusic import YTMusicService
     from ytm_player.ui.theme import ThemeColors
+
+    class PageWidget(Protocol):
+        """Structural type for page widgets mounted in #main-content.
+
+        All concrete page classes (LibraryPage, SearchPage, etc. plus
+        the internal _PlaceholderPage) inherit from ``textual.widget.Widget``
+        and implement ``handle_action``/``get_nav_state``.  This Protocol
+        captures the subset of the surface that the app mixins actually
+        touch on a current page widget.
+        """
+
+        async def handle_action(self, action: Any, count: int = 1) -> None: ...
+        def get_nav_state(self) -> dict[str, Any]: ...
+        # ``query`` comes from Widget; redeclared here so callers that
+        # have a PageWidget reference can scan for child widgets without
+        # casting back to Widget.
+        def query(self, selector: Any = ..., /) -> Any: ...
 
     class YTMHostBase(App[None]):
         """Type stub mirroring YTMPlayerApp's runtime instance surface.
@@ -110,7 +126,7 @@ if TYPE_CHECKING:
         # flags a missing attribute — YAGNI.
 
         # Defined in PlaybackMixin (_playback.py)
-        async def play_track(self, track: dict) -> None: ...
+        async def play_track(self, track: dict | None) -> None: ...
         async def _download_track(self, track: dict) -> None: ...
         async def _toggle_play_pause(self) -> None: ...
         async def _play_next(self, *, ended_track: dict | None = None) -> None: ...
@@ -119,7 +135,7 @@ if TYPE_CHECKING:
 
         # Defined in NavigationMixin (_navigation.py)
         async def navigate_to(self, page_name: str, **kwargs: Any) -> None: ...
-        def _get_current_page(self) -> Widget | None: ...
+        def _get_current_page(self) -> PageWidget | None: ...
 
         # Defined in SidebarMixin (_sidebar.py)
         def _toggle_playlist_sidebar(self) -> None: ...

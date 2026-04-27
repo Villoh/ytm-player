@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from textual.app import ComposeResult
 from textual.containers import Container
@@ -13,6 +13,9 @@ from textual.widgets import Static
 from ytm_player.app._base import YTMHostBase
 from ytm_player.config import Action
 from ytm_player.ui.playback_bar import FooterBar
+
+if TYPE_CHECKING:
+    from ytm_player.app._base import PageWidget
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +106,7 @@ class NavigationMixin(YTMHostBase):
         # This allows forward navigation (footer/sidebar clicks) to restore state.
         if self._current_page:
             current_page = self._get_current_page()
-            if current_page and hasattr(current_page, "get_nav_state"):
+            if current_page is not None and hasattr(current_page, "get_nav_state"):
                 page_state = current_page.get_nav_state()
                 if page_state:
                     self._page_state_cache[self._current_page] = page_state
@@ -180,12 +183,20 @@ class NavigationMixin(YTMHostBase):
             return page_cls(id=f"page-context-{self._context_seq}", **kwargs)
         return page_cls(id=f"page-{page_name}", **kwargs)
 
-    def _get_current_page(self) -> Widget | None:
-        """Return the currently mounted page widget, or None."""
+    def _get_current_page(self) -> PageWidget | None:
+        """Return the currently mounted page widget, or None.
+
+        Returned as a ``PageWidget`` (Protocol) so callers can invoke
+        ``handle_action`` and ``get_nav_state`` without ``hasattr``
+        gymnastics for the type-checker.  All concrete pages mounted
+        in ``#main-content`` implement this protocol.
+        """
         try:
             container = self.query_one("#main-content", Container)
             children = list(container.children)
-            return children[0] if children else None
+            if not children:
+                return None
+            return cast("PageWidget", children[0])
         except Exception:
             logger.debug("Failed to get current page", exc_info=True)
             return None

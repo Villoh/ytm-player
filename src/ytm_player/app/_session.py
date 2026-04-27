@@ -42,7 +42,8 @@ class SessionMixin(YTMHostBase):
             state = {}
 
         volume = state.get("volume", self.settings.playback.default_volume)
-        await self.player.set_volume(volume)
+        if self.player:
+            await self.player.set_volume(volume)
 
         repeat = state.get("repeat", "off")
         try:
