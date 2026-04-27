@@ -7,7 +7,7 @@ name = "ytm-player"
 dynamic = ["version"]
 description = "A full-featured YouTube Music TUI client for the terminal"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 license = "MIT"
 authors = [{ name = "Peter", email = "peternaame@gmail.com" }]
 keywords = ["youtube-music", "tui", "music-player", "terminal", "textual", "mpv"]
@@ -19,8 +19,11 @@ classifiers = [
     "Operating System :: POSIX :: Linux",
     "Operating System :: MacOS",
     "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Multimedia :: Sound/Audio :: Players",
 ]
 dependencies = [
@@ -83,7 +86,7 @@ packages = ["src/ytm_player"]
 path = "src/ytm_player/__init__.py"
 
 [tool.ruff]
-target-version = "py312"
+target-version = "py310"
 line-length = 100
 
 [tool.ruff.lint]
@@ -121,5 +124,8 @@ omit = [
 # errors. Mixin-attribute typing is addressed in v1.7 via app/_base.py —
 # the YTMHostBase TYPE_CHECKING-only stub class declares the full
 # attribute surface mixins inherit at runtime.
+# pythonVersion pinned to the supported floor (matches requires-python)
+# so accidental 3.11+ syntax is flagged at type-check time.
 venvPath = "."
 venv = ".venv"
+pythonVersion = "3.10"
