@@ -8,44 +8,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### v1.7.2 (2026-04-27)
 
-A docs release: README restructure + project-wide stale-info sweep, plus small polish that piled up after v1.7.1.
+A combined release covering broader Python compatibility, a monthly Python release watcher, a full README restructure into a landing page + dedicated docs, and the 3.10 backport shims required to support Ubuntu 22.04.
 
 **New**
 
 - README has been split into a 64-line landing page plus seven dedicated docs (`docs/installation.md`, `docs/configuration.md`, `docs/keybindings.md`, `docs/cli-reference.md`, `docs/spotify-import.md`, `docs/troubleshooting.md`, `docs/architecture.md`). The README is now purely an index — every topic lives in exactly one file with full detail.
-
-**Project**
-
-- `CLAUDE.md` updated to document v1.7.x additions: 3.10 backport shims, the `check-python-versions.yml` watcher workflow, and the `DEFAULT_LYRIC_CURRENT` constant.
-- `CONTRIBUTING.md` gained a "Python version compatibility" section explaining the `sys.version_info` shim pattern and the `YTMHostBase` mixin attribute typing pattern for new contributors.
-- Lint job + Python release watcher updated to use Python 3.14 (was 3.12), aligning auxiliary tooling with the test matrix ceiling.
-- `flake.nix` Python pin bumped from 3.12 to 3.13 (a stable middle of the supported range).
-- AUR PKGBUILD maintainer email replaced (was a placeholder).
-- Replaced hero screenshot (v4 → v5).
-
-**Fixes**
-
-- Stale comments cleaned up: `pyproject.toml` Pyright comment now reads as past tense; `services/player.py` Windows note no longer claims a 3.12+ requirement that was never accurate (ucrtbase has been the default since 3.5).
-- Sweep findings absorbed into the new docs: `l` keybinding documented (`docs/keybindings.md`), `[playback] resume_on_launch` documented (`docs/configuration.md`), corrected `lyrics_current = "#ff4e45"` in the theme.toml example (was stale `#2ecc71`), `app/_base.py` added to the architecture file tree, full CLI subcommand reference now lists every `ytm` command (was missing `ytm dislike`, `ytm now`, `ytm doctor`, `ytm config`, etc.).
-
----
-
-### v1.7.1 (2026-04-27)
-
-A compatibility patch that lowers the supported Python floor.
+- New monthly workflow `check-python-versions.yml` opens a maintenance issue when CPython releases a new stable major.minor version newer than our CI matrix ceiling. Idempotent — won't reopen if an issue is already open. Defensive regex guard rejects RC/beta strings to avoid bogus issues.
 
 **Project**
 
 - Python floor lowered from 3.12 to 3.10. Ubuntu 22.04 LTS users can now `pip install ytm-player` against the system `python3` without installing a newer Python first. Verified locally on Python 3.10 (545/545 tests passing) and via the new CI matrix `[3.10, 3.14]`.
 - Note on Python 3.10 lifecycle: CPython 3.10 reaches end-of-life October 2026. Ubuntu 22.04 keeps shipping 3.10 until April 2027 (standard support) or 2032 (Pro), so 22.04 users stay covered well past CPython's EOL. We'll bump the floor when usage data shows nobody on 3.10.
 - CI matrix shifted from `[3.12, 3.13]` to `[3.10, 3.14]` — testing the supported floor + the latest stable. Same 6 jobs as before (3 OSes × 2 Pythons), better-targeted coverage.
-- New monthly workflow `check-python-versions.yml` opens a maintenance issue when CPython releases a new stable major.minor version newer than our CI matrix ceiling. Idempotent — won't reopen if an issue is already open. Defensive regex guard rejects RC/beta strings to avoid bogus issues.
+- Lint job + Python release watcher updated to use Python 3.14 (was 3.12), aligning auxiliary tooling with the test matrix ceiling.
 - Pyright + ruff configured to type-check and lint against `py310` so accidentally-introduced 3.11+ syntax fails locally and in CI.
 - Classifiers updated: now lists Python 3.10, 3.11, 3.12, 3.13, 3.14.
+- `flake.nix` Python pin bumped from 3.12 to 3.13 (a stable middle of the supported range).
+- `CLAUDE.md` updated to document v1.7.x additions: 3.10 backport shims, the new watcher workflow, and the `DEFAULT_LYRIC_CURRENT` constant.
+- `CONTRIBUTING.md` gained a "Python version compatibility" section explaining the `sys.version_info` shim pattern and the `YTMHostBase` mixin attribute typing pattern for new contributors.
+- AUR PKGBUILD maintainer email replaced (was a placeholder).
+- Replaced hero screenshot (v4 → v5).
 
 **Fixes**
 
 - Theme cache (`_read_theme_toml_cached`) was silently returning `{}` on Python 3.10 because its function-local `import tomllib` was caught by a broad except clause. The bug was masked on 3.12 (where tomllib is stdlib) but would have shipped a non-functional theme cache to 3.10 users. Caught during the 3.10 verification gate; fixed by moving the import to module-level with a `sys.version_info` shim.
+- Stale comments cleaned up: `pyproject.toml` Pyright comment now reads as past tense; `services/player.py` Windows note no longer claims a 3.12+ requirement that was never accurate (ucrtbase has been the default since 3.5).
+- Sweep findings absorbed into the new docs: `l` keybinding documented (`docs/keybindings.md`), `[playback] resume_on_launch` documented (`docs/configuration.md`), corrected `lyrics_current = "#ff4e45"` in the theme.toml example (was stale `#2ecc71`), `app/_base.py` added to the architecture file tree, full CLI subcommand reference now lists every `ytm` command (was missing `ytm dislike`, `ytm now`, `ytm doctor`, `ytm config`, etc.).
 
 **Compatibility shims**
 
@@ -55,8 +43,6 @@ To support Python 3.10 (where several stdlib symbols don't exist), backport shim
 - `typing.Self` (3.11+) → falls back to `typing_extensions.Self` on 3.10. Same first 3 files.
 - `enum.StrEnum` (3.11+) → falls back to a `(str, Enum)` polyfill that mirrors stdlib's `auto()` lowercase-name behavior. Files: `services/queue.py`, `services/player.py`.
 - `tomli` and `typing_extensions` added as conditional dependencies (`python_version < "3.11"` markers) so 3.11+ users don't pull them.
-
-> Note: v1.7.1 was developed locally and rolled forward into the v1.7.2 release; no separate PyPI/AUR publication was made for 1.7.1.
 
 ---
 
