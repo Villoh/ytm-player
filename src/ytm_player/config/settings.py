@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 import logging
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # Python 3.10 — backport via PyPI
-    import tomli as tomllib  # pyright: ignore[reportMissingImports]
+import sys
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 
-try:
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib  # pyright: ignore[reportMissingImports]
+
+if sys.version_info >= (3, 11):
     from typing import Self
-except ImportError:  # Python 3.10 — backport via PyPI
+else:
     from typing_extensions import Self  # pyright: ignore[reportMissingImports]
 
 from ytm_player.config.paths import CACHE_DIR, CONFIG_FILE
