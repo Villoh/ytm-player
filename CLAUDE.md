@@ -102,20 +102,51 @@ Conventions:
 
 ## CI Workflows
 
-Two GitHub Actions workflows live in `.github/workflows/`:
+Three GitHub Actions workflows live in `.github/workflows/`:
 
 - `ci.yml` — runs ruff lint + format check, then pytest on the matrix `[3.10, 3.14]` × `[ubuntu, macos, windows]` (6 jobs total).
 - `check-python-versions.yml` — runs monthly (1st of each month, 09:00 UTC) and opens a maintenance issue when CPython releases a new stable major.minor version newer than our matrix ceiling. Idempotent — won't reopen if an issue is already open. Uses pyyaml to parse the matrix robustly.
+- `publish.yml` — tag-triggered (`v*`) and `workflow_dispatch`. Builds wheel + sdist, smoke-tests the wheel against `ytm --version` in a fresh venv, uploads to PyPI via OIDC trusted publishing (no API tokens), then creates a GitHub Release with the matching CHANGELOG section attached. Manual dispatch can target TestPyPI for dry-runs.
 
-## AUR Package
+## Dependabot
 
-This project is published on AUR as `ytm-player-git`. The PKGBUILD lives in `aur/PKGBUILD`.
+`.github/dependabot.yml` runs weekly on Mondays. Both `pip` and `github-actions` ecosystems use two groups: `*-minor-patch` (auto-merge candidates) and `*-major` (review carefully — breaking changes possible). Major bumps are not skipped — they just open in their own PR so they're reviewed independently of low-risk updates.
 
-**When pushing changes to GitHub, always update the AUR package too.** The process:
+## Releases
 
-1. If it's a new version: bump `__version__` in `src/ytm_player/__init__.py`, tag it (`git tag vX.Y.Z`), push the tag
-2. If dependencies changed: update `depends`/`optdepends`/`makedepends` in `aur/PKGBUILD`
-3. Push the AUR update:
+The flow is **tag-driven**. Pushing a `vX.Y.Z` tag triggers `publish.yml`, which handles PyPI + the GitHub Release end-to-end. AUR is still updated by hand afterward.
+
+### One-time setup (already done)
+
+Before the first tag, two PyPI trusted-publisher entries are configured at https://pypi.org/manage/account/publishing/ and https://test.pypi.org/manage/account/publishing/:
+
+| Field | Value |
+|-------|-------|
+| Owner | `peternaame-boop` |
+| Repository | `ytm-player` |
+| Workflow | `publish.yml` |
+| Environment | `pypi` (or `testpypi` on TestPyPI) |
+
+GitHub Environments `pypi` and `testpypi` exist in repo settings. No API tokens stored anywhere — auth is OIDC.
+
+### Cutting a release
+
+1. Bump `__version__` in `src/ytm_player/__init__.py`.
+2. Add a `### vX.Y.Z (YYYY-MM-DD)` section to the top of `CHANGELOG.md` (the publish workflow extracts it for the GitHub Release body).
+3. Run `ruff format src/ tests/ && ruff check src/ tests/ && pytest`.
+4. Commit (`chore(release): vX.Y.Z`), tag (`git tag vX.Y.Z`), push both (`git push && git push --tags`).
+5. Watch the `Publish` workflow on GitHub Actions — it builds, smoke-tests, uploads to PyPI, and creates the release in roughly a minute.
+
+### Dry-run via TestPyPI (paranoid release)
+
+Trigger `Publish` manually from the Actions tab → `Run workflow` → target `testpypi`. Builds + uploads to https://test.pypi.org/project/ytm-player/ without touching production. Useful when changing build config or pyproject metadata.
+
+### After PyPI publishes — update AUR
+
+AUR (`ytm-player-git`) PKGBUILD lives in `aur/PKGBUILD`. After every release:
+
+1. If dependencies changed: update `depends`/`optdepends`/`makedepends` in `aur/PKGBUILD`.
+2. Push the AUR update:
 
 ```bash
 git clone ssh://aur@aur.archlinux.org/ytm-player-git.git /tmp/ytm-player-aur

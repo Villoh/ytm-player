@@ -9,12 +9,17 @@ updates:
     labels:
       - dependencies
     groups:
-      python-deps:
+      python-deps-minor-patch:
         patterns:
           - "*"
         update-types:
           - "minor"
           - "patch"
+      python-deps-major:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
 
   - package-ecosystem: github-actions
     directory: "/"
@@ -25,3 +30,15 @@ updates:
     labels:
       - dependencies
       - github-actions
+    groups:
+      gha-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      gha-major:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
