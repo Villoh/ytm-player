@@ -34,7 +34,7 @@ A full-featured YouTube Music player for the terminal. Browse your library, sear
 
 ## Requirements
 
-- **Python 3.12+**
+- **Python 3.10+**
 - **[mpv](https://mpv.io/)** — audio playback backend, must be installed system-wide
 - A **YouTube Music** account (free or Premium)
 

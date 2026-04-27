@@ -86,7 +86,7 @@ they don't get buried.
 - One concern per PR. Don't bundle "fix bug + add feature + refactor".
 - Reference the issue in the PR description (`Closes #123`).
 - Update `CHANGELOG.md` if your change is user-visible.
-- The CI matrix runs Ubuntu + macOS + Windows on Python 3.12 and 3.13. Make sure all green before requesting review.
+- The CI matrix runs Ubuntu + macOS + Windows on Python 3.10 and 3.14. Make sure all green before requesting review.
 
 ## Architecture pointers
 

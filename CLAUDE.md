@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-ytm-player is a YouTube Music TUI client built with Python 3.12+ and [Textual](https://textual.textualize.io/). It provides vim-style navigation, synced lyrics, playlist management, queue control, and integrations (MPRIS, Discord, Last.fm, Spotify import). Audio playback uses mpv via python-mpv; stream URLs are resolved via yt-dlp.
+ytm-player is a YouTube Music TUI client built with Python 3.10+ and [Textual](https://textual.textualize.io/). It provides vim-style navigation, synced lyrics, playlist management, queue control, and integrations (MPRIS, Discord, Last.fm, Spotify import). Audio playback uses mpv via python-mpv; stream URLs are resolved via yt-dlp.
 
 ## Commands
 
@@ -67,7 +67,7 @@ ruff check src/ tests/
 
 ## Ruff Configuration
 
-- Line length: 100, target Python 3.12
+- Line length: 100, target Python 3.10
 - Rules: E, F, I, N, W (E501 ignored — line length handled separately)
 - Per-file exemptions: `mpris.py` (N802, N803, F821, F722 for D-Bus conventions), `spotify_import.py` (N803)
 - CI pins `ruff==0.15.1` — match this locally to avoid lint drift
@@ -79,7 +79,7 @@ ruff check src/ tests/
 - Coverage floor: 10%
 - Heavy mocking of mpv, ytmusicapi, yt-dlp, D-Bus — tests never hit real APIs or require mpv installed
 - Test fixtures in `tests/conftest.py`: `sample_track`/`sample_tracks` use `_make_track()` helper to create standardized track dicts; `queue_manager` provides a fresh `QueueManager` instance
-- CI runs on GitHub Actions (ubuntu, Python 3.12): ruff lint + format check, then pytest with coverage
+- CI runs on GitHub Actions (Ubuntu + macOS + Windows, Python 3.10 and 3.14): ruff lint + format check, then pytest with coverage
 
 ## Logging
 
