@@ -12,6 +12,7 @@ build/
 htmlcov/
 PRD.md
 .claude/
+docs/superpowers/
 uv.lock
 
 # IDE / editor
