@@ -6,18 +6,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
-### v1.7.1 (2026-04-27)
+### v1.7.2 (2026-04-27)
 
-A compatibility patch that lowers the supported Python floor.
+A docs and compatibility release. Lowers Python floor to 3.10 (Ubuntu 22.04 stock support), restructures the README into a lean landing page with seven dedicated docs files in `docs/`, and adds a monthly Python release watcher.
+
+**New**
+
+- README has been split into a 120-line landing page plus seven dedicated docs (`docs/installation.md`, `docs/configuration.md`, `docs/keybindings.md`, `docs/cli-reference.md`, `docs/spotify-import.md`, `docs/troubleshooting.md`, `docs/architecture.md`). The README is now purely an index — every topic lives in exactly one file with full detail.
 
 **Project**
 
 - Python floor lowered from 3.12 to 3.10. Ubuntu 22.04 LTS users can now `pip install ytm-player` against the system `python3` without installing a newer Python first. Verified locally on Python 3.10 (545/545 tests passing) and via the new CI matrix `[3.10, 3.14]`.
 - Note on Python 3.10 lifecycle: CPython 3.10 reaches end-of-life October 2026. Ubuntu 22.04 keeps shipping 3.10 until April 2027 (standard support) or 2032 (Pro), so 22.04 users stay covered well past CPython's EOL. We'll bump the floor when usage data shows nobody on 3.10.
 - CI matrix shifted from `[3.12, 3.13]` to `[3.10, 3.14]` — testing the supported floor + the latest stable. Same 6 jobs as before (3 OSes × 2 Pythons), better-targeted coverage.
-- New monthly workflow `check-python-versions.yml` opens a maintenance issue when CPython releases a new stable major.minor version newer than our CI matrix ceiling. Idempotent — won't reopen if an issue is already open. Uses pyyaml to parse the matrix robustly (rather than fragile grep).
+- New monthly workflow `check-python-versions.yml` opens a maintenance issue when CPython releases a new stable major.minor version newer than our CI matrix ceiling. Idempotent — won't reopen if an issue is already open. Defensive regex guard rejects RC/beta strings to avoid bogus issues.
 - Pyright + ruff configured to type-check and lint against `py310` so accidentally-introduced 3.11+ syntax fails locally and in CI.
+- Lint job + Python release watcher updated to use Python 3.14 (was 3.12), aligning auxiliary tooling with the test matrix ceiling.
 - Classifiers updated: now lists Python 3.10, 3.11, 3.12, 3.13, 3.14.
+- `flake.nix` Python pin bumped from 3.12 to 3.13 (a stable middle of the supported range).
+- AUR PKGBUILD maintainer email replaced (was a placeholder).
+- Replaced hero screenshot (v4 → v5).
 
 **Fixes**
 
@@ -26,6 +34,7 @@ A compatibility patch that lowers the supported Python floor.
 **Compatibility shims**
 
 To support Python 3.10 (where several stdlib symbols don't exist), backport shims were added using `sys.version_info >= (3, 11)` checks (which type-checkers narrow correctly):
+
 - `tomllib` (3.11+) → falls back to `tomli` (PyPI) on 3.10. Files: `config/keymap.py`, `config/settings.py`, `ui/theme.py`, `app/_app.py`, `tests/test_config/test_settings.py`.
 - `typing.Self` (3.11+) → falls back to `typing_extensions.Self` on 3.10. Same first 3 files.
 - `enum.StrEnum` (3.11+) → falls back to a `(str, Enum)` polyfill that mirrors stdlib's `auto()` lowercase-name behavior. Files: `services/queue.py`, `services/player.py`.
