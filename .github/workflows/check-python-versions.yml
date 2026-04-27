@@ -15,11 +15,26 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
       - name: Discover current matrix ceiling
         id: matrix
         run: |
-          # Extract the highest python-version from ci.yml matrix.
-          ceiling=$(grep -oP 'python-version:\s*\["[^"]+",\s*"\K[^"]+' .github/workflows/ci.yml | head -1)
+          # Parse the test matrix from ci.yml and pick the highest version.
+          # Uses pyyaml (preinstalled on ubuntu-latest runners; fallback installs).
+          python -m pip install --quiet pyyaml
+          ceiling=$(python -c '
+          import yaml, sys
+          with open(".github/workflows/ci.yml") as f:
+              data = yaml.safe_load(f)
+          versions = data["jobs"]["test"]["strategy"]["matrix"]["python-version"]
+          # Sort numerically by major.minor tuple, take the highest.
+          parsed = sorted(versions, key=lambda v: tuple(int(p) for p in v.split(".")))
+          print(parsed[-1])
+          ')
           if [ -z "$ceiling" ]; then
             echo "::error::Could not parse python-version matrix from ci.yml"
             exit 1
