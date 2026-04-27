@@ -233,7 +233,7 @@ class _HeartButton(Widget):
     def render(self) -> Text:
         theme = get_theme()
         if self.like_status == "LIKE":
-            return Text(f" {_ICON_HEART} ", style=f"bold {theme.error}")
+            return Text(f" {_ICON_HEART} ", style=f"bold {theme.accent}")
         return Text(f" {_ICON_HEART} ", style=theme.muted_text)
 
     def on_click(self, event: Click) -> None:
