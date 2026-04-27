@@ -11,6 +11,12 @@ from textual.theme import Theme
 
 from ytm_player.config.paths import THEME_FILE
 
+# Default lyric-current color used when a theme defines no accent/primary.
+# Single source of truth: the dataclass default, the from_css_variables
+# fallback, and the two _app.py fallbacks (get_css_variables, watch_theme)
+# all derive from this constant.  Matches ytm-dark's accent.
+DEFAULT_LYRIC_CURRENT = "#ff4e45"
+
 # ── App-specific CSS variable names (not provided by Textual themes) ───
 
 _APP_VARS = (
@@ -84,7 +90,7 @@ class ThemeColors:
     progress_filled: str = "#ff0000"
     progress_empty: str = "#555555"
     lyrics_played: str = "#999999"
-    lyrics_current: str = "#2ecc71"
+    lyrics_current: str = DEFAULT_LYRIC_CURRENT
     lyrics_upcoming: str = "#aaaaaa"
 
     @classmethod

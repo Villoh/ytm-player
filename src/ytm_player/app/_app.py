@@ -38,7 +38,7 @@ from ytm_player.ui.header_bar import HeaderBar
 from ytm_player.ui.playback_bar import FooterBar, PlaybackBar
 from ytm_player.ui.sidebars.lyrics_sidebar import LyricsSidebar
 from ytm_player.ui.sidebars.playlist_sidebar import PlaylistSidebar
-from ytm_player.ui.theme import ThemeColors, get_theme
+from ytm_player.ui.theme import DEFAULT_LYRIC_CURRENT, ThemeColors, get_theme
 
 logger = logging.getLogger(__name__)
 
@@ -263,7 +263,9 @@ class YTMPlayerApp(
             "progress-filled": variables.get("primary", "#ff0000"),
             "progress-empty": variables.get("surface", "#555555"),
             "lyrics-played": variables.get("text-muted", "#999999"),
-            "lyrics-current": variables.get("accent", variables.get("primary", "#ff4e45")),
+            "lyrics-current": variables.get(
+                "accent", variables.get("primary", DEFAULT_LYRIC_CURRENT)
+            ),
             "lyrics-upcoming": variables.get("text", "#aaaaaa"),
         }
         for key, default in app_defaults.items():
@@ -330,7 +332,9 @@ class YTMPlayerApp(
                 progress_filled=v.get("progress-filled", t.primary),
                 progress_empty=v.get("progress-empty", t.surface or "#555555"),
                 lyrics_played=v.get("lyrics-played", t.secondary or "#999999"),
-                lyrics_current=v.get("lyrics-current", t.accent or t.primary or "#ff4e45"),
+                lyrics_current=v.get(
+                    "lyrics-current", t.accent or t.primary or DEFAULT_LYRIC_CURRENT
+                ),
                 lyrics_upcoming=v.get("lyrics-upcoming", t.foreground or "#aaaaaa"),
             )
             tc._apply_toml_overrides()
