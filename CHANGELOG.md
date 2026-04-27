@@ -6,6 +6,49 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+### v1.7.0 (2026-04-27)
+
+A polish release focused on resume-on-launch, lyric metadata cleanup, theming
+correctness, and a typing overhaul that silences Pyright noise across the
+mixin-based App. 30 commits, 545 tests (was 491).
+
+**New**
+
+- Heart toggle on the playback bar — visible `❤` indicator between the track info and volume, filled in the theme accent when the current track is liked, muted when not. Press `l` (or click) to toggle. Backed by `ytmusicapi.rate_song(LIKE/INDIFFERENT)` so the change syncs to your YouTube Music account in real time. Toast confirms ("Added to Liked songs" / "Removed from Liked songs"); pressing `l` while not signed in surfaces a "Sign in to like songs" warning instead of feeling like a dead key. (Closes [#62](https://github.com/peternaame-boop/ytm-player/issues/62), thanks @valkyrieglasc.)
+- Last-playing track is remembered across launches — the track + queue + position are saved on every exit (not just unclean ones). Relaunch ytm-player and the playback bar shows the same track you were on, ready to go. Default-on; opt out with `[playback] resume_on_launch = false` in `config.toml`. Two safety guards: tracks paused for under 1 second are no longer saved (avoids a startup-crash overwriting a perfectly good prior resume), and the pending slot survives if you start playing a different track first.
+- Artist context page now fetches ALL top songs — `ytmusicapi.get_artist()` returns only ~5 by default with the full list at a separate browseId. ytm-player fetches the first 300 in the background after the page renders, then chains `get_playlist_remaining` for anything beyond. No more silent truncation at 100. (Closes [#55](https://github.com/peternaame-boop/ytm-player/issues/55).)
+- Search input auto-focuses on fresh entry — pressing `g s` from a fresh state focuses the search bar so you can type immediately. Returning to the page with a cached query leaves focus on the results table so you can keep browsing without re-typing.
+- Search Escape now does the right thing — when the input is focused or the predictive-suggestions dropdown is showing, Escape hides the dropdown and moves focus to the songs results table (or blurs entirely if no results yet). Typing a new query also clears the previous results so a subsequent Escape doesn't strand you on stale rows.
+- Lyric title sanitization — strips a wide set of YouTube-style noise patterns (`(Official Music Video)`, `[Audio]`, `(HD)`, `(feat. Bob)` / `(ft. Bob)` / `(featuring Bob)`, `(Remix)` / `(Extended Remix)` / `(Radio Remix)`, `(Remastered)` / `(Remastered 2009)`, `(Deluxe)` / `(Deluxe Edition)`, `(Live)` / `(Live at Wembley)`, `(Acoustic)` / `(Acoustic Version)`, etc.) and the `Artist - ` prefix before LRCLIB lookup. Handles nested parens correctly (`(feat. Bob (Junior))` → strips cleanly). Improves match rate for tracks played from YouTube proper (where titles are noisy) without affecting clean YouTube Music tracks. (Closes [#62](https://github.com/peternaame-boop/ytm-player/issues/62), thanks @valkyrieglasc.)
+- Notifications match the active theme — toast border colors now use `$primary` / `$warning` / `$error` from the theme instead of Textual's hardcoded green default. Notifications no longer stick out on a custom theme.
+- Notifications shift left when the lyrics sidebar is open — toast rack offsets so notifications don't cover the lyrics.
+- Lyric line colors derive from theme tokens — current line uses the theme accent (was hardcoded green); upcoming lines are normal foreground (clearly distinct from the dimmed played lines instead of all looking grey-on-grey).
+- Now Playing header in the queue + repeat/shuffle "active" state in the playback bar use the theme accent (`$primary`) instead of the hardcoded `$success` (green).
+
+**Fixes**
+
+- Search "Searching..." indicator no longer sticks forever when the worker is cancelled. `asyncio.CancelledError` inherits from `BaseException` in Python 3.8+, so the existing `except Exception:` block didn't catch it; the loading-text-clear was outside the try/finally and never ran on cancel. Now an explicit handler clears the indicator before re-raising.
+- Queue footer no longer duplicates the repeat/shuffle state from the playback bar. Footer now just shows `Tracks: N`. (Closes [#62](https://github.com/peternaame-boop/ytm-player/issues/62), thanks @valkyrieglasc.)
+- Sidebar play-from-double-click no longer passes a possibly-`None` track to `play_track` — surfaced when the new typing infrastructure (below) tightened the signature. The `None` case now early-returns gracefully.
+
+**Project**
+
+- Allow textual 8.x — `pyproject.toml` upper bound bumped from `<8.0` to `<9.0`. (Closes [#63](https://github.com/peternaame-boop/ytm-player/pull/63).) All tests pass on textual 8.2.4.
+- Mixin attribute typing — new `src/ytm_player/app/_base.py` declares `YTMHostBase`, a `TYPE_CHECKING`-only stub class that mirrors `YTMPlayerApp`'s full attribute and cross-mixin method surface. All eight mixins now extend it. At runtime `YTMHostBase = object` (zero behaviour change); under Pyright/Pylance the editor sees a fully typed `App[None]` subclass and stops emitting "Cannot access attribute X for class FooMixin" noise. Net Pyright count in `src/ytm_player/app/`: **0 errors** (was 52 before this release).
+- A new `PageWidget` Protocol replaces bare `Widget` returns where pages are looked up — `_get_current_page()` now returns `PageWidget | None` so `handle_action` and `get_nav_state` calls type-check correctly without `cast()` at every site.
+- Pyright now finds the project venv — added `[tool.pyright]` to `pyproject.toml` so editor IDEs (VS Code / Pylance / basedpyright) resolve `textual`, `pytest`, `ytmusicapi` etc. without flooding the Problems panel with false-positive "Import could not be resolved" errors.
+- Lyric-current default color is now a single `DEFAULT_LYRIC_CURRENT = "#ff4e45"` constant in `theme.py`, referenced by the dataclass default and both fallback paths in `_app.py`. Previously the three sites disagreed (green vs red) — would have surfaced for users who wrote stripped-down custom themes that defined neither `accent` nor `primary`.
+
+**Tests**
+
+- 545 passing (up from 491 in v1.6). New coverage:
+  - Lyric title sanitizer — 29 tests covering original noise patterns + the new feat/ft/featuring/remix/remastered/deluxe/live/acoustic patterns + nested parens + negative passthroughs (`Remix Culture`, `Live and Let Die`, `Acoustic Sessions Vol 1` stay untouched).
+  - Resume-on-launch flow — restore + position-guard boundaries + pending-resume match/non-match.
+  - `_toggle_like_current` — LIKE↔INDIFFERENT, DISLIKE→LIKE, no-op-with-notify when not signed in, no-op when no current track.
+- Cleaned up several pre-existing test `ResourceWarning`s (unclosed file handles in `test_auth_multi_account.py`).
+
+---
+
 ### v1.6.0 (2026-04-17)
 
 A polish release focused on diagnostics, stability, security, and performance.
