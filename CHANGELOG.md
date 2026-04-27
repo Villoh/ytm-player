@@ -12,7 +12,7 @@ A docs and compatibility release. Lowers Python floor to 3.10 (Ubuntu 22.04 stoc
 
 **New**
 
-- README has been split into a 120-line landing page plus seven dedicated docs (`docs/installation.md`, `docs/configuration.md`, `docs/keybindings.md`, `docs/cli-reference.md`, `docs/spotify-import.md`, `docs/troubleshooting.md`, `docs/architecture.md`). The README is now purely an index — every topic lives in exactly one file with full detail.
+- README has been split into a 64-line landing page plus seven dedicated docs (`docs/installation.md`, `docs/configuration.md`, `docs/keybindings.md`, `docs/cli-reference.md`, `docs/spotify-import.md`, `docs/troubleshooting.md`, `docs/architecture.md`). The README is now purely an index — every topic lives in exactly one file with full detail.
 
 **Project**
 
