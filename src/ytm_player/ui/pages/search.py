@@ -506,6 +506,16 @@ class SearchPage(Widget):
             return
 
         query = event.value.strip()
+
+        # The displayed results are tied to ``_last_query``. Once the user
+        # types something different, those rows are stale — clear them so
+        # that pressing Escape (which focuses the songs-table when it has
+        # rows) doesn't strand the user on results from a previous query.
+        # Only clear when there's actually something on screen, so we don't
+        # rebuild empty panels on every keystroke.
+        if query != self._last_query and any(self._search_results.values()):
+            self._clear_stale_results()
+
         if not query:
             self._hide_suggestions()
             self._show_recent_searches()
@@ -746,6 +756,25 @@ class SearchPage(Widget):
 
         playlists_panel = self.query_one("#playlists-panel", SearchResultPanel)
         playlists_panel.load_items(results.get("playlists", []))
+
+    def _clear_stale_results(self) -> None:
+        """Empty all result panels.
+
+        Called when the user types a query that no longer matches what's
+        on screen, so a follow-up Escape doesn't focus the songs-table on
+        results from a previous search.
+        """
+        self._search_results = {
+            "songs": [],
+            "albums": [],
+            "artists": [],
+            "playlists": [],
+        }
+        self._last_query = ""
+        try:
+            self._populate_results(self._search_results)
+        except Exception:
+            logger.debug("Failed to clear stale search results", exc_info=True)
 
     def _update_loading(self, text: str) -> None:
         try:
