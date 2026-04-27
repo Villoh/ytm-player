@@ -19,7 +19,7 @@
 
 (filled in by Task 1.2)
 
-### `services/` other files (38 sites)
+### `services/` other files (43 sites)
 
 (filled in by Task 1.3)
 
@@ -27,15 +27,15 @@
 
 (filled in by Task 1.4)
 
-### `app/` other files (46 sites)
+### `app/` other files (35 sites)
 
 (filled in by Task 1.5)
 
-### `ui/pages/` (89 sites)
+### `ui/pages/` (73 sites)
 
 (filled in by Task 1.6)
 
-### `ui/` other files (24 sites) + `utils/` + remainder (7 sites)
+### `ui/` other files (46 sites) + `utils/`/`cli.py`/`ipc.py` (10 sites)
 
 (filled in by Task 1.7)
 
