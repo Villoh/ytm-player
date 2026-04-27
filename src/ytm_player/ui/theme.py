@@ -9,11 +9,13 @@ from pathlib import Path
 if sys.version_info >= (3, 11):
     import tomllib
 else:
+    # Python 3.10 backport via PyPI
     import tomli as tomllib  # pyright: ignore[reportMissingImports]
 
 if sys.version_info >= (3, 11):
     from typing import Self
 else:
+    # Python 3.10 backport via PyPI
     from typing_extensions import Self  # pyright: ignore[reportMissingImports]
 
 from textual.theme import Theme
