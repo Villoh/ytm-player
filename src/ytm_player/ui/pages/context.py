@@ -338,11 +338,17 @@ class ContextPage(Widget):
     async def _fetch_full_artist_songs(self, browse_id: str, table: TrackTable) -> None:
         """Background-fetch the full artist songs playlist and swap into the table.
 
+        Loads the first batch (limit=_FIRST_BATCH) into the table, then chains
+        ``get_playlist_remaining`` to append anything beyond that — mirrors the
+        playlist progressive-load pattern in ``_fetch_remaining_tracks`` so
+        artists with > _FIRST_BATCH top songs aren't silently truncated.
+
         Silent on failure — if the fetch errors or the playlist is empty,
-        leave the truncated top-5 list in place and log a debug message.
+        leave the existing (truncated) list in place and log a debug message.
         """
+        ytmusic = self.app.ytmusic  # type: ignore[attr-defined]
         try:
-            data = await self.app.ytmusic.get_playlist(browse_id, limit=100)
+            data = await ytmusic.get_playlist(browse_id, limit=self._FIRST_BATCH)
         except Exception:
             logger.debug("Failed to fetch full artist songs for %s", browse_id, exc_info=True)
             return
@@ -356,6 +362,28 @@ class ContextPage(Widget):
             table.load_tracks(full_tracks)
         except Exception:
             logger.debug("Failed to swap artist songs table contents", exc_info=True)
+            return
+
+        # Chain remaining tracks if the playlist exceeds the first batch.
+        # If trackCount isn't exposed, fall back to attempting the call and
+        # treating empty/error as "nothing more to fetch".
+        total_count = data.get("trackCount") if isinstance(data, dict) else None
+        if total_count is not None and total_count <= len(raw_tracks):
+            return
+        try:
+            remaining = await ytmusic.get_playlist_remaining(browse_id, len(raw_tracks))
+        except Exception:
+            logger.debug("Failed to fetch remaining artist songs for %s", browse_id, exc_info=True)
+            return
+        if not remaining:
+            return
+        remaining_tracks = normalize_tracks(remaining)
+        if not remaining_tracks:
+            return
+        try:
+            table.append_tracks(remaining_tracks)
+        except Exception:
+            logger.debug("Failed to append remaining artist songs", exc_info=True)
 
     def _build_artist(self, container: Vertical) -> None:
         data = self._data
