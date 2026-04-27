@@ -28,6 +28,8 @@ A combined release covering broader Python compatibility, a monthly Python relea
 - `CONTRIBUTING.md` gained a "Python version compatibility" section explaining the `sys.version_info` shim pattern and the `YTMHostBase` mixin attribute typing pattern for new contributors.
 - AUR PKGBUILD maintainer email replaced (was a placeholder).
 - Replaced hero screenshot (v4 → v5).
+- New `publish.yml` workflow automates the PyPI release. Pushing a `vX.Y.Z` tag now builds wheel + sdist, smoke-tests the wheel by installing it into a fresh venv and running `ytm --version`, uploads to PyPI via OIDC trusted publishing (no API tokens stored anywhere), and creates the matching GitHub Release with the CHANGELOG section attached. A manual `workflow_dispatch` with `target=testpypi` is wired for paranoid dry-runs against test.pypi.org. AUR is still updated by hand afterward.
+- Dependabot now opens major-version bumps in their own grouped PR (previously suppressed by `update-types: [minor, patch]`). Both `pip` and `github-actions` ecosystems split into `*-minor-patch` (auto-merge candidates) and `*-major` (review carefully), so security-relevant majors no longer require manual intervention to surface.
 
 **Fixes**
 
