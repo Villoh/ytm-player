@@ -1,0 +1,58 @@
+name: Check Python versions
+
+on:
+  schedule:
+    - cron: "0 9 1 * *"  # 09:00 UTC on the 1st of each month
+  workflow_dispatch:      # manual trigger
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Discover current matrix ceiling
+        id: matrix
+        run: |
+          # Extract the highest python-version from ci.yml matrix.
+          ceiling=$(grep -oP 'python-version:\s*\["[^"]+",\s*"\K[^"]+' .github/workflows/ci.yml | head -1)
+          if [ -z "$ceiling" ]; then
+            echo "::error::Could not parse python-version matrix from ci.yml"
+            exit 1
+          fi
+          echo "ceiling=$ceiling" >> "$GITHUB_OUTPUT"
+          echo "Current CI ceiling: $ceiling"
+
+      - name: Check upstream Python stable
+        id: upstream
+        run: |
+          # endoflife.date returns supported Python releases sorted newest-first.
+          latest=$(curl -fsS https://endoflife.date/api/python.json | jq -r '.[0].latest' | cut -d. -f1-2)
+          if [ -z "$latest" ]; then
+            echo "::error::Could not parse latest stable Python from endoflife.date"
+            exit 1
+          fi
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          echo "Latest upstream stable: $latest"
+
+      - name: Open issue if outdated
+        if: steps.upstream.outputs.latest != steps.matrix.outputs.ceiling
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          title="Bump CI Python ceiling to ${{ steps.upstream.outputs.latest }}"
+          # Idempotency: skip if an open issue with this title already exists.
+          existing=$(gh issue list --search "$title in:title is:open" --json number --jq '. | length')
+          if [ "$existing" -eq 0 ]; then
+            gh issue create \
+              --title "$title" \
+              --label maintenance \
+              --body "Python ${{ steps.upstream.outputs.latest }} is the current stable release (per endoflife.date). CI matrix ceiling is ${{ steps.matrix.outputs.ceiling }}. Bump \`.github/workflows/ci.yml\` matrix and \`pyproject.toml\` classifiers to include the new version."
+            echo "Issue opened."
+          else
+            echo "Issue already exists, skipping."
+          fi
