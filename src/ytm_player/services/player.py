@@ -10,9 +10,20 @@ import sys
 import threading
 import time
 from collections.abc import Callable
-from enum import StrEnum, auto
 from pathlib import Path
 from typing import Any
+
+if sys.version_info >= (3, 11):
+    from enum import StrEnum, auto
+else:
+    # Python 3.10 backport — match StrEnum.auto() lowercase-name behavior
+    from enum import Enum, auto
+
+    class StrEnum(str, Enum):
+        @staticmethod
+        def _generate_next_value_(name, start, count, last_values):
+            return name.lower()
+
 
 if sys.platform == "win32":
     # python-mpv uses ctypes to find mpv DLLs on PATH.  Package managers like

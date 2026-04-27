@@ -4,8 +4,20 @@ from __future__ import annotations
 
 import logging
 import random
+import sys
 import threading
-from enum import StrEnum, auto
+
+if sys.version_info >= (3, 11):
+    from enum import StrEnum, auto
+else:
+    # Python 3.10 backport — match StrEnum.auto() lowercase-name behavior
+    from enum import Enum, auto
+
+    class StrEnum(str, Enum):
+        @staticmethod
+        def _generate_next_value_(name, start, count, last_values):
+            return name.lower()
+
 
 logger = logging.getLogger(__name__)
 
