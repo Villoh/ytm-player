@@ -7,7 +7,7 @@ import logging
 try:
     import tomllib
 except ModuleNotFoundError:  # Python 3.10 — backport via PyPI
-    import tomli as tomllib
+    import tomli as tomllib  # pyright: ignore[reportMissingImports]
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 
