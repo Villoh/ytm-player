@@ -12,7 +12,7 @@ from pathlib import Path
 try:
     from typing import Self
 except ImportError:  # Python 3.10 — backport via PyPI
-    from typing_extensions import Self
+    from typing_extensions import Self  # pyright: ignore[reportMissingImports]
 
 from textual.theme import Theme
 
