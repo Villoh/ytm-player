@@ -1,8 +1,15 @@
 # ytm-player
 
+[![PyPI](https://img.shields.io/pypi/v/ytm-player)](https://pypi.org/project/ytm-player/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![CI](https://github.com/peternaame-boop/ytm-player/actions/workflows/ci.yml/badge.svg)](https://github.com/peternaame-boop/ytm-player/actions/workflows/ci.yml)
+
 A full-featured YouTube Music player for the terminal. Browse your library, search, queue tracks, and control playback — all from a TUI with vim-style keybindings. Runs on Linux, macOS, and Windows.
 
 ![ytm-player screenshot](docs/images/screenshot-v5.png)
+
+> Available on **PyPI**, **AUR**, **NixOS**, and **Gentoo** — actively maintained with cross-platform support.
 
 ## Features
 
@@ -58,6 +65,10 @@ Windows: replace `ytm` with `py -m ytm_player`.
 | File layout + stack | [docs/architecture.md](docs/architecture.md) |
 | Contributing | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Security policy | [SECURITY.md](SECURITY.md) |
+
+## Contributors
+
+Thanks to [@dmnmsc](https://github.com/dmnmsc), [@Villoh](https://github.com/Villoh), [@valkyrieglasc](https://github.com/valkyrieglasc), [@dsafxP](https://github.com/dsafxP), [@Thayrov](https://github.com/Thayrov), [@glywil](https://github.com/glywil), [@Kineforce](https://github.com/Kineforce), [@CarterSnich](https://github.com/CarterSnich), [@Tohbuu](https://github.com/Tohbuu), [@nitsujri](https://github.com/nitsujri), [@uhs-robert](https://github.com/uhs-robert), [@moschi](https://github.com/moschi), and [@firedev](https://github.com/firedev) for bug reports, fixes, packaging, and platform support.
 
 ## Changelog
 
