@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from textual.app import ComposeResult
 from textual.containers import Vertical
@@ -14,6 +14,9 @@ from textual.widgets import Input, Label, Static
 from ytm_player.config.keymap import Action
 from ytm_player.ui.widgets.track_table import TrackTable
 from ytm_player.utils.formatting import normalize_tracks
+
+if TYPE_CHECKING:
+    from ytm_player.app._base import YTMHostBase
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +159,9 @@ class LibraryPage(Widget):
         loading.display = True
 
         try:
-            data = await self.app.ytmusic.get_playlist(
+            ytmusic = cast("YTMHostBase", self.app).ytmusic
+            assert ytmusic is not None
+            data = await ytmusic.get_playlist(
                 playlist_id, limit=self._FIRST_BATCH, order="recently_added"
             )
 
@@ -213,7 +218,9 @@ class LibraryPage(Widget):
 
     async def _fetch_remaining(self, playlist_id: str, already_have: int) -> None:
         """Background fetch for tracks beyond the first batch."""
-        remaining = await self.app.ytmusic.get_playlist_remaining(
+        ytmusic = cast("YTMHostBase", self.app).ytmusic
+        assert ytmusic is not None
+        remaining = await ytmusic.get_playlist_remaining(
             playlist_id, already_have, order="recently_added"
         )
         # Discard if user switched playlists while we were fetching.
@@ -245,9 +252,8 @@ class LibraryPage(Widget):
             return
 
         # Fall back to the currently-playing track.
-        playing_id = getattr(self.app, "player", None) and getattr(
-            self.app.player, "_current_track", None
-        )
+        player = cast("YTMHostBase", self.app).player
+        playing_id = getattr(player, "_current_track", None) if player is not None else None
         if playing_id and isinstance(playing_id, dict):
             playing_id = playing_id.get("video_id")
 
@@ -322,12 +328,13 @@ class LibraryPage(Widget):
         tracks = table.tracks
         idx = event.index
 
-        self.app.queue.clear()
-        self.app.queue.add_multiple(tracks)
-        self.app.queue.jump_to_real(idx)
+        host = cast("YTMHostBase", self.app)
+        host.queue.clear()
+        host.queue.add_multiple(tracks)
+        host.queue.jump_to_real(idx)
         if self._active_playlist_id:
-            self.app._active_library_playlist_id = self._active_playlist_id  # type: ignore[attr-defined]
-        await self.app.play_track(event.track)
+            host._active_library_playlist_id = self._active_playlist_id
+        await host.play_track(event.track)
 
     # ------------------------------------------------------------------
     # Vim-style action handler

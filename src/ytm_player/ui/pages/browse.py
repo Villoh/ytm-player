@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
@@ -16,6 +16,9 @@ from textual.widgets import Label, ListItem, ListView, Static
 from ytm_player.config.keymap import Action
 from ytm_player.ui.widgets.track_table import TrackTable
 from ytm_player.utils.formatting import extract_artist, get_video_id, normalize_tracks, truncate
+
+if TYPE_CHECKING:
+    from ytm_player.app._base import YTMHostBase
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +160,9 @@ class ForYouSection(Widget):
         """Fetch and display personalised home shelves."""
         self.is_loading = True
         try:
-            self._shelves = await self.app.ytmusic.get_home()
+            ytmusic = cast("YTMHostBase", self.app).ytmusic
+            assert ytmusic is not None
+            self._shelves = await ytmusic.get_home()
         except Exception:
             logger.debug("Failed to load home recommendations", exc_info=True)
             self._show_error("Failed to load recommendations.")
@@ -292,7 +297,9 @@ class MoodsGenresSection(Widget):
         """Fetch and display mood/genre categories."""
         self.is_loading = True
         try:
-            self._categories = await self.app.ytmusic.get_mood_categories()
+            ytmusic = cast("YTMHostBase", self.app).ytmusic
+            assert ytmusic is not None
+            self._categories = await ytmusic.get_mood_categories()
             await self._populate_categories()
         except Exception:
             logger.exception("Failed to load mood categories")
@@ -417,7 +424,9 @@ class ChartsSection(Widget):
         self.is_loading = True
         self._country = country
         try:
-            self._chart_data = await self.app.ytmusic.get_charts(country=country)
+            ytmusic = cast("YTMHostBase", self.app).ytmusic
+            assert ytmusic is not None
+            self._chart_data = await ytmusic.get_charts(country=country)
             self._populate_charts()
         except Exception:
             logger.exception("Failed to load charts for country=%r", country)
@@ -520,7 +529,9 @@ class NewReleasesSection(Widget):
         """Fetch and display new releases."""
         self.is_loading = True
         try:
-            self._albums = await self.app.ytmusic.get_new_releases()
+            ytmusic = cast("YTMHostBase", self.app).ytmusic
+            assert ytmusic is not None
+            self._albums = await ytmusic.get_new_releases()
             self._populate_releases()
         except Exception:
             logger.exception("Failed to load new releases")
@@ -725,8 +736,11 @@ class BrowsePage(Widget):
 
     async def _load_mood_playlists(self, category_params: str) -> None:
         """Fetch playlists for a mood/genre and navigate to the first one."""
+        host = cast("YTMHostBase", self.app)
         try:
-            playlists = await self.app.ytmusic.get_mood_playlists(category_params)
+            ytmusic = host.ytmusic
+            assert ytmusic is not None
+            playlists = await ytmusic.get_mood_playlists(category_params)
             if playlists:
                 # Navigate to the first playlist as a preview, or show a list.
                 # For now, navigate to the first one.
@@ -734,12 +748,12 @@ class BrowsePage(Widget):
                 if first:
                     playlist_id = first.get("playlistId") or first.get("browseId")
                     if playlist_id:
-                        await self.app.navigate_to(
+                        await host.navigate_to(
                             "context", context_type="playlist", context_id=playlist_id
                         )
         except Exception:
             logger.exception("Failed to load mood playlists")
-            self.app.notify("Failed to load mood playlists", severity="error")
+            host.notify("Failed to load mood playlists", severity="error")
 
     async def on_new_releases_section_album_selected(
         self, event: NewReleasesSection.AlbumSelected
@@ -748,16 +762,18 @@ class BrowsePage(Widget):
         album = event.album
         album_id = album.get("browseId") or album.get("album_id")
         if album_id:
-            await self.app.navigate_to("context", context_type="album", context_id=album_id)
+            host = cast("YTMHostBase", self.app)
+            await host.navigate_to("context", context_type="album", context_id=album_id)
 
     async def on_track_table_track_selected(self, event: TrackTable.TrackSelected) -> None:
         """Play the selected chart track and populate the queue."""
         event.stop()
         table = self.query_one("#charts-table", TrackTable)
-        self.app.queue.clear()
-        self.app.queue.add_multiple(table.tracks)
-        self.app.queue.jump_to_real(event.index)
-        await self.app.play_track(event.track)
+        host = cast("YTMHostBase", self.app)
+        host.queue.clear()
+        host.queue.add_multiple(table.tracks)
+        host.queue.jump_to_real(event.index)
+        await host.play_track(event.track)
 
     async def _navigate_item(self, item: dict[str, Any]) -> None:
         """Route an item to the appropriate context page or play it directly."""
@@ -765,29 +781,30 @@ class BrowsePage(Widget):
         video_id = get_video_id(item)
         browse_id = item.get("browseId")
         playlist_id = item.get("playlistId") or item.get("audioPlaylistId")
+        host = cast("YTMHostBase", self.app)
 
         if result_type in ("song", "video", "flat_song") or video_id:
             normalized_tracks = normalize_tracks([item])
             track_to_play = normalized_tracks[0] if normalized_tracks else item
-            await self.app.play_track(track_to_play)
+            await host.play_track(track_to_play)
         elif result_type in ("album", "single"):
             if browse_id:
-                await self.app.navigate_to("context", context_type="album", context_id=browse_id)
+                await host.navigate_to("context", context_type="album", context_id=browse_id)
         elif result_type == "artist":
             if browse_id:
-                await self.app.navigate_to("context", context_type="artist", context_id=browse_id)
+                await host.navigate_to("context", context_type="artist", context_id=browse_id)
         elif result_type == "playlist":
             if playlist_id or browse_id:
-                await self.app.navigate_to(
+                await host.navigate_to(
                     "context", context_type="playlist", context_id=playlist_id or browse_id
                 )
         elif playlist_id:
             # Shelves like "Mixed for you", "Listen again" radio entries, mixes etc.
             # have a playlistId but no resultType.
-            await self.app.navigate_to("context", context_type="playlist", context_id=playlist_id)
+            await host.navigate_to("context", context_type="playlist", context_id=playlist_id)
         elif browse_id:
             # Fallback: treat any remaining browseId as an album/playlist context.
-            await self.app.navigate_to("context", context_type="album", context_id=browse_id)
+            await host.navigate_to("context", context_type="album", context_id=browse_id)
 
     # ------------------------------------------------------------------
     # Vim-style action handler

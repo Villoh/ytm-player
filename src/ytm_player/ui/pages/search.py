@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
@@ -25,6 +25,9 @@ from ytm_player.utils.formatting import (
     normalize_tracks,
     truncate,
 )
+
+if TYPE_CHECKING:
+    from ytm_player.app._base import YTMHostBase
 
 logger = logging.getLogger(__name__)
 
@@ -599,7 +602,9 @@ class SearchPage(Widget):
     async def _load_suggestions(self, query: str) -> None:
         """Fetch predictive suggestions from the API."""
         try:
-            suggestions = await self.app.ytmusic.get_search_suggestions(query)
+            ytmusic = cast("YTMHostBase", self.app).ytmusic
+            assert ytmusic is not None
+            suggestions = await ytmusic.get_search_suggestions(query)
             overlay = self.query_one("#suggestion-overlay", SuggestionList)
             overlay.show_suggestions(suggestions)
         except Exception:
@@ -619,9 +624,11 @@ class SearchPage(Widget):
     async def _load_recent_searches(self) -> None:
         """Load and display recent searches from history."""
         try:
-            history = await self.app.history.get_search_history(limit=10)
-            if history:
-                suggestions = [entry["query"] for entry in history]
+            history = cast("YTMHostBase", self.app).history
+            assert history is not None
+            entries = await history.get_search_history(limit=10)
+            if entries:
+                suggestions = [entry["query"] for entry in entries]
                 overlay = self.query_one("#suggestion-overlay", SuggestionList)
                 overlay.show_suggestions(suggestions)
         except Exception:
@@ -666,7 +673,9 @@ class SearchPage(Widget):
             # Log the search to history.
             total_count = sum(len(v) for v in results.values())
             try:
-                await self.app.history.log_search(
+                history = cast("YTMHostBase", self.app).history
+                assert history is not None
+                await history.log_search(
                     query=query,
                     filter_mode=self.search_mode,
                     result_count=total_count,
@@ -697,9 +706,11 @@ class SearchPage(Widget):
             "playlists": [],
         }
 
+        ytmusic = cast("YTMHostBase", self.app).ytmusic
+        assert ytmusic is not None
         # Run all four searches concurrently.
         tasks = {
-            category: self.app.ytmusic.search(query, filter=api_filter, limit=10)
+            category: ytmusic.search(query, filter=api_filter, limit=10)
             for category, api_filter in self._MUSIC_FILTERS.items()
         }
 
@@ -722,7 +733,9 @@ class SearchPage(Widget):
             "playlists": [],
         }
 
-        raw = await self.app.ytmusic.search(query, filter=None, limit=40)
+        ytmusic = cast("YTMHostBase", self.app).ytmusic
+        assert ytmusic is not None
+        raw = await ytmusic.search(query, filter=None, limit=40)
 
         for item in raw:
             result_type = item.get("resultType", "")
@@ -832,10 +845,11 @@ class SearchPage(Widget):
         video_id = get_video_id(track)
         if video_id:
             table = self.query_one("#songs-table", TrackTable)
-            self.app.queue.clear()
-            self.app.queue.add_multiple(table.tracks)
-            self.app.queue.jump_to_real(event.index)
-            await self.app.play_track(track)
+            host = cast("YTMHostBase", self.app)
+            host.queue.clear()
+            host.queue.add_multiple(table.tracks)
+            host.queue.jump_to_real(event.index)
+            await host.play_track(track)
 
     async def on_search_result_panel_item_selected(
         self, event: SearchResultPanel.ItemSelected
@@ -844,21 +858,22 @@ class SearchPage(Widget):
         item = event.item_data
         panel_id = event.panel_id
         result_type = item.get("resultType", "")
+        host = cast("YTMHostBase", self.app)
 
         if panel_id == "albums-panel" or result_type == "album":
             browse_id = item.get("browseId") or item.get("album_id")
             if browse_id:
-                await self.app.navigate_to("context", context_type="album", context_id=browse_id)
+                await host.navigate_to("context", context_type="album", context_id=browse_id)
 
         elif panel_id == "artists-panel" or result_type == "artist":
             browse_id = item.get("browseId") or item.get("artist_id")
             if browse_id:
-                await self.app.navigate_to("context", context_type="artist", context_id=browse_id)
+                await host.navigate_to("context", context_type="artist", context_id=browse_id)
 
         elif panel_id == "playlists-panel" or result_type == "playlist":
             browse_id = item.get("browseId") or item.get("playlistId")
             if browse_id:
-                await self.app.navigate_to("context", context_type="playlist", context_id=browse_id)
+                await host.navigate_to("context", context_type="playlist", context_id=browse_id)
 
     def on_search_result_panel_item_right_clicked(
         self, event: SearchResultPanel.ItemRightClicked
@@ -868,6 +883,7 @@ class SearchPage(Widget):
 
         item = event.item_data
         panel_id = event.panel_id
+        host = cast("YTMHostBase", self.app)
 
         # Map panel ID to item type for ActionsPopup.
         type_map = {
@@ -887,8 +903,8 @@ class SearchPage(Widget):
                 )
                 ctx_type = item_type if item_type in ("album", "playlist") else None
                 if browse_id and ctx_type:
-                    self.app.run_worker(
-                        self.app.navigate_to("context", context_type=ctx_type, context_id=browse_id)
+                    host.run_worker(
+                        host.navigate_to("context", context_type=ctx_type, context_id=browse_id)
                     )
 
             elif action_id == "go_to_artist":
@@ -900,15 +916,15 @@ class SearchPage(Widget):
                 else:
                     artist_id = ""
                 if artist_id:
-                    self.app.run_worker(
-                        self.app.navigate_to("context", context_type="artist", context_id=artist_id)
+                    host.run_worker(
+                        host.navigate_to("context", context_type="artist", context_id=artist_id)
                     )
 
             elif action_id in ("play_top_songs", "start_radio", "view_albums", "view_similar"):
                 browse_id = item.get("browseId") or item.get("artist_id") or ""
                 if browse_id:
-                    self.app.run_worker(
-                        self.app.navigate_to("context", context_type="artist", context_id=browse_id)
+                    host.run_worker(
+                        host.navigate_to("context", context_type="artist", context_id=browse_id)
                     )
 
             elif action_id == "copy_link":
@@ -922,11 +938,11 @@ class SearchPage(Widget):
                 if browse_id:
                     link = f"https://music.youtube.com/browse/{browse_id}"
                     if copy_to_clipboard(link):
-                        self.app.notify("Link copied", timeout=2)
+                        host.notify("Link copied", timeout=2)
                     else:
-                        self.app.notify(link, timeout=5)
+                        host.notify(link, timeout=5)
 
-        self.app.push_screen(ActionsPopup(item, item_type=item_type), _handle_action)
+        host.push_screen(ActionsPopup(item, item_type=item_type), _handle_action)
 
     # ------------------------------------------------------------------
     # Vim-style action handler

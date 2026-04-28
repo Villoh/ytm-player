@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -14,6 +14,9 @@ from textual.widgets import Input, Label, ListItem, ListView, Static
 from textual.worker import Worker, WorkerState
 
 from ytm_player.config.paths import RECENT_PLAYLISTS_FILE
+
+if TYPE_CHECKING:
+    from ytm_player.app._base import YTMHostBase
 
 logger = logging.getLogger(__name__)
 MAX_RECENT = 20
@@ -174,7 +177,9 @@ class PlaylistPicker(ModalScreen[str | None]):
 
     async def _fetch_playlists(self) -> list[dict[str, Any]]:
         try:
-            playlists = await self.app.ytmusic.get_library_playlists(limit=50)
+            ytmusic = cast("YTMHostBase", self.app).ytmusic
+            assert ytmusic is not None
+            playlists = await ytmusic.get_library_playlists(limit=50)
             return playlists
         except Exception:
             logger.exception("Failed to fetch library playlists")
@@ -285,7 +290,9 @@ class PlaylistPicker(ModalScreen[str | None]):
         status.update(f"Creating '{name}'...")
 
         try:
-            playlist_id = await self.app.ytmusic.create_playlist(name)
+            ytmusic = cast("YTMHostBase", self.app).ytmusic
+            assert ytmusic is not None
+            playlist_id = await ytmusic.create_playlist(name)
             if not playlist_id:
                 self.notify("Failed to create playlist", severity="error")
                 status.update("Creation failed")
@@ -294,7 +301,7 @@ class PlaylistPicker(ModalScreen[str | None]):
             status.update(f"Adding tracks to '{name}'...")
             from ytm_player.services.ytmusic import mutation_failure_suffix
 
-            result = await self.app.ytmusic.add_playlist_items(playlist_id, self.video_ids)
+            result = await ytmusic.add_playlist_items(playlist_id, self.video_ids)
             if result != "success":
                 self.notify(
                     f"Created '{name}' but couldn't add tracks — {mutation_failure_suffix(result)}",
@@ -331,7 +338,9 @@ class PlaylistPicker(ModalScreen[str | None]):
         try:
             from ytm_player.services.ytmusic import mutation_failure_suffix
 
-            result = await self.app.ytmusic.add_playlist_items(playlist_id, self.video_ids)
+            ytmusic = cast("YTMHostBase", self.app).ytmusic
+            assert ytmusic is not None
+            result = await ytmusic.add_playlist_items(playlist_id, self.video_ids)
             if result != "success":
                 self.notify(
                     f"Couldn't add to '{title}' — {mutation_failure_suffix(result)}",

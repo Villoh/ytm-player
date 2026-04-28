@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -18,6 +18,9 @@ from ytm_player.ui.theme import get_theme
 from ytm_player.ui.widgets.album_art import AlbumArt
 from ytm_player.ui.widgets.progress_bar import PlaybackProgress
 from ytm_player.utils.formatting import extract_artist, truncate
+
+if TYPE_CHECKING:
+    from ytm_player.app._base import YTMHostBase
 
 logger = logging.getLogger(__name__)
 
@@ -121,14 +124,14 @@ class _VolumeDisplay(Widget):
 
     async def on_mouse_scroll_up(self, event: MouseScrollUp) -> None:
         event.stop()
-        app = self.app
-        if hasattr(app, "player") and app.player:
+        app = cast("YTMHostBase", self.app)
+        if app.player is not None:
             await app.player.change_volume(5)
 
     async def on_mouse_scroll_down(self, event: MouseScrollDown) -> None:
         event.stop()
-        app = self.app
-        if hasattr(app, "player") and app.player:
+        app = cast("YTMHostBase", self.app)
+        if app.player is not None:
             await app.player.change_volume(-5)
 
 
@@ -159,15 +162,14 @@ class _RepeatButton(Widget):
 
     async def on_click(self, event: Click) -> None:
         event.stop()
-        app = self.app
-        if hasattr(app, "queue"):
-            mode = app.queue.cycle_repeat()
-            try:
-                bar = app.query_one("#playback-bar", PlaybackBar)
-                bar.update_repeat(mode)
-                app.notify(f"Repeat: {mode.value}", timeout=2)
-            except Exception:
-                logger.debug("Failed to update repeat mode display on click", exc_info=True)
+        app = cast("YTMHostBase", self.app)
+        mode = app.queue.cycle_repeat()
+        try:
+            bar = app.query_one("#playback-bar", PlaybackBar)
+            bar.update_repeat(mode)
+            app.notify(f"Repeat: {mode.value}", timeout=2)
+        except Exception:
+            logger.debug("Failed to update repeat mode display on click", exc_info=True)
 
 
 class _ShuffleButton(Widget):
@@ -195,17 +197,16 @@ class _ShuffleButton(Widget):
 
     async def on_click(self, event: Click) -> None:
         event.stop()
-        app = self.app
-        if hasattr(app, "queue"):
-            app.queue.toggle_shuffle()
-            enabled = app.queue.shuffle_enabled
-            try:
-                bar = app.query_one("#playback-bar", PlaybackBar)
-                bar.update_shuffle(enabled)
-                state = "on" if enabled else "off"
-                app.notify(f"Shuffle: {state}", timeout=2)
-            except Exception:
-                logger.debug("Failed to update shuffle state display on click", exc_info=True)
+        app = cast("YTMHostBase", self.app)
+        app.queue.toggle_shuffle()
+        enabled = app.queue.shuffle_enabled
+        try:
+            bar = app.query_one("#playback-bar", PlaybackBar)
+            bar.update_shuffle(enabled)
+            state = "on" if enabled else "off"
+            app.notify(f"Shuffle: {state}", timeout=2)
+        except Exception:
+            logger.debug("Failed to update shuffle state display on click", exc_info=True)
 
 
 # Heart icon for the like indicator. Same character, styled differently
@@ -240,7 +241,7 @@ class _HeartButton(Widget):
     def on_click(self, event: Click) -> None:
         """Click toggles like via the app's _toggle_like_current."""
         event.stop()
-        app = self.app
+        app = cast("YTMHostBase", self.app)
         try:
             self.run_worker(app._toggle_like_current(), exclusive=True)
         except Exception:
@@ -324,11 +325,11 @@ class PlaybackBar(Widget):
         """Right-click on the playback bar opens track actions."""
         if event.button != 3:
             return
-        app = self.app
+        app = cast("YTMHostBase", self.app)
         track = None
-        if hasattr(app, "player") and app.player and app.player.current_track:
+        if app.player is not None and app.player.current_track:
             track = app.player.current_track
-        elif hasattr(app, "queue") and app.queue.current_track:
+        elif app.queue.current_track:
             track = app.queue.current_track
         if track:
             self.post_message(self.TrackRightClicked(track))
@@ -429,7 +430,7 @@ class _FooterButton(Widget):
 
     async def on_click(self, event: Click) -> None:
         event.stop()
-        app = self.app
+        app = cast("YTMHostBase", self.app)
         match self._action:
             case (
                 "help"
@@ -440,14 +441,13 @@ class _FooterButton(Widget):
                 | "liked_songs"
                 | "recently_played"
             ):
-                await app.navigate_to(self._action)  # type: ignore[attr-defined]
+                await app.navigate_to(self._action)
             case "play_pause":
-                if hasattr(app, "_toggle_play_pause"):
-                    await app._toggle_play_pause()
+                await app._toggle_play_pause()
             case "prev":
-                await app._play_previous()  # type: ignore[attr-defined]
+                await app._play_previous()
             case "next":
-                await app._play_next()  # type: ignore[attr-defined]
+                await app._play_next()
             case "spotify_import":
                 from ytm_player.ui.popups.spotify_import import SpotifyImportPopup
 
