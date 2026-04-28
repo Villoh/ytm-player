@@ -488,7 +488,7 @@ Minor logging-hygiene notes for Phase 4: `get_home` (line 167) uses `logger.debu
 | 39 | `_save_recent_ids` writing `RECENT_PLAYLISTS_FILE` | KEEP | File-write defensive save — `OSError` / parent-dir creation / serialization. Already logs at debug. |
 | 179 | `_fetch_playlists` calling `ytmusic.get_library_playlists` | KEEP | Async fetch boundary — 4.1 cascade sink; will tighten once `_call()` narrows. Already uses `logger.exception`. |
 | 306 | `_create_and_add` creating playlist + add tracks (mutation flow) | KEEP | Multi-call mutation flow (`create_playlist` + `add_playlist_items`) with user-visible notify + status update. Already uses `logger.exception`. **Phase 4.3 cascade** — once `add_playlist_items` returns bool, the inner success path can verify and surface partial-add failures. |
-| 334 | `_add_to_existing` adding tracks to chosen playlist (mutation flow) | KEEP | Same shape as 306; user-visible failure surface; Phase 4.3 cascade. Uses `logger.exception`. |
+| 334 | `_do_add` adding tracks to chosen playlist (mutation flow) | KEEP | Same shape as 306; user-visible failure surface; Phase 4.3 cascade. Uses `logger.exception`. |
 
 ##### `ui/popups/spotify_import.py` (7 sites)
 
@@ -507,18 +507,18 @@ Minor logging-hygiene notes for Phase 4: `get_home` (line 167) uses `logger.debu
 | Line | Method-context | Category | Rationale |
 |------|----------------|----------|-----------|
 | 200 | `_unregister_player_events` (unmount cleanup) | KEEP | Cleanup-on-unmount across two `player.off` calls; defensive against missing player attribute / already-detached callbacks. Already logs at debug. **Logging-hygiene drift** — `logger.debug(..., exc_info=True)` should be `logger.exception`. |
-| 211 | `_on_track_change` event handler | KEEP | Top-level event-handler boundary — must not propagate into the player thread bridge. **Logging-hygiene drift** — `debug + exc_info=True`. |
-| 224 | `_on_position_change` event handler (called every position tick) | KEEP | Same — event-handler boundary; runs at high frequency, must not crash. **Logging-hygiene drift.** |
-| 250 | `_load_for_current_track` updating header label | NARROW | Single-call `query_one + .update`; `NoMatches` only. Phase 4.5. **Logging-hygiene drift.** |
-| 284 | `_fetch_lyrics_for_track` falling back to LRCLIB | KEEP | Third-party network call boundary (LRCLIB) — best-effort fallback; failure should silently fall through to "no lyrics". **Logging-hygiene drift.** |
-| 350 | `_get_rtl_wrap_width` reading scroll region width | KEEP | Defensive width read with sensible numeric fallback (35); must not crash text rendering. Silent `pass` is correct here. |
-| 404 | `_show_status` updating status label + scroll display | NARROW | Three `query_one` calls in sequence — could split, but each is a single attribute set. Phase 4.5 (compound trivial). **Logging-hygiene drift.** |
-| 411 | `_show_scroll` toggling visibility | NARROW | Two `query_one + .display = bool` calls; Phase 4.5. **Logging-hygiene drift.** |
-| 419 | `watch_current_line_index` reactive watcher | KEEP | Reactive watcher boundary — Textual swallows exceptions out of watchers anyway, but explicit catch keeps the logged signal. **Logging-hygiene drift.** |
-| 465 | `_apply_line_highlight` auto-scroll calculation | NARROW | Single block of `query_one + virtual_region access + scroll_to`; `NoMatches` is the realistic failure. Phase 4.5. **Logging-hygiene drift.** |
-| 514 | `manual_scroll` (user-action) scrolling lines | NARROW | Single `query_one + scroll action` loop; Phase 4.5. **Logging-hygiene drift.** |
-| 523 | `_scroll_to_top` | NARROW | Single `query_one + scroll_home`; Phase 4.5. **Logging-hygiene drift.** |
-| 532 | `_scroll_to_bottom` | NARROW | Single `query_one + scroll_end`; Phase 4.5. **Logging-hygiene drift.** |
+| 210 | `_on_track_change` event handler | KEEP | Top-level event-handler boundary — must not propagate into the player thread bridge. **Logging-hygiene drift** — `debug + exc_info=True`. |
+| 223 | `_on_position_change` event handler (called every position tick) | KEEP | Same — event-handler boundary; runs at high frequency, must not crash. **Logging-hygiene drift.** |
+| 249 | `_load_for_current_track` updating header label | NARROW | Single-call `query_one + .update`; `NoMatches` only. Phase 4.5. **Logging-hygiene drift.** |
+| 283 | `_fetch_lyrics_for_track` falling back to LRCLIB | KEEP | Third-party network call boundary (LRCLIB) — best-effort fallback; failure should silently fall through to "no lyrics". **Logging-hygiene drift.** |
+| 349 | `_get_rtl_wrap_width` reading scroll region width | KEEP | Defensive width read with sensible numeric fallback (35); must not crash text rendering. Silent `pass` is correct here. |
+| 403 | `_show_status` updating status label + scroll display | NARROW | Three `query_one` calls in sequence — could split, but each is a single attribute set. Phase 4.5 (compound trivial). **Logging-hygiene drift.** |
+| 410 | `_show_scroll` toggling visibility | NARROW | Two `query_one + .display = bool` calls; Phase 4.5. **Logging-hygiene drift.** |
+| 418 | `watch_current_line_index` reactive watcher | KEEP | Reactive watcher boundary — Textual swallows exceptions out of watchers anyway, but explicit catch keeps the logged signal. **Logging-hygiene drift.** |
+| 464 | `_apply_line_highlight` auto-scroll calculation | NARROW | Single block of `query_one + virtual_region access + scroll_to`; `NoMatches` is the realistic failure. Phase 4.5. **Logging-hygiene drift.** |
+| 513 | `manual_scroll` (user-action) scrolling lines | NARROW | Single `query_one + scroll action` loop; Phase 4.5. **Logging-hygiene drift.** |
+| 522 | `_scroll_to_top` | NARROW | Single `query_one + scroll_home`; Phase 4.5. **Logging-hygiene drift.** |
+| 531 | `_scroll_to_bottom` | NARROW | Single `query_one + scroll_end`; Phase 4.5. **Logging-hygiene drift.** |
 
 ##### `ui/sidebars/playlist_sidebar.py` (7 sites)
 
@@ -550,12 +550,12 @@ Minor logging-hygiene notes for Phase 4: `get_home` (line 167) uses `logger.debu
 | 119 | `_load_thumbnail` async worker rendering image | KEEP | Worker boundary around HTTP fetch + PIL decode + pixel render — network/IO/decode errors all valid; user sees a missing thumbnail (graceful). Already logs at debug. **Logging-hygiene drift** — `debug + exc_info=True` should be `logger.exception`. |
 
 **Summary for ui/ other (46 sites):** 22 KEEP, 24 NARROW, 0 PROMOTE. Notable findings:
-- **Trivial single-call NARROW cluster — 24 sites** dominate this tier and fold cleanly into Phase 4.5. Per-file tally: `playback_bar.py` 4 (168/206/392/505) + `header_bar.py` 2 (85/104) + `spotify_import.py` 2 (422/612 — input-focus) + `lyrics_sidebar.py` 7 (250/404/411/465/514/523/532 — query+update / scroll-action) + `playlist_sidebar.py` 5 (217/289/299/573/605) + `track_table.py` 4 (279/286/320/459 — row-cell-update / filter-timer-stop) + `playlist_picker.py` 0 + `album_art.py` 0 = 4+2+2+7+5+4 = **24**.
-- **KEEP per-file tally:** `playback_bar.py` 1 (245 worker) + `header_bar.py` 0 + `playlist_picker.py` 5 (29/39/179/306/334) + `spotify_import.py` 5 (494/521/659/686/900) + `lyrics_sidebar.py` 6 (200/211/224/284/350/419) + `playlist_sidebar.py` 2 (335/523) + `track_table.py` 2 (242/308) + `album_art.py` 1 (119) = 1+0+5+5+6+2+2+1 = **22**. KEEP + NARROW = 22 + 24 = **46** ✓.
+- **Trivial single-call NARROW cluster — 24 sites** dominate this tier and fold cleanly into Phase 4.5. Per-file tally: `playback_bar.py` 4 (168/206/392/505) + `header_bar.py` 2 (85/104) + `spotify_import.py` 2 (422/612 — input-focus) + `lyrics_sidebar.py` 7 (249/403/410/464/513/522/531 — query+update / scroll-action) + `playlist_sidebar.py` 5 (217/289/299/573/605) + `track_table.py` 4 (279/286/320/459 — row-cell-update / filter-timer-stop) + `playlist_picker.py` 0 + `album_art.py` 0 = 4+2+2+7+5+4 = **24**.
+- **KEEP per-file tally:** `playback_bar.py` 1 (245 worker) + `header_bar.py` 0 + `playlist_picker.py` 5 (29/39/179/306/334) + `spotify_import.py` 5 (494/521/659/686/900) + `lyrics_sidebar.py` 6 (200/210/223/283/349/418) + `playlist_sidebar.py` 2 (335/523) + `track_table.py` 2 (242/308) + `album_art.py` 1 (119) = 1+0+5+5+6+2+2+1 = **22**. KEEP + NARROW = 22 + 24 = **46** ✓.
 - **Mutation-flow cascade for Phase 4.3 — `spotify_import.py:900`** is the highest-impact site in this tier. The popup dismisses with a `playlist_id` claiming success even when `add_playlist_items` swallowed every batch failure (the service-layer catch returns None silently). Same shape but smaller blast radius at `playlist_picker.py:306/334`. All three should be tightened *together with* the 4.3 service-layer fix, not in isolation.
-- **Reactive-watcher KEEP** — `lyrics_sidebar.py:419` is the only `watch_*` reactive-watcher boundary in this tier; Textual swallows watcher exceptions anyway, but the explicit catch keeps the log signal.
-- **Silent-pass-no-log offenders that remain after 4.5 lands** (Phase 4.4 minor candidates): `header_bar.py:85/104` (2 — fold into 4.5 narrow with a log), `lyrics_sidebar.py:350` (1 — fallback path, debug log only), `playlist_sidebar.py:335/573` (2 — one folds into 4.5, one is the highlight handler), `track_table.py:242/308` (2 KEEP-tier silent-pass). The 4.5 narrows already pull in `track_table.py:320/459` (`pass`-only sites converted to typed catches with logs).
-- **Logging-hygiene drift — KEEP-tier `debug + exc_info=True`** (Phase 4.4 sweep candidates, KEEP-tier only — i.e. excluding sites already in the NARROW list above which Phase 4.5 will rewrite): `playlist_picker.py:29/39` (2), `lyrics_sidebar.py:200/211/224/284/419` (5), `playlist_sidebar.py` 0, `album_art.py:119` (1), `playback_bar.py:245` (1). **Total KEEP-tier 4.4 candidates: 2 + 5 + 0 + 1 + 1 = 9 sites.**
+- **Reactive-watcher KEEP** — `lyrics_sidebar.py:418` is the only `watch_*` reactive-watcher boundary in this tier; Textual swallows watcher exceptions anyway, but the explicit catch keeps the log signal.
+- **Silent-pass-no-log offenders that remain after 4.5 lands** (Phase 4.4 minor candidates): `header_bar.py:85/104` (2 — fold into 4.5 narrow with a log), `lyrics_sidebar.py:349` (1 — fallback path, debug log only), `playlist_sidebar.py:335/573` (2 — one folds into 4.5, one is the highlight handler), `track_table.py:242/308` (2 KEEP-tier silent-pass). The 4.5 narrows already pull in `track_table.py:320/459` (`pass`-only sites converted to typed catches with logs).
+- **Logging-hygiene drift — KEEP-tier `debug + exc_info=True`** (Phase 4.4 sweep candidates, KEEP-tier only — i.e. excluding sites already in the NARROW list above which Phase 4.5 will rewrite): `playlist_picker.py:29/39` (2), `lyrics_sidebar.py:200/210/223/283/418` (5), `playlist_sidebar.py` 0, `album_art.py:119` (1), `playback_bar.py:245` (1). **Total KEEP-tier 4.4 candidates: 2 + 5 + 0 + 1 + 1 = 9 sites.**
 
 #### `utils/` + `cli.py` + `ipc.py` (10 sites)
 
