@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -146,13 +147,13 @@ class _RepeatButton(Widget):
     }
     """
 
-    repeat_mode: reactive[str] = reactive("off")
+    repeat_mode: reactive[RepeatMode] = reactive(RepeatMode.OFF)
 
     def render(self) -> Text:
         theme = get_theme()
-        if self.repeat_mode == "all":
+        if self.repeat_mode == RepeatMode.ALL:
             return Text(f"{_ICON_REPEAT_ALL} all", style=f"bold {theme.primary}")
-        elif self.repeat_mode == "one":
+        elif self.repeat_mode == RepeatMode.ONE:
             return Text(f"{_ICON_REPEAT_ONE} one", style=f"bold {theme.warning}")
         return Text(f"{_ICON_REPEAT_OFF} off", style=theme.muted_text)
 
@@ -372,7 +373,7 @@ class PlaybackBar(Widget):
     def update_repeat(self, mode: RepeatMode) -> None:
         """Update the repeat mode display."""
         rep = self.query_one("#pb-repeat", _RepeatButton)
-        rep.repeat_mode = mode.value
+        rep.repeat_mode = mode
 
     def update_shuffle(self, enabled: bool) -> None:
         """Update the shuffle state display."""
@@ -413,7 +414,7 @@ class _FooterButton(Widget):
     is_active: reactive[bool] = reactive(False)
     is_dimmed: reactive[bool] = reactive(False)
 
-    def __init__(self, label: str, action: str, **kwargs: object) -> None:
+    def __init__(self, label: str, action: str, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._label = label
         self._action = action

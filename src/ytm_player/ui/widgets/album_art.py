@@ -1,8 +1,8 @@
 """Album art display widget for the terminal.
 
 Downloads thumbnails and renders them as colored Unicode half-blocks (▀).
-Falls back to a styled placeholder when Pillow is not installed or the
-image cannot be fetched.
+Falls back to a styled placeholder while loading or if the image cannot
+be fetched.
 """
 
 from __future__ import annotations
@@ -10,8 +10,10 @@ from __future__ import annotations
 import logging
 from collections import OrderedDict
 from io import BytesIO
+from typing import cast
 from urllib.request import urlopen
 
+from PIL import Image
 from rich.color import Color
 from rich.style import Style
 from rich.text import Text
@@ -22,13 +24,6 @@ from textual.widget import Widget
 from ytm_player.ui.theme import get_theme
 
 logger = logging.getLogger(__name__)
-
-try:
-    from PIL import Image
-
-    _HAS_PILLOW = True
-except ImportError:
-    _HAS_PILLOW = False
 
 # Unicode block characters.
 _BLOCK_TOP = "\u2580"  # Upper half block ▀
@@ -82,9 +77,9 @@ class AlbumArt(Widget):
 
     def watch_thumbnail_url(self, value: str) -> None:
         """When thumbnail URL changes, fetch and render the image."""
-        if value and _HAS_PILLOW:
+        if value:
             self.run_worker(self._load_thumbnail(value), exclusive=True, group="album-art")
-        elif not value:
+        else:
             self._rendered = None
             self.refresh()
 
@@ -140,7 +135,7 @@ class AlbumArt(Widget):
         # Each char = 1 pixel wide, 2 pixels tall.
         pixel_w = width
         pixel_h = height * 2
-        img = img.resize((pixel_w, pixel_h), Image.LANCZOS)
+        img = img.resize((pixel_w, pixel_h), Image.Resampling.LANCZOS)
 
         result = Text()
         for row in range(height):
@@ -149,8 +144,10 @@ class AlbumArt(Widget):
             top_y = row * 2
             bot_y = row * 2 + 1
             for col in range(pixel_w):
-                tr, tg, tb = img.getpixel((col, top_y))
-                br, bg, bb = img.getpixel((col, bot_y))
+                # img is RGB after .convert("RGB"), so getpixel always
+                # returns a 3-tuple; the cast tells Pyright that.
+                tr, tg, tb = cast(tuple[int, int, int], img.getpixel((col, top_y)))
+                br, bg, bb = cast(tuple[int, int, int], img.getpixel((col, bot_y)))
                 style = Style(
                     color=Color.from_rgb(tr, tg, tb),
                     bgcolor=Color.from_rgb(br, bg, bb),
@@ -215,7 +212,7 @@ class AlbumArt(Widget):
 
     def on_resize(self, event: Resize) -> None:
         """Re-render on resize if we have a cached image for the current URL."""
-        if not _HAS_PILLOW or not self.has_track or not self.thumbnail_url:
+        if not self.has_track or not self.thumbnail_url:
             return
         url = self.thumbnail_url
         # If the URL is in cache, invalidate and re-fetch at new size.

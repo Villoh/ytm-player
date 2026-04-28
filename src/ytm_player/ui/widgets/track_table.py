@@ -7,6 +7,7 @@ import logging
 from textual.events import Click, MouseDown, MouseMove, MouseUp
 from textual.geometry import Size
 from textual.message import Message
+from textual.timer import Timer
 from textual.widgets import DataTable
 from textual.widgets.data_table import Column, RowKey
 
@@ -105,7 +106,7 @@ class TrackTable(DataTable):
         self._sort_reverse: bool = False
         self._filter_text: str = ""
         self._filter_active: bool = False
-        self._filter_timer: object | None = None
+        self._filter_timer: Timer | None = None
         # Column resize drag state.
         self._resize_col: Column | None = None
         self._resize_start_x: int = 0
@@ -315,10 +316,7 @@ class TrackTable(DataTable):
             return
         if self.size.width == 0:
             return
-        try:
-            title_col = self.columns.get("title")
-        except Exception:
-            return
+        title_col = next((c for c in self.ordered_columns if c.key == "title"), None)
         if title_col is None:
             return
 
