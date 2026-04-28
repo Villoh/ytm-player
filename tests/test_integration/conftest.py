@@ -31,30 +31,29 @@ from ytm_player.services.ytmusic import YTMusicService
 def _reset_singletons() -> Iterator[None]:
     """Reset class-level singleton state between integration tests.
 
-    Player has a class-level ``_instance`` singleton; QueueManager has its
-    own singleton in newer versions. Without this, parallel test runs
-    collide on shared state.
+    Only ``Player._instance`` is a class-level singleton in this codebase;
+    ``YTMusicService`` and ``QueueManager`` are constructed per test via
+    their respective fixtures so their instance state doesn't leak.
+    Without resetting Player here, parallel test runs collide on shared
+    state.
     """
     yield
     if getattr(Player, "_instance", None) is not None:
         Player._instance = None
-    # YTMusicService is per-instance, but its consecutive-failures state
-    # can leak across tests via fixture reuse. Defensive reset.
-    YTMusicService._consecutive_api_failures = 0
 
 
 @pytest.fixture
-def fresh_ytmusic(monkeypatch: pytest.MonkeyPatch) -> YTMusicService:
-    """A YTMusicService with its lazy `_ytm` cleared so tests can stub.
+def fresh_ytmusic() -> YTMusicService:
+    """A YTMusicService with its lazy ``_ytm`` cleared so tests can stub.
 
-    Tests typically follow this pattern:
+    Tests typically follow this pattern::
 
         def test_something(fresh_ytmusic, monkeypatch):
             monkeypatch.setattr(fresh_ytmusic, "search", lambda *a, **kw: [...])
             # ...
 
-    Or for HTTP-level mocking via responses, leave fresh_ytmusic alone and
-    use the `mocked_http` fixture to stage HTTP responses.
+    Or for HTTP-level mocking via ``responses``, leave fresh_ytmusic alone
+    and use the ``mocked_http`` fixture to stage HTTP responses.
     """
     svc = YTMusicService()
     svc._ytm = None
