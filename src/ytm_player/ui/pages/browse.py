@@ -846,14 +846,16 @@ class BrowsePage(Widget):
             case Action.GO_TOP:
                 focused = self.app.focused
                 if isinstance(focused, ListView):
-                    focused.action_first()
+                    if len(focused.children) > 0:
+                        focused.index = 0
                 elif isinstance(focused, TrackTable):
                     await focused.handle_action(action, count)
 
             case Action.GO_BOTTOM:
                 focused = self.app.focused
                 if isinstance(focused, ListView):
-                    focused.action_last()
+                    if len(focused.children) > 0:
+                        focused.index = len(focused.children) - 1
                 elif isinstance(focused, TrackTable):
                     await focused.handle_action(action, count)
 
