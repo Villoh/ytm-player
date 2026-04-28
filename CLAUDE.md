@@ -100,6 +100,14 @@ Conventions:
 - For diagnostics, run `ytm doctor` — outputs version, paths, recent
   log, and most recent crash trace, suitable for pasting into issues.
 
+## Error handling architecture
+
+The codebase uses ~263 `except Exception:` blocks as a deliberate graceful-degrade pattern. Service-layer methods return safe defaults (empty list, `False`, `None`) on any failure rather than raising; UI-layer handlers wrap service calls in their own broad catch knowing services don't raise. Every broad-except site has been audited and categorized in `docs/broad-except-audit.md` as KEEP (intentional graceful-degrade — 176 sites), NARROW (hides real bugs, should specify expected types — 87 sites), or PROMOTE (should let propagate — 0 sites).
+
+**Before adding a broad `except Exception:` block:** check the audit doc to confirm the pattern is correct here, or document the new site with its category in the audit. Service-layer methods that can return safe defaults SHOULD do so; methods that change state SHOULD let unexpected exceptions propagate.
+
+**The cascade contract:** if you narrow an exception in a service-layer method, every UI/app handler that wraps a call to that method may need updating in lockstep — the cascade map in the audit doc lists the dependents. The Phase 4 plan (also in the audit doc) sequences narrowings before cascade updates so regressions don't slip through.
+
 ## CI Workflows
 
 Three GitHub Actions workflows live in `.github/workflows/`:
