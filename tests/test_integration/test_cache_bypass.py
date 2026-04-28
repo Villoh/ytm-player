@@ -18,7 +18,7 @@ from ytm_player.services.stream import StreamResolver
 VID = "dQw4w9WgXcQ"
 
 
-async def test_cache_hit_does_not_invoke_stream_resolver(mock_mpv, monkeypatch, tmp_path):
+async def test_cache_hit_does_not_invoke_stream_resolver(monkeypatch, tmp_path):
     """If the cache has the track, the resolver must not be awaited.
 
     Mirrors the cache-then-resolve decision branch in
