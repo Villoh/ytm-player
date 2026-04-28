@@ -208,8 +208,18 @@ class SessionMixin(YTMHostBase):
                         tmp_path.unlink()
                     except OSError:
                         pass
-        except Exception:
-            logger.warning("Could not save session state", exc_info=True)
+        except (OSError, TypeError):
+            logger.exception("Could not save session state")
+            try:
+                self.notify(
+                    "Could not save session state — your queue and "
+                    "position may not restore on next launch.",
+                    severity="warning",
+                    timeout=8,
+                )
+            except Exception:
+                # If notify itself fails (e.g. app shutting down), log and move on.
+                logger.exception("Failed to surface save-failure notify")
 
     def _get_transliteration_state(self) -> bool:
         """Read transliteration toggle from the lyrics sidebar."""

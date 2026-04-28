@@ -211,3 +211,99 @@ class TestSaveSessionResumeGuard:
         assert written["resume"] is not None
         assert written["resume"]["video_id"] == "abc"
         assert written["resume"]["position"] == 42.5
+
+
+class TestSaveSessionFailureVisibility:
+    """When the session.json write fails, the user must be notified.
+
+    Previously failures were swallowed with a logger.warning — the user's
+    queue, position, and theme would silently reset on next launch with
+    no signal anything went wrong. The narrowed catch surfaces the
+    failure via self.notify and lets unexpected exceptions propagate.
+    """
+
+    def test_oserror_triggers_notify(self, tmp_path, monkeypatch):
+        """Disk-full / permission-denied / read-only-fs all raise OSError."""
+        h = _save_session_host(tmp_path)
+        h.notify = MagicMock()
+        target = tmp_path / "session.json"
+        monkeypatch.setattr("ytm_player.config.paths.SESSION_STATE_FILE", target, raising=False)
+
+        # Force the atomic-write to fail with OSError (simulates disk full).
+        from pathlib import Path as _Path
+
+        original_write_text = _Path.write_text
+
+        def _boom(self, *args, **kwargs):
+            if self.name.endswith(".json.tmp"):
+                raise OSError("No space left on device")
+            return original_write_text(self, *args, **kwargs)
+
+        monkeypatch.setattr(_Path, "write_text", _boom)
+
+        # Should NOT raise — failure is caught and surfaced via notify.
+        h._save_session_state()
+
+        h.notify.assert_called_once()
+        args, kwargs = h.notify.call_args
+        message = args[0] if args else kwargs.get("message", "")
+        assert "Could not save session state" in message
+        assert kwargs.get("severity") == "warning"
+
+    def test_typeerror_triggers_notify(self, tmp_path, monkeypatch):
+        """An unserialisable value in state raises TypeError from json.dumps."""
+        h = _save_session_host(tmp_path)
+        h.notify = MagicMock()
+        # A custom object slipped into the theme attribute won't serialise.
+        h.theme = object()
+        target = tmp_path / "session.json"
+        monkeypatch.setattr("ytm_player.config.paths.SESSION_STATE_FILE", target, raising=False)
+
+        h._save_session_state()
+
+        h.notify.assert_called_once()
+        _, kwargs = h.notify.call_args
+        assert kwargs.get("severity") == "warning"
+
+    def test_unexpected_exception_propagates(self, tmp_path, monkeypatch):
+        """Programming errors (RuntimeError, etc.) must NOT be swallowed."""
+        import pytest
+
+        h = _save_session_host(tmp_path)
+        h.notify = MagicMock()
+        target = tmp_path / "session.json"
+        monkeypatch.setattr("ytm_player.config.paths.SESSION_STATE_FILE", target, raising=False)
+
+        from pathlib import Path as _Path
+
+        def _boom(self, *args, **kwargs):
+            if self.name.endswith(".json.tmp"):
+                raise RuntimeError("programming bug")
+            return None
+
+        monkeypatch.setattr(_Path, "write_text", _boom)
+
+        with pytest.raises(RuntimeError, match="programming bug"):
+            h._save_session_state()
+
+        h.notify.assert_not_called()
+
+    def test_notify_failure_does_not_crash_save(self, tmp_path, monkeypatch):
+        """If notify itself raises (e.g. app shutting down), save still returns cleanly."""
+        h = _save_session_host(tmp_path)
+        h.notify = MagicMock(side_effect=RuntimeError("app shutting down"))
+        target = tmp_path / "session.json"
+        monkeypatch.setattr("ytm_player.config.paths.SESSION_STATE_FILE", target, raising=False)
+
+        from pathlib import Path as _Path
+
+        def _boom(self, *args, **kwargs):
+            if self.name.endswith(".json.tmp"):
+                raise OSError("No space left on device")
+            return None
+
+        monkeypatch.setattr(_Path, "write_text", _boom)
+
+        # Even though notify raises, _save_session_state must not propagate.
+        h._save_session_state()
+        h.notify.assert_called_once()
