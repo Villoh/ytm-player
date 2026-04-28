@@ -36,13 +36,17 @@ class TestCallTimeoutOverride:
         svc = YTMusicService.__new__(YTMusicService)
         svc._consecutive_api_failures = 0
 
+        async def fake_wait_for(awaitable, **_kwargs):
+            # Drain the to_thread coroutine so it doesn't warn at GC,
+            # then return the func's value.
+            return await awaitable
+
         func = MagicMock(return_value="result")
         with patch("ytm_player.services.ytmusic.get_settings") as mock_settings:
             mock_settings.return_value.playback.api_timeout = 15
-            with patch("asyncio.wait_for", new_callable=AsyncMock, return_value="result") as wf:
+            with patch("asyncio.wait_for", side_effect=fake_wait_for) as wf:
                 result = await svc._call(func, "arg1")
                 assert result == "result"
-                # Check the timeout passed to wait_for
                 _, kwargs = wf.call_args
                 assert kwargs.get("timeout") == 15
 
@@ -53,10 +57,13 @@ class TestCallTimeoutOverride:
         svc = YTMusicService.__new__(YTMusicService)
         svc._consecutive_api_failures = 0
 
+        async def fake_wait_for(awaitable, **_kwargs):
+            return await awaitable
+
         func = MagicMock(return_value="result")
         with patch("ytm_player.services.ytmusic.get_settings") as mock_settings:
             mock_settings.return_value.playback.api_timeout = 15
-            with patch("asyncio.wait_for", new_callable=AsyncMock, return_value="result") as wf:
+            with patch("asyncio.wait_for", side_effect=fake_wait_for) as wf:
                 result = await svc._call(func, "arg1", timeout=120)
                 assert result == "result"
                 _, kwargs = wf.call_args
