@@ -270,15 +270,21 @@ class HistoryManager:
             raise RuntimeError("Database not initialized")
 
         async with self._db.execute("SELECT COUNT(*) AS total_plays FROM play_history") as cur:
-            total_plays = (await cur.fetchone())["total_plays"]
+            row = await cur.fetchone()
+            assert row is not None  # COUNT(*) always returns one row
+            total_plays = row["total_plays"]
 
         async with self._db.execute(
             "SELECT COALESCE(SUM(listened_seconds), 0) AS s FROM play_history"
         ) as cur:
-            total_listen_time = (await cur.fetchone())["s"]
+            row = await cur.fetchone()
+            assert row is not None  # SUM(...) always returns one row
+            total_listen_time = row["s"]
 
         async with self._db.execute("SELECT COUNT(*) AS c FROM play_stats") as cur:
-            unique_tracks = (await cur.fetchone())["c"]
+            row = await cur.fetchone()
+            assert row is not None  # COUNT(*) always returns one row
+            unique_tracks = row["c"]
 
         top_tracks = await self.get_top_tracks(limit=10)
         top_artists = await self.get_top_artists(limit=10)

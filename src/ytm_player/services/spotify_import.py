@@ -139,10 +139,14 @@ def extract_spotify_tracks_spotipy(url: str) -> tuple[str, list[dict]]:
 
     if is_album:
         album = sp.album(playlist_id)
+        if album is None:
+            raise RuntimeError("Spotify API returned no data for album")
         playlist_name = album.get("name", "Imported Album")
         results = album.get("tracks", {})
     else:
         playlist = sp.playlist(playlist_id)
+        if playlist is None:
+            raise RuntimeError("Spotify API returned no data for playlist")
         playlist_name = playlist.get("name", "Imported Playlist")
         results = playlist.get("tracks", {})
 

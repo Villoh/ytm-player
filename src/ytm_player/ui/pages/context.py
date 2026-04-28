@@ -505,6 +505,8 @@ class ContextPage(Widget):
     def on_click(self, event: Click) -> None:
         """Handle clicks on the add-to-library button."""
         widget = event.widget
+        if widget is None:
+            return
         if widget.id == "add-to-library-btn":
             event.stop()
             self.run_worker(self._add_to_library(), name="add_to_lib", exclusive=True)

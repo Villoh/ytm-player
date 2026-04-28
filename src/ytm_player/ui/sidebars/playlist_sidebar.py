@@ -331,7 +331,12 @@ class LibraryPanel(Widget):
         labels = getattr(self, "_bouncing_labels", [])
         if idx is not None and 0 <= idx < len(labels):
             try:
-                sidebar_width = self.parent.styles.width.value if self.parent else 30
+                sidebar_width: float = 30
+                parent = self.parent
+                if parent is not None:
+                    width = parent.styles.width
+                    if width is not None:
+                        sidebar_width = width.value
             except Exception:
                 sidebar_width = 30
             labels[idx].start_bounce(int(sidebar_width))
@@ -555,6 +560,8 @@ class PlaylistSidebar(Widget):
 
     def on_click(self, event: Click) -> None:
         target = event.widget
+        if target is None:
+            return
         if target.id == "ps-nav-liked":
             event.stop()
             self.post_message(self.NavItemClicked("liked_songs"))

@@ -65,6 +65,8 @@ class HeaderBar(Widget):
     def on_click(self, event: Click) -> None:
         """Route clicks on toggle buttons to the correct message."""
         target = event.widget
+        if target is None:
+            return
         if target.id == "toggle-playlist":
             event.stop()
             self.post_message(self.TogglePlaylistSidebar())

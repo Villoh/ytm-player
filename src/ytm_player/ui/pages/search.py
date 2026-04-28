@@ -803,6 +803,8 @@ class SearchPage(Widget):
     def on_click(self, event: Click) -> None:
         """Toggle search mode when the mode label is clicked."""
         widget = event.widget
+        if widget is None:
+            return
         # Match the #search-mode Static or any child of it.
         try:
             if (

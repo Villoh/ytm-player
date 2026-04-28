@@ -122,7 +122,8 @@ def install_excepthooks(*, crash_dir: Path, keep: int = 10) -> None:
         text = "".join(
             traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)
         )
-        _write(f"=== Thread crash ({args.thread.name}) ===\n{text}")
+        thread_name = args.thread.name if args.thread is not None else "<unknown>"
+        _write(f"=== Thread crash ({thread_name}) ===\n{text}")
         _prune()
         threading.__excepthook__(args)
 
