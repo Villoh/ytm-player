@@ -28,7 +28,7 @@ from ytm_player.services.ytmusic import YTMusicService
 
 
 @pytest.fixture(autouse=True)
-def _reset_singletons() -> Iterator[None]:
+def _reset_singletons() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]
     """Reset class-level singleton state between integration tests.
 
     Only ``Player._instance`` is a class-level singleton in this codebase;
