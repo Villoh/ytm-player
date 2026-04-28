@@ -12,6 +12,9 @@ on:
         options: [testpypi, pypi]
         default: testpypi
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
