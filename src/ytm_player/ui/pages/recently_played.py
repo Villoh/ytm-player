@@ -69,6 +69,7 @@ class RecentlyPlayedPage(Widget):
     """
 
     track_count: reactive[int] = reactive(0)
+    _load_failed: bool
 
     def __init__(self, *, cursor_row: int | None = None, **kwargs: Any) -> None:
         super().__init__(**kwargs)

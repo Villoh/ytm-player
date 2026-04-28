@@ -155,6 +155,7 @@ class ContextPage(Widget):
 
     loading: reactive[bool] = reactive(True)
     error_message: reactive[str] = reactive("")
+    _load_failed: bool
 
     def __init__(
         self,
