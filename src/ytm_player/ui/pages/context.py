@@ -529,8 +529,10 @@ class ContextPage(Widget):
             self.app.notify("Cannot add — no playlist ID found", severity="error", timeout=3)
             return
 
-        ok = await ytmusic.add_to_library(playlist_id)
-        if ok:
+        from ytm_player.services.ytmusic import mutation_failure_suffix
+
+        result = await ytmusic.add_to_library(playlist_id)
+        if result == "success":
             self.app.notify("Added to library", timeout=2)
             try:
                 btn = self.query_one("#add-to-library-btn", Static)
@@ -545,7 +547,8 @@ class ContextPage(Widget):
             except Exception:
                 pass
         else:
-            self.app.notify("Failed to add to library", severity="error", timeout=3)
+            suffix = mutation_failure_suffix(result)
+            self.app.notify(f"Failed to add to library — {suffix}", severity="error", timeout=4)
 
     async def on_track_table_track_selected(self, event: TrackTable.TrackSelected) -> None:
         """Play the selected track and enqueue remaining tracks."""

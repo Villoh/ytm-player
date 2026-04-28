@@ -270,21 +270,21 @@ class SidebarMixin(YTMHostBase):
             self.notify("Cannot determine playlist ID", severity="error", timeout=3)
             return
         raw_id = playlist_id[2:] if playlist_id.startswith("VL") else playlist_id
+        from ytm_player.services.ytmusic import mutation_failure_suffix
+
         try:
-            # Try delete first (owned playlists), fall back to remove from library.
-            success = False
-            try:
-                success = await self.ytmusic.delete_playlist(playlist_id)
-            except Exception:
-                pass
-            if not success:
-                success = await self.ytmusic.remove_album_from_library(raw_id)
-            if success:
+            # Try delete first (owned playlists), fall back to remove from
+            # library (subscribed playlists/albums).
+            result = await self.ytmusic.delete_playlist(playlist_id)
+            if result != "success":
+                result = await self.ytmusic.remove_album_from_library(raw_id)
+            if result == "success":
                 self.notify(f"Removed '{title}'", timeout=2)
                 ps = self.query_one("#playlist-sidebar", PlaylistSidebar)
                 ps.query_one("#ps-playlists", LibraryPanel).remove_item(raw_id)
             else:
-                self.notify("Failed to remove playlist", severity="error", timeout=3)
+                suffix = mutation_failure_suffix(result)
+                self.notify(f"Failed to remove playlist — {suffix}", severity="error", timeout=4)
         except Exception:
             logger.exception("Failed to remove playlist %r", playlist_id)
             self.notify("Failed to remove playlist", severity="error", timeout=3)
