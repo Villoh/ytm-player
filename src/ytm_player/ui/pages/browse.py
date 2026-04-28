@@ -295,7 +295,7 @@ class MoodsGenresSection(Widget):
             self._categories = await self.app.ytmusic.get_mood_categories()
             await self._populate_categories()
         except Exception:
-            logger.debug("Failed to load mood categories")
+            logger.exception("Failed to load mood categories")
             self._show_error("Failed to load moods & genres.")
         finally:
             self.is_loading = False
@@ -420,7 +420,7 @@ class ChartsSection(Widget):
             self._chart_data = await self.app.ytmusic.get_charts(country=country)
             self._populate_charts()
         except Exception:
-            logger.debug("Failed to load charts for country=%r", country)
+            logger.exception("Failed to load charts for country=%r", country)
             self._show_error("Failed to load charts.")
         finally:
             self.is_loading = False
@@ -523,7 +523,7 @@ class NewReleasesSection(Widget):
             self._albums = await self.app.ytmusic.get_new_releases()
             self._populate_releases()
         except Exception:
-            logger.debug("Failed to load new releases")
+            logger.exception("Failed to load new releases")
             self._show_error("Failed to load new releases.")
         finally:
             self.is_loading = False
@@ -738,7 +738,7 @@ class BrowsePage(Widget):
                             "context", context_type="playlist", context_id=playlist_id
                         )
         except Exception:
-            logger.debug("Failed to load mood playlists")
+            logger.exception("Failed to load mood playlists")
             self.app.notify("Failed to load mood playlists", severity="error")
 
     async def on_new_releases_section_album_selected(
