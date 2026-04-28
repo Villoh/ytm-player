@@ -225,8 +225,12 @@ def _fuzzy_score(spotify_track: dict, ytm_track: dict) -> int:
     ytm_title = (ytm_track.get("title", "") or "").lower()
     ytm_artist = extract_artist(ytm_track).lower()
 
-    title_score = fuzz.ratio(sp_title, ytm_title)
-    artist_score = fuzz.ratio(sp_artist, ytm_artist)
+    # fuzz / Console / Progress / etc. are conditionally imported under
+    # _HAS_SPOTIFY_DEPS at module top. Callers gate on _HAS_SPOTIFY_DEPS
+    # before reaching this code path; Pyright can't narrow through that
+    # so we suppress the possibly-unbound warning on each usage site.
+    title_score = fuzz.ratio(sp_title, ytm_title)  # type: ignore[possibly-unbound]
+    artist_score = fuzz.ratio(sp_artist, ytm_artist)  # type: ignore[possibly-unbound]
 
     # Weighted: title matters more but artist is still important.
     return int(title_score * TITLE_MATCH_WEIGHT + artist_score * ARTIST_MATCH_WEIGHT)
@@ -284,11 +288,11 @@ def match_tracks(
     # Pre-allocate results list so we can slot them back in order.
     results: list[MatchResult | None] = [None] * len(spotify_tracks)
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("{task.completed}/{task.total}"),
+    with Progress(  # type: ignore[possibly-unbound]
+        SpinnerColumn(),  # type: ignore[possibly-unbound]
+        TextColumn("[progress.description]{task.description}"),  # type: ignore[possibly-unbound]
+        BarColumn(),  # type: ignore[possibly-unbound]
+        TextColumn("{task.completed}/{task.total}"),  # type: ignore[possibly-unbound]
         console=console,
     ) as progress:
         task = progress.add_task("Searching YouTube Music...", total=len(spotify_tracks))
@@ -324,7 +328,7 @@ def run_import(spotify_url: str, auth_file: Path) -> None:
     if not _HAS_SPOTIFY_DEPS:
         click.echo("Spotify import requires extra dependencies: pip install ytm-player[spotify]")
         return
-    console = Console()
+    console = Console()  # type: ignore[possibly-unbound]
 
     # Validate URL.
     if not re.match(r"https?://open\.spotify\.com/(playlist|album)/", spotify_url):

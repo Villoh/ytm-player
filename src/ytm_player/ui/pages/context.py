@@ -153,7 +153,8 @@ class ContextPage(Widget):
     }
     """
 
-    loading: reactive[bool] = reactive(True)
+    # ``loading`` is inherited from Widget — re-declaring would shadow
+    # the parent's reactive with an invariant-mismatched type.
     error_message: reactive[str] = reactive("")
     _load_failed: bool
 

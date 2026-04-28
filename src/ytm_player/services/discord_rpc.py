@@ -30,7 +30,9 @@ class DiscordRPC:
     async def connect(self) -> bool:
         """Attempt to connect to Discord. Returns True on success."""
         try:
-            from pypresence import AioPresence
+            # pypresence's stubs don't export AioPresence but it exists at
+            # runtime. The except ImportError below handles missing-package.
+            from pypresence import AioPresence  # type: ignore[attr-defined]
         except ImportError:
             logger.info("pypresence not installed — Discord RPC disabled")
             return False

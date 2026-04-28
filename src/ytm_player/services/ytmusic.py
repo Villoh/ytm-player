@@ -304,14 +304,17 @@ class YTMusicService:
             return {}
 
     async def get_new_releases(self) -> list[dict[str, Any]]:
-        """Return new album releases."""
+        """Return new album releases.
+
+        ytmusicapi has no dedicated ``get_new_releases`` endpoint; the
+        explore page bundles the data under ``new_releases``.
+        """
         try:
-            result = await self._call(self.client.get_new_releases)
-            # ytmusicapi may return a list directly or a dict with a key.
-            if isinstance(result, list):
-                return result
+            result = await self._call(self.client.get_explore)
             if isinstance(result, dict):
-                return result.get("albums", result.get("results", []))
+                releases = result.get("new_releases", [])
+                if isinstance(releases, list):
+                    return releases
             return []
         except Exception:
             logger.debug("get_new_releases failed")
