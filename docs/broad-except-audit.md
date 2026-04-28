@@ -1,11 +1,11 @@
 # Broad `except Exception:` audit — 2026-04-28
 
-**Status:** In progress.
+**Status:** Complete (2026-04-28).
 **Total sites:** 263 across `src/ytm_player/`.
 
 ## Executive summary
 
-(filled in at end of audit)
+263 broad `except Exception:` sites were audited across 33+ files in `src/ytm_player/`. The final distribution is **176 KEEP / 87 NARROW / 0 PROMOTE**: most broad-catches are intentional graceful-degrade contracts (services return safe defaults like `[]`/`{}`/`None`/`""` on any failure, and UI handlers wrap them assuming services don't raise — a deliberate two-layer safety net), and nothing in the codebase is an outright catch-and-corrupt-state offender. The headline NARROW findings cluster into four areas: (1) the `services/ytmusic.py:_call()` outer catch that drives the failure-counter + reinit logic — the only outer-loop broad-catch in the codebase that actually does anything beyond logging, and currently bumps its counter for any exception including programming bugs; (2) three mutation methods (`rate_song`, `add_playlist_items`, `remove_playlist_items`) that return `None` on silent failure, with UI cascade sinks (`spotify_import.py:900` worst offender — popup claims success on partial-add failures); (3) the `app/_session.py:211` write-path that silently loses the user's queue / current track / resume position with no user-visible signal; and (4) ~82 trivial single-call NARROWs concentrated in UI widgets — repetitive `query_one(...) + act` blocks where the only realistic failure is `NoMatches` and the catch is wider than necessary, masking real bugs. **Bottom line: this is mostly a logging-hygiene sweep + four NARROW clusters with cascade-aware sequencing — NOT a sweeping refactor.** The cascade between service-layer narrowing (4.1, 4.3) and the UI handlers that wrap those calls (Phase 5) is the load-bearing sequencing constraint; everything else commits independently.
 
 ## Categorization legend
 
@@ -602,12 +602,132 @@ Minor logging-hygiene notes for Phase 4: `get_home` (line 167) uses `logger.debu
 
 ## Cross-cutting observations
 
-(filled in by Task 1.8)
+- **The graceful-degrade contract is the architectural backbone, not the bug.** Services in `services/ytmusic.py`, `services/lrclib.py`, `services/stream.py`, `services/auth.py`, etc. return safe defaults (`[]`, `{}`, `None`, `""`, `False`) on any API/network/parse failure. UI handlers then wrap calls to those services with their own broad-catches, on the assumption that the service's contract holds. This produces a deliberate two-layer safety net: the service swallows the API error and returns the sentinel, and the UI swallows anything that escapes the service (programming bugs, asyncio cancellation, downstream render failures) and renders an empty state. **Narrowing service layers without updating UI cascade sinks in lockstep produces silent regressions** — the UI suddenly receives exceptions it wasn't written to expect. Phase 5 exists specifically to update those cascade sinks once Phase 4.1 / 4.3 land.
+- **Optional-service callbacks are uniformly KEEP across every audited file** — Discord RPC (`services/discord_rpc.py` 4 sites), Last.fm (`services/lastfm.py` 3), MPRIS (`services/mpris.py` 1), macOS event-tap (`services/macos_eventtap.py` 4), macOS Now Playing (`services/macos_media.py` 3), update check (`services/update_check.py` 1), LRCLIB (`services/lrclib.py` 1). Each subscriber must fail independently without crashing playback; the per-tick MPRIS/macOS/Discord broadcasts in `app/_playback.py` (lines 344, 350, 361, 461, 471, 493) follow the same pattern. **Don't touch these.**
+- **The "bar-not-mounted" pattern is the single most repeated KEEP shape in the codebase.** It appears across `_playback.py` (lines 78, 373, 380, 397, 411, 417, 443, 451), `_session.py` (76, 145), `_app.py` (493, 500), `_keys.py` (189), `_sidebar.py` (42, 47, 59, 69, 74, 84, 231), `lyrics_sidebar.py` (multiple), `track_table.py`, and most `ui/pages/`. Multi-call orchestration sites stay KEEP — `query_one` failure mid-orchestration is a legitimate "widget gone" recovery path. **Single-call query+act sites narrow in Phase 4.5** — the only realistic failure is `textual.css.query.NoMatches` and the broad catch hides bugs in the called method itself.
+- **Mutation methods split cleanly along their return type.** `services/ytmusic.py` has 7 mutation methods. The 4 that return `bool` (`delete_playlist`, `add_to_library`, `remove_album_from_library`, `unsubscribe_artist`) are KEEP — the contract is correct; callers can branch on success. The 3 that return `None` (`rate_song`, `add_playlist_items`, `remove_playlist_items`) are NARROW (Phase 4.3) — UI claims success on silent failure. Plus `app/_session.py:211` is a write-path mutation NARROW with a UX-toast fix attached (Phase 4.6). The user-visible mutation flows in `ui/pages/queue.py` (reorder/delete) and `ui/pages/context.py:472` (`_add_to_library`) are correctly designed: queue mutations have no broad-catch (let exceptions propagate), and `_add_to_library` already uses the `bool`-returning service method.
+- **`services/ytmusic.py:_call()` is the only outer-loop broad-catch in the codebase that drives state-change behaviour.** It increments `_consecutive_api_failures` and reinitialises `self.client` at threshold (3). Currently any exception — including programming errors like `AttributeError` from a refactor — triggers that counter bump and can spuriously reinit the client. Phase 4.1 narrows it to expected error types (network, auth, ytmusicapi-specific) and lets unexpected propagate as bugs. Phase 4.2 (thread-safety lock on the `client` lazy-init property) is bundled with 4.1 because the same code path is touched.
+- **Logging-hygiene drift is widespread but mechanical.** ~58 sites use `logger.debug(..., exc_info=True)` instead of `logger.exception` per CLAUDE.md guidance. Per-section breakdown: services 1 (`ytmusic.py:167`), `_playback.py` 16, app/ other 13, ui/pages KEEP-tier 18, ui/ other KEEP-tier 9, utils/cli/ipc 1. On top of that, 4 priority "no `exc_info` at all" sites in `browse.py` (lines 298, 423, 526, 741 — user-visible "Failed to load X" handlers that drop the traceback entirely), and ~13 silent-pass-no-log sites scattered across the codebase. Phase 4.4 sweeps all of these mechanically.
+- **Trivial single-call NARROWs cluster into ~6 repeated UI shapes.** 82 sites total in Phase 4.5: filter-show/hide/escape trios across pages (12 sites), `get_nav_state()` cursor reads (4), `on_mount` / `watch_*` reactive setters / single-widget query+act (20 in ui/pages), background-worker query+update (7), services + app pre-existing trivial narrows (15), and ui/ other widgets (24 across `playback_bar`, `header_bar`, popups, sidebars, `track_table`). The shape is identical: `query_one(selector) + one method call` wrapped in `except Exception: pass` (or `except Exception: logger.debug(...)`). **Highly mechanical sweep — but 82 sites in one commit is unreviewable, so split into 6 sub-clusters per the Phase 4.5 plan below.**
 
 ## Cascade map (UI handlers depending on service contracts)
 
-(filled in by Task 1.8)
+This is the load-bearing reference for Phase 5 sequencing. Each bullet maps a service-layer NARROW landing in Phase 4 to the UI / app handlers that wrap calls to that method and currently rely on the broad-catch contract. When the service-layer call is narrowed, every handler in the cascade list needs review (most can stay KEEP belt-and-braces, but several can be tightened or have their `notify(...)` text differentiated per error type once the service returns typed signals).
+
+- **`services/ytmusic.py:65 _call()` — Phase 4.1 cascade sinks** (every UI/app site that wraps a method which goes through `_call()`):
+  - `app/_playback.py:111` — `play_track()`, stream-resolution path (calls `stream_resolver.resolve()` which itself wraps `_call()`-derived data; belt-and-braces).
+  - `app/_ipc.py:218` — `_ipc_queue_add()` single-call `await self.ytmusic.get_watch_playlist(video_id)` (also independently flagged NARROW in Phase 4.5e — narrows together).
+  - `ui/pages/liked_songs.py:207` — `_fetch_remaining_liked()` background pagination via `get_liked_songs(limit=None, ...)`.
+  - `ui/pages/context.py:352` — `_fetch_full_artist_songs()` initial fetch via `get_playlist(browse_id, limit=_FIRST_BATCH)`.
+  - `ui/pages/context.py:375` — `_fetch_full_artist_songs()` chained-remaining fetch via `get_playlist_remaining(...)`.
+  - `ui/pages/browse.py:161` — `ForYouSection.load_data()` via `get_home()`.
+  - `ui/pages/search.py:605` — `_load_suggestions()` typeahead via `get_search_suggestions()`.
+  - `ui/popups/playlist_picker.py:179` — `_fetch_playlists()` via `get_library_playlists()`.
+  - `ui/sidebars/playlist_sidebar.py:523` — `_load_playlists()` worker via `get_library_playlists()`.
+
+- **`services/ytmusic.py:383 rate_song()` — Phase 4.3 cascade** (mutation narrow + return-bool fix):
+  - `app/_playback.py:558` — `_toggle_like_current()`, the `l` keybinding's primary call site. Once `rate_song` returns `bool`, this catch can branch per error-type (auth → "Sign in again", network → "Check connection", success → flip the heart). Currently shows the same generic "Couldn't update like state" toast for every failure mode.
+  - `app/_track_actions.py:136` — actions-popup `toggle_like` branch, secondary call site. Same cascade — currently does NOT log the exception at all (only shows a user toast); Phase 4.3 should add `logger.exception` here as part of the cascade fix.
+
+- **`services/ytmusic.py:390 add_playlist_items()` — Phase 4.3 cascade** (mutation narrow + return-bool fix):
+  - `ui/popups/spotify_import.py:900` — **worst-impact site in the cascade.** `_do_create()` outer catch wraps the multi-call create-playlist + batched `add_playlist_items` mutation. Today the popup dismisses with `playlist_id` claiming success even when every batch silently failed (because `add_playlist_items` returns `None` on failure). Phase 4.3 + this cascade must surface "imported X of Y" honestly.
+  - `ui/popups/playlist_picker.py:306` — `_create_and_add()` multi-call mutation flow. Smaller blast radius (single playlist add, not bulk import) but same silent-success-on-failure shape.
+  - `ui/popups/playlist_picker.py:334` — `_do_add()` adding tracks to chosen playlist. Same shape as :306.
+
+- **`services/ytmusic.py:468 remove_playlist_items()` — Phase 4.3 cascade**:
+  - **No active UI call sites in the codebase** as of this audit. The method is defined and guarded but not currently invoked from `app/` or `ui/`. Narrowing the service-layer catch and switching to `bool` return is still in scope (parity with the other mutation methods), but Phase 5 has no follow-up cascade work for this method until a UI surface starts using it.
+
+- **`app/_session.py:211 _save_session_state()` write-path — Phase 4.6** (NARROW + UX-toast):
+  - This is a self-contained UI-cascade pair, not a service→UI cascade: the NARROW (`OSError`/`TypeError`) and the `self.notify("Could not save session state", severity="warning", timeout=5)` UX fix land in the same commit. No downstream handlers depend on the broad-catch contract.
+
+**Phase 5 cascade-update estimate.** Across the four service-layer narrow events above, ~14 distinct UI/app handlers wrap the affected service calls (9 cascade sinks for `_call()`, 2 for `rate_song`, 3 for `add_playlist_items`, 0 for `remove_playlist_items`). Most stay KEEP-with-tightened-error-types or KEEP-with-better-notify-text; only the three `add_playlist_items` cascade sites materially change behaviour (partial-add reporting). Estimate ~14 sites for Phase 5 once the cascade is fully traced.
 
 ## Phase plan derived from this audit
 
-(filled in by Task 1.8)
+The audit produces four NARROW work-clusters (4.1, 4.3, 4.5, 4.6), one bundled thread-safety task (4.2), one logging-hygiene sweep (4.4), and one cascade-update phase (5). Each Phase 4 sub-task is independently committable except where noted.
+
+### Phase 4.1 — Narrow `services/ytmusic.py:65 _call()` outer catch (1 site)
+
+The only outer-loop broad-catch in the codebase that drives state-change behaviour (failure counter + client reinit). Split caught exceptions into three cohorts:
+- **Auth errors** (signal to reauth, don't count toward reinit) — likely `requests.HTTPError` with 401/403, or a ytmusicapi-specific "credentials expired" type.
+- **Network/transient errors** — `requests.RequestException`, `TimeoutError`, `OSError` — count toward `_consecutive_api_failures` and trigger reinit at threshold.
+- **Unexpected exceptions** — propagate as bugs; do NOT bump the counter.
+
+Mind the `get_playlist()` `_send_request` monkey-patch path (line 279): the inner `try/finally` correctly restores the patch even if `_call()` raises, so this narrowing doesn't break the patch-restore contract.
+
+### Phase 4.2 — Thread-safety lock on `YTMusicService.client` lazy-init (0 NARROW sites — bundled with 4.1)
+
+Add a `threading.Lock` (or `asyncio.Lock`, depending on call-site shape) around the lazy-init of `self.client` so concurrent first-access from background workers doesn't race on construction. Bundled with 4.1 because both touch the same outer-loop code path.
+
+### Phase 4.3 — Mutation methods narrow + return-bool fix (3 service-layer sites + 5 UI cascade sites)
+
+Three service-layer mutation methods currently return `None` whether the API call succeeded or failed, leaving callers unable to detect failure. Fix:
+- `services/ytmusic.py:383 rate_song()` — narrow + return `bool`. Cascade to `app/_playback.py:558` and `app/_track_actions.py:136` (the latter currently does NOT log at all — add `logger.exception` as part of the cascade fix).
+- `services/ytmusic.py:390 add_playlist_items()` — narrow + return `bool`. Cascade to `ui/popups/spotify_import.py:900` (worst-impact — popup claims success on silent failure), `ui/popups/playlist_picker.py:306`, and `ui/popups/playlist_picker.py:334`.
+- `services/ytmusic.py:468 remove_playlist_items()` — narrow + return `bool` for parity. **No active UI cascade sites today.**
+
+The cascade UI sites stay in 4.3 (not deferred to Phase 5) because the service-layer + cascade fix must land together to avoid a window where the popup claims success while the service re-raises into the broad-catch and gets swallowed differently.
+
+### Phase 4.4 — Logging-hygiene sweep (~58 strict + ~17 priority/silent sites)
+
+Codebase-wide sweep, mechanical:
+- **Strict `logger.debug(..., exc_info=True)` → `logger.exception(...)` per CLAUDE.md guidance** — ~58 sites. Per-section: `services/ytmusic.py` 1 (`get_home` line 167), `_playback.py` 16, app/ other 13, ui/pages KEEP-tier 18, ui/ other KEEP-tier 9, utils/cli/ipc 1.
+- **Priority "no `exc_info` at all" sites in `browse.py`** — 4 sites (lines 298, 423, 526, 741). All user-visible "Failed to load X" handlers; the user sees a notify but the underlying exception is silently lost.
+- **Silent-pass-no-log offenders** — ~13 sites scattered (`_app.py:86/347` theme-load, `context.py:502` sidebar refresh, `search.py:801` mode-toggle hit-test, `header_bar.py:85/104`, `lyrics_sidebar.py:349`, `playlist_sidebar.py:335/573`, `track_table.py:242/308`, `utils/logging.py:110`, `utils/formatting.py:192/199/213`). Add at minimum a `logger.debug(..., exc_info=True)` so silent failures are diagnosable. Some of these (e.g. `header_bar.py:85/104`) are also Phase 4.5 NARROW targets — they get their log added as part of the NARROW fix, not double-touched here.
+- **`stream.py:180` `logger.warning(..., exc_info=True)` → `logger.exception`** for consistency.
+- **`player.py:387` and `auth.py:491` `logger.error(...)` no-traceback** — consider `logger.exception` for parser-failure diagnostics.
+
+Mechanical, low-risk; each per-file commit reviews independently.
+
+### Phase 4.5 — Trivial single-call NARROWs (82 sites — split into 6 sub-clusters)
+
+Same shape across all 82 sites: single `query_one(selector) + one method call` (or single attribute read) wrapped in `except Exception:` with silent `pass` or a debug log. The expected exception is uniformly `textual.css.query.NoMatches` or a small known set (`AttributeError`, `RowDoesNotExist`/`CellDoesNotExist`, Textual reactive errors). Each sub-cluster commits separately for reviewability.
+
+- **4.5a — Filter-show / hide / Escape trio across `ui/pages/` (12 sites):** `library.py:277/285/311`, `queue.py:408/416/454`, `liked_songs.py:317/325/365`, `context.py:546/554/586`. Near-identical `_show_filter` / `_hide_filter` / `on_key`-Escape blocks; one mechanical sweep.
+- **4.5b — `get_nav_state()` cursor reads (4 sites):** `library.py:136`, `recently_played.py:153`, `liked_songs.py:233`, `search.py:490`. Single `query_one(table) + cursor_row` read; expected `NoMatches`.
+- **4.5c — `on_mount` / `watch_*` reactive setters / single-widget query+act in `ui/pages/` (20 sites):**
+  - `on_mount` initial-hide / restore-focus: `browse.py:412`, `browse.py:516`, `search.py:447`, `search.py:461` (4).
+  - `watch_*` reactive setters: `help.py:265`, `context.py:232`, `context.py:240` (3).
+  - Single-widget footer/loading update: `queue.py:257`, `liked_songs.py:187`, `search.py:783` (3).
+  - Single-call focus / button-update / input apply_filter / focus in `context.py`: 460, 495, 561, 570 (4).
+  - Single-call suggestion-hide: `search.py:612` (1).
+  - Single-call descendant-search query_one: `search.py:955` (1).
+  - Single-call cleanup nested-catch: `browse.py:175` (1).
+  - Single-call `_show_error` display-toggle: `browse.py:459`, `browse.py:569` (2).
+  - Single-call has_class check: `search.py:563` (1).
+- **4.5d — Background-worker query+update sites in `ui/pages/` (7 sites):**
+  - DataTable cell-update: `queue.py:178`, `queue.py:185` (2 — `RowDoesNotExist` / `CellDoesNotExist`).
+  - TrackTable swap/append in workers: `context.py:363`, `context.py:385` (2).
+  - Filter timer-stop: `queue.py:424`, `liked_songs.py:334` (2 — `AttributeError`).
+  - `on_worker_state_changed` single-call: `context.py:224` (1).
+- **4.5e — services + app trivial NARROWs (15 sites):** the pre-Task 1.6 candidates. `auth.py:329`, `spotify_import.py:69`, `player.py:481`, `_playback.py:387`, `_playback.py:601`, `_app.py:493`, `_ipc.py:218`, `_keys.py:189`, `_session.py:93`, `_session.py:102`, `_session.py:159`, `_sidebar.py:47`, `_sidebar.py:74`, `_sidebar.py:231`, `_track_actions.py:160`. Heterogeneous expected exception types per site (mostly `NoMatches`; `auth.py:329` and `spotify_import.py:69` are `(OSError, json.JSONDecodeError)` / `KeyError`-class; `player.py:481` is `(mpv.ShutdownError, OSError, AttributeError)`).
+- **4.5f — `ui/` other widgets (24 sites):** `playback_bar.py:168/206/392/505` (4), `header_bar.py:85/104` (2), `ui/popups/spotify_import.py:422/612` (2), `ui/sidebars/lyrics_sidebar.py:249/403/410/464/513/522/531` (7), `ui/sidebars/playlist_sidebar.py:217/289/299/573/605` (5), `ui/widgets/track_table.py:279/286/320/459` (4). All `query_one + assign/method-call` or `cell-update` shapes; expected `NoMatches` / `RowDoesNotExist` / `AttributeError`.
+
+Sub-cluster total: 12 + 4 + 20 + 7 + 15 + 24 = **82**. ✓
+
+### Phase 4.6 — `app/_session.py:211` write-path NARROW + UX-toast (1 site)
+
+Two-step fix in a single commit:
+1. Narrow the broad-catch to `(OSError, TypeError)`. `OSError` covers the disk-full / permission-denied / EROFS modes; `TypeError` covers a track dict somehow becoming unserialisable by `json.dumps`.
+2. On caught failure, also `self.notify("Could not save session state", severity="warning", timeout=5)` so the user knows their resume target is stale.
+
+Bumped out of Phase 4.5 because it's both a NARROW *and* a UX-contract change — distinct shape from the trivial single-call sweep, deserves its own commit.
+
+### Phase 5 — UI cascade updates following Phase 4 service-layer narrowings (~14 sites)
+
+Specific call sites listed in the **Cascade map** above. Most stay KEEP-with-tightened-error-types or KEEP-with-better-notify-text once the upstream service narrows; the three `add_playlist_items` cascade sites in popups materially change behaviour (partial-add reporting). The `_call()` cascade is the largest: 9 background-fetch / async-render handlers across `_playback.py`, `_ipc.py`, `liked_songs.py`, `context.py`, `browse.py`, `search.py`, `playlist_picker.py`, and `playlist_sidebar.py`. Estimate **~14 sites total** once the cascade is fully traced — could grow if `remove_playlist_items` gets a UI call site before Phase 5 lands.
+
+### Phase 4 + Phase 5 site-count summary
+
+| Phase | Description | NARROW sites touched |
+|---|---|---|
+| 4.1 | `_call()` outer catch | 1 |
+| 4.2 | `client` lazy-init lock | 0 (bundled) |
+| 4.3 | Mutation methods + return-bool + cascade | 3 service + 5 UI = 8 |
+| 4.4 | Logging-hygiene sweep | ~58 strict + ~17 priority/silent (no NARROW) |
+| 4.5 | Trivial single-call NARROWs (a–f) | 82 |
+| 4.6 | `_session.py:211` write-path + UX-toast | 1 |
+| **Phase 4 NARROW subtotal** | | **92** (sums to >87 because 4.3 includes 5 UI cascade sites that are KEEP at the audit layer but get rewritten as part of the mutation cascade) |
+| 5 | UI cascade updates after 4.1 / 4.3 land | ~14 |
+
+Audit NARROW total reconciliation: 1 (4.1) + 3 service-layer (4.3) + 82 (4.5) + 1 (4.6) = **87** ✓.
