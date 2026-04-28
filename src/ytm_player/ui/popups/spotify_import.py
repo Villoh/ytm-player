@@ -883,18 +883,36 @@ class SpotifyImportPopup(ModalScreen[str | None]):
                     progress_bar.display = True
                     progress_bar.update(total=len(batches), progress=0)
 
+                failed_batches = 0
                 for batch_idx, batch in enumerate(batches, 1):
                     status.update(
                         f"Adding tracks... ({min(batch_idx * _ADD_BATCH_SIZE, total_ids)}/{total_ids})"
                     )
-                    await ytmusic_svc.add_playlist_items(playlist_id, batch)
+                    added = await ytmusic_svc.add_playlist_items(playlist_id, batch)
+                    if not added:
+                        failed_batches += 1
                     if len(batches) > 1:
                         progress_bar.update(progress=batch_idx)
 
-            self.notify(
-                f"Created '{name}' with {total_ids} tracks",
-                severity="information",
-            )
+            if failed_batches == 0:
+                self.notify(
+                    f"Created '{name}' with {total_ids} tracks",
+                    severity="information",
+                )
+            elif failed_batches == len(batches):
+                self.notify(
+                    f"Created '{name}' but failed to add any tracks "
+                    f"({len(batches)} batch(es) rejected)",
+                    severity="error",
+                )
+            else:
+                added_total = (len(batches) - failed_batches) * _ADD_BATCH_SIZE
+                self.notify(
+                    f"Created '{name}' with partial track set: "
+                    f"~{added_total}/{total_ids} added "
+                    f"({failed_batches} batch(es) failed)",
+                    severity="warning",
+                )
             self.dismiss(playlist_id)
 
         except Exception as exc:

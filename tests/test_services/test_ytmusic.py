@@ -161,3 +161,76 @@ class TestClientThreadSafety:
             f"YTMusic constructor must be called exactly once under the lock; "
             f"was called {construction_count} times."
         )
+
+
+class TestMutationMethodsReturnBool:
+    """Task 4.3: rate_song / add_playlist_items / remove_playlist_items
+    return bool (was None) so callers can branch on success."""
+
+    async def test_rate_song_returns_true_on_success(self, ytmusic_service, monkeypatch):
+        async def fake_call(func, *_args, **_kwargs):
+            return None  # ytmusicapi.rate_song's actual return is irrelevant
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.rate_song("abc123", "LIKE")
+        assert result is True
+
+    async def test_rate_song_returns_false_on_expected_api_failure(
+        self, ytmusic_service, monkeypatch
+    ):
+        async def fake_call(func, *_args, **_kwargs):
+            raise requests.ConnectionError("network down")
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.rate_song("abc123", "LIKE")
+        assert result is False
+
+    async def test_rate_song_propagates_unexpected_exceptions(self, ytmusic_service, monkeypatch):
+        async def fake_call(func, *_args, **_kwargs):
+            raise TypeError("programming bug")
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        with pytest.raises(TypeError, match="programming bug"):
+            await ytmusic_service.rate_song("abc123", "LIKE")
+
+    async def test_add_playlist_items_returns_true_on_success(self, ytmusic_service, monkeypatch):
+        async def fake_call(func, *_args, **_kwargs):
+            return None
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.add_playlist_items("PL_test", ["v1", "v2"])
+        assert result is True
+
+    async def test_add_playlist_items_returns_false_on_expected_api_failure(
+        self, ytmusic_service, monkeypatch
+    ):
+        async def fake_call(func, *_args, **_kwargs):
+            raise requests.ConnectionError("api down")
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.add_playlist_items("PL_test", ["v1"])
+        assert result is False
+
+    async def test_remove_playlist_items_returns_true_on_success(
+        self, ytmusic_service, monkeypatch
+    ):
+        async def fake_call(func, *_args, **_kwargs):
+            return None
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.remove_playlist_items(
+            "PL_test", [{"videoId": "v1", "setVideoId": "s1"}]
+        )
+        assert result is True
+
+    async def test_remove_playlist_items_returns_false_on_expected_api_failure(
+        self, ytmusic_service, monkeypatch
+    ):
+        async def fake_call(func, *_args, **_kwargs):
+            raise asyncio.TimeoutError("timed out")
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.remove_playlist_items(
+            "PL_test", [{"videoId": "v1", "setVideoId": "s1"}]
+        )
+        assert result is False

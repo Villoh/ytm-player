@@ -395,24 +395,37 @@ class YTMusicService:
     # Library actions
     # ------------------------------------------------------------------
 
-    async def rate_song(self, video_id: str, rating: str) -> None:
+    async def rate_song(self, video_id: str, rating: str) -> bool:
         """Rate a song.
 
         Args:
             video_id: The video ID to rate.
             rating: ``"LIKE"``, ``"DISLIKE"``, or ``"INDIFFERENT"`` (remove rating).
+
+        Returns:
+            True if the server accepted the rating, False on caught
+            API/network failure. Unexpected exceptions propagate.
         """
         try:
             await self._call(self.client.rate_song, video_id, rating)
-        except Exception:
-            logger.debug("rate_song failed for %r rating=%r", video_id, rating)
+            return True
+        except _EXPECTED_API_EXCEPTIONS:
+            logger.exception("rate_song failed for %r rating=%r", video_id, rating)
+            return False
 
-    async def add_playlist_items(self, playlist_id: str, video_ids: list[str]) -> None:
-        """Add songs to an existing playlist."""
+    async def add_playlist_items(self, playlist_id: str, video_ids: list[str]) -> bool:
+        """Add songs to an existing playlist.
+
+        Returns:
+            True if the server accepted the add, False on caught
+            API/network failure. Unexpected exceptions propagate.
+        """
         try:
             await self._call(self.client.add_playlist_items, playlist_id, video_ids)
-        except Exception:
-            logger.debug("add_playlist_items failed for playlist=%r", playlist_id)
+            return True
+        except _EXPECTED_API_EXCEPTIONS:
+            logger.exception("add_playlist_items failed for playlist=%r", playlist_id)
+            return False
 
     async def create_playlist(
         self,
@@ -479,18 +492,24 @@ class YTMusicService:
             logger.debug("unsubscribe_artist failed for %r", channel_id)
             return False
 
-    async def remove_playlist_items(self, playlist_id: str, videos: list[dict[str, Any]]) -> None:
+    async def remove_playlist_items(self, playlist_id: str, videos: list[dict[str, Any]]) -> bool:
         """Remove items from a playlist.
 
         Args:
             playlist_id: The playlist to modify.
             videos: List of video dicts as returned by ``get_playlist()`` — each
                 must contain ``videoId`` and ``setVideoId``.
+
+        Returns:
+            True if the server accepted the remove, False on caught
+            API/network failure. Unexpected exceptions propagate.
         """
         try:
             await self._call(self.client.remove_playlist_items, playlist_id, videos)
-        except Exception:
-            logger.debug("remove_playlist_items failed for playlist=%r", playlist_id)
+            return True
+        except _EXPECTED_API_EXCEPTIONS:
+            logger.exception("remove_playlist_items failed for playlist=%r", playlist_id)
+            return False
 
     # ------------------------------------------------------------------
     # History

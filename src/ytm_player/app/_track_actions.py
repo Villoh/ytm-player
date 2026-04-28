@@ -129,11 +129,11 @@ class TrackActionsMixin(YTMHostBase):
                     label = "Unliked" if is_liked else "Liked"
 
                     async def _rate(vid: str, r: str, lbl: str) -> None:
-                        try:
-                            await ytmusic.rate_song(vid, r)
+                        accepted = await ytmusic.rate_song(vid, r)
+                        if accepted:
                             track["likeStatus"] = r
                             self.notify(lbl, timeout=2)
-                        except Exception:
+                        else:
                             self.notify(
                                 f"Failed to {lbl.lower()} track", severity="error", timeout=3
                             )

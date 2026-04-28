@@ -553,10 +553,8 @@ class PlaybackMixin(YTMHostBase):
         current_status = (track.get("likeStatus") or "INDIFFERENT").upper()
         new_status = "INDIFFERENT" if current_status == "LIKE" else "LIKE"
 
-        try:
-            await self.ytmusic.rate_song(video_id, new_status)
-        except Exception:
-            logger.exception("Failed to rate song %s as %s", video_id, new_status)
+        accepted = await self.ytmusic.rate_song(video_id, new_status)
+        if not accepted:
             self.notify("Couldn't update like state", severity="error", timeout=2)
             return
 

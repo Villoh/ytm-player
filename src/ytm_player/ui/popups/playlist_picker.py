@@ -292,7 +292,14 @@ class PlaylistPicker(ModalScreen[str | None]):
                 return
 
             status.update(f"Adding tracks to '{name}'...")
-            await self.app.ytmusic.add_playlist_items(playlist_id, self.video_ids)
+            added = await self.app.ytmusic.add_playlist_items(playlist_id, self.video_ids)
+            if not added:
+                self.notify(
+                    f"Created '{name}' but failed to add tracks",
+                    severity="warning",
+                )
+                status.update("Add failed")
+                return
 
             _record_recent(playlist_id)
 
@@ -320,7 +327,11 @@ class PlaylistPicker(ModalScreen[str | None]):
         status.update(f"Adding to '{title}'...")
 
         try:
-            await self.app.ytmusic.add_playlist_items(playlist_id, self.video_ids)
+            added = await self.app.ytmusic.add_playlist_items(playlist_id, self.video_ids)
+            if not added:
+                self.notify(f"Failed to add to '{title}'", severity="error")
+                status.update("Error")
+                return
 
             _record_recent(playlist_id)
 
