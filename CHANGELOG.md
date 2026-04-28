@@ -6,6 +6,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+### v1.8.0 (2026-04-28)
+
+A reliability and quality release driven by a multi-agent expert audit. Hardens error handling across the service/UI cascade so silent-failure UX is replaced with actionable feedback, fixes several latent runtime bugs, and brings the codebase to zero non-exempted Pyright errors (down from 218).
+
+**New**
+
+- **First-run discoverability toast** — on first launch, a 1.5s-delayed toast reads "Press ? for help · vim-style keys" (8s timeout). State persists in `session.json` so the hint shows once. Legacy session files without the field upgrade cleanly.
+- **Per-cause mutation-failure toasts** — like/playlist-add operations now distinguish auth-required, auth-expired, network-down, and server-error failures with specific messages (e.g. "Sign in again — run `ytm setup`" vs "Check your connection") instead of a single generic "Couldn't update". The classifier inspects ytmusicapi's exception types and parses HTTP status from `YTMusicServerError` messages.
+- **Page error-fallback states** — Recently Played and Context (album/artist/playlist) pages used to show "Loading…" forever on API/disk failure. Now they replace the loading indicator with a clear error message pointing at `~/.config/ytm-player/logs/ytm.log`.
+- **9 new integration tests** in `tests/test_integration/` covering the search→queue→play flow, track-change fan-out, cache-bypass behaviour, session round-trip, search cancellation, and the mutation cascade. Coverage floor raised 10 % → 47 %.
+
+**Fixed**
+
+- **Album art crashed on Pillow ≥ 10.** `Image.LANCZOS` was removed in Pillow 10. Switched to `Image.Resampling.LANCZOS`. Pyproject pins `Pillow>=10`, so this had been shipping broken for every modern install.
+- **Spotify single/multi import would have ImportError.** The popup imported `_get_video_id` from `services.spotify_import`, but that symbol does not exist (the function is `get_video_id` in `utils/formatting.py`). Renamed all call sites.
+- **`gg` / `G` in browse and playlist sidebar would crash.** Code called `ListView.action_first()` / `action_last()` — neither method exists on Textual's ListView. Replaced with the standard cursor-index assignment.
+- **New Releases tab in Browse silently empty.** `YTMusicService.get_new_releases` called `client.get_new_releases` which doesn't exist on `YTMusic`. The wrapping broad-except swallowed the AttributeError. Switched to `get_explore()['new_releases']` per the actual ytmusicapi surface.
+- **Session-save errors disappeared into the void.** `_save_session_state` now narrows its catch to `(OSError, TypeError)` and surfaces a toast on failure instead of silently dropping the user's volume / queue / playback position.
+- **Mutation methods (`rate_song`, `add_playlist_items`, `remove_playlist_items`) now return `MutationResult`** (a Literal: success / auth_required / auth_expired / network / server_error). Previously returned `None` whether the server accepted or not — UI showed "Liked!" toasts even when the API failed silently. Worst case was the Spotify import "Created with N tracks" toast firing when every batch failed.
+- **`YTMusicService._call` outer catch narrowed.** Programming-error exceptions (TypeError, AttributeError) now propagate instead of being swallowed and mistakenly counted toward the consecutive-failure threshold.
+- **Thread-safety on lazy `YTMusicService.client` init.** Concurrent first-access from `asyncio.to_thread` workers is now guarded by a `threading.Lock` with double-checked locking.
+- **`logger.exception` upgrades** in priority browse paths so caught failures actually land in the log file instead of `logger.debug` silence.
+
+**Internal**
+
+- **Comprehensive broad-except audit** at `docs/broad-except-audit.md` — categorizes all 263 `except Exception:` sites in the codebase as KEEP / NARROW / PROMOTE with a cross-cutting cascade map. Referenced from `CLAUDE.md` so future contributors check the audit before adding new broad catches.
+- **Pyright clean-up: 218 → 93 errors,** with the remaining 93 entirely in `services/mpris.py` (D-Bus magic, exempted in CLAUDE.md ruff rules) and `services/macos_eventtap.py` (macOS-only AppKit/Quartz). Fixed real bugs along the way: `playback_bar._FooterButton.__init__` typed `kwargs` as `object` (rejecting all forwarded params), `_RepeatButton.repeat_mode` typed as `str` while assigned an `int`-typed enum value, `track_table._filter_timer` typed as `object | None` so `.stop()` didn't type-check, and several Optional-access defensive gaps.
+- **Codebase-wide `self.app.X` typing** — UI widgets/pages now cast `self.app` to `YTMHostBase` at access points so Pyright can see the host's services. ~42 sites across 6 files.
+- **README polish** — badges, tagline, Contributors section.
+- **Audit-driven follow-up plans** at `docs/superpowers/plans/2026-04-28-audit-driven-error-handling-cleanup.md` and `docs/superpowers/plans/2026-04-28-audit-driven-followup.md` — written via the superpowers writing-plans + subagent-driven-development workflow.
+
+---
+
 ### v1.7.2 (2026-04-27)
 
 A combined release covering broader Python compatibility, a monthly Python release watcher, a full README restructure into a landing page + dedicated docs, and the 3.10 backport shims required to support Ubuntu 22.04.
