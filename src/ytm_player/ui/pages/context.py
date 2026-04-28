@@ -14,10 +14,22 @@ from textual.widgets import DataTable, Input, Label, Static
 from textual.worker import Worker, WorkerState
 
 from ytm_player.config.keymap import Action
+from ytm_player.services.ytmusic import _EXPECTED_API_EXCEPTIONS
 from ytm_player.ui.widgets.track_table import TrackTable
 from ytm_player.utils.formatting import extract_artist, normalize_tracks
 
 logger = logging.getLogger(__name__)
+
+
+def _load_failure_message(context_type: str) -> str:
+    """Failure-state message shown when fetching album/artist/playlist
+    data fails. Points the user at the log file so they can self-diagnose
+    instead of guessing whether the network is down or the page is broken.
+    """
+    return (
+        f"Couldn't load this {context_type}. Check the log at "
+        f"~/.config/ytm-player/logs/ytm.log for details."
+    )
 
 
 class _ArtistAlbumList(DataTable):
@@ -161,6 +173,11 @@ class ContextPage(Widget):
         self.context_id = context_id
         self._data: dict[str, Any] = {}
         self._active_focus: str = "tracks"  # "tracks" or "albums" for artist view
+        # Set when ``_fetch_data`` catches an expected API/network
+        # exception. ``on_worker_state_changed`` reads it to decide
+        # between the empty-data message and the richer failure copy
+        # that points at the log file.
+        self._load_failed = False
 
     def compose(self) -> ComposeResult:
         yield Label("Loading...", id="context-loading", classes="context-loading")
@@ -188,17 +205,32 @@ class ContextPage(Widget):
     _FIRST_BATCH = 300
 
     async def _fetch_data(self) -> dict[str, Any]:
-        """Fetch data from ytmusic based on context_type."""
+        """Fetch data from ytmusic based on context_type.
+
+        Expected API/network failures (``_EXPECTED_API_EXCEPTIONS``) are
+        caught here, logged via ``logger.exception`` and recorded on the
+        page's ``_load_failed`` flag so ``on_worker_state_changed`` can
+        render the user-facing "Couldn't load this <type>" message that
+        points at the log file. Programming errors (TypeError,
+        AttributeError, etc.) propagate so bugs surface in development.
+        """
         ytmusic = self.app.ytmusic  # type: ignore[attr-defined]
-        match self.context_type:
-            case "album":
-                return await ytmusic.get_album(self.context_id)
-            case "artist":
-                return await ytmusic.get_artist(self.context_id)
-            case "playlist":
-                return await ytmusic.get_playlist(self.context_id, limit=self._FIRST_BATCH)
-            case _:
-                raise ValueError(f"Unknown context type: {self.context_type}")
+        try:
+            match self.context_type:
+                case "album":
+                    result = await ytmusic.get_album(self.context_id)
+                case "artist":
+                    result = await ytmusic.get_artist(self.context_id)
+                case "playlist":
+                    result = await ytmusic.get_playlist(self.context_id, limit=self._FIRST_BATCH)
+                case _:
+                    raise ValueError(f"Unknown context type: {self.context_type}")
+        except _EXPECTED_API_EXCEPTIONS:
+            logger.exception("Failed to load %s %s", self.context_type, self.context_id)
+            self._load_failed = True
+            return {}
+        self._load_failed = False
+        return result
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         if event.worker.name == "fetch_context":
@@ -206,12 +238,19 @@ class ContextPage(Widget):
                 self._data = event.worker.result or {}
                 self.loading = False
                 if not self._data:
-                    self.error_message = "No data found."
+                    # ``_fetch_data`` flips ``_load_failed`` when it
+                    # caught an expected API exception — distinguish
+                    # that path (network failure, point at log) from
+                    # the genuine "API returned empty" path.
+                    if self._load_failed:
+                        self.error_message = _load_failure_message(self.context_type)
+                    else:
+                        self.error_message = "No data found."
                 else:
                     self._build_content()
             elif event.state == WorkerState.ERROR:
                 self.loading = False
-                self.error_message = f"Failed to load {self.context_type}."
+                self.error_message = _load_failure_message(self.context_type)
                 logger.exception("Failed to load %s %s", self.context_type, self.context_id)
         elif event.worker.name == "fetch_remaining":
             if event.state == WorkerState.SUCCESS:

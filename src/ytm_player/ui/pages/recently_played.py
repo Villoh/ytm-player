@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from typing import Any
 
 from textual.app import ComposeResult
@@ -17,6 +18,14 @@ from ytm_player.config.settings import get_settings
 from ytm_player.utils.formatting import format_duration
 
 logger = logging.getLogger(__name__)
+
+# Shown when the local history DB read fails (file unreadable, locked,
+# corrupt schema, etc.). Distinct from the genuine empty-state message
+# below so users don't see "No play history yet" when actually a disk
+# error happened.
+_HISTORY_LOAD_FAILED_MSG = (
+    "Couldn't load history. Check the log at ~/.config/ytm-player/logs/ytm.log for details."
+)
 
 
 class RecentlyPlayedPage(Widget):
@@ -66,6 +75,10 @@ class RecentlyPlayedPage(Widget):
         self._row_keys: list[RowKey] = []
         self._tracks: list[dict] = []
         self._restore_cursor_row = cursor_row
+        # Set when ``_load_history`` catches an expected disk-side
+        # failure so ``_refresh_table`` can render the failure message
+        # instead of the genuine empty-state copy.
+        self._load_failed = False
 
     def compose(self) -> ComposeResult:
         yield Vertical(
@@ -104,9 +117,16 @@ class RecentlyPlayedPage(Widget):
 
         try:
             self._tracks = await history.get_recently_played(limit=100)
-        except Exception:
+            self._load_failed = False
+        except (OSError, sqlite3.Error):
+            # Local DB failure: file unreadable, disk full, DB locked,
+            # schema mismatch, corrupt page, etc. Programming errors
+            # (TypeError, AttributeError) are NOT caught here — they
+            # must propagate so bugs surface in development per the
+            # error-handling architecture in CLAUDE.md.
             logger.exception("Failed to load play history")
             self._tracks = []
+            self._load_failed = True
 
         self._refresh_table()
 
@@ -118,7 +138,10 @@ class RecentlyPlayedPage(Widget):
 
         if not self._tracks:
             table.display = False
-            loading.update("No play history yet. Start listening!")
+            if self._load_failed:
+                loading.update(_HISTORY_LOAD_FAILED_MSG)
+            else:
+                loading.update("No play history yet. Start listening!")
             loading.display = True
             return
 
