@@ -129,13 +129,17 @@ class TrackActionsMixin(YTMHostBase):
                     label = "Unliked" if is_liked else "Liked"
 
                     async def _rate(vid: str, r: str, lbl: str) -> None:
-                        accepted = await ytmusic.rate_song(vid, r)
-                        if accepted:
+                        from ytm_player.services.ytmusic import mutation_failure_suffix
+
+                        result = await ytmusic.rate_song(vid, r)
+                        if result == "success":
                             track["likeStatus"] = r
                             self.notify(lbl, timeout=2)
                         else:
                             self.notify(
-                                f"Failed to {lbl.lower()} track", severity="error", timeout=3
+                                f"Couldn't {lbl.lower()} — {mutation_failure_suffix(result)}",
+                                severity="error",
+                                timeout=3,
                             )
 
                     self.run_worker(_rate(video_id, rating, label))

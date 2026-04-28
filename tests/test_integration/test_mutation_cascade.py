@@ -1,13 +1,17 @@
 """Integration test: mutation methods (rate_song, add_playlist_items)
-return False on caught failure, and the UI cascade reacts correctly.
+return a typed MutationResult on caught failure, and the UI cascade reacts
+correctly per failure cause.
 
 Validates the contract chain:
-  service.rate_song fails (network) -> returns False -> UI shows error toast
-  service.rate_song succeeds            -> returns True  -> UI shows "Liked" toast
-  service.add_playlist_items partial    -> returns False per failed batch -> UI surfaces partial-success warning
+  service.rate_song fails (network)   -> returns "network"      -> UI shows "check your connection"
+  service.rate_song fails (auth)      -> returns "auth_expired" -> UI tells user to re-setup
+  service.rate_song succeeds          -> returns "success"      -> UI shows "Liked" toast
+  service.add_playlist_items partial  -> returns failure-kind per failed batch
+                                          -> UI surfaces partial-success warning
 
-Pre-Phase-4.3, the methods returned None on both success and failure,
-so the UI lied to the user (showed success even on silent failure).
+Pre-Phase-4.3, the methods returned None on both success and failure, so the
+UI lied to the user. Task 4.3 introduced bool returns and Task 4.11 refined
+that to a typed Literal so per-cause toasts are possible.
 """
 
 from __future__ import annotations
@@ -16,11 +20,12 @@ import threading
 from unittest.mock import AsyncMock, MagicMock
 
 import requests
+from ytmusicapi.exceptions import YTMusicServerError
 
-from ytm_player.services.ytmusic import YTMusicService
+from ytm_player.services.ytmusic import YTMusicService, mutation_failure_suffix
 
 
-async def test_rate_song_returns_true_on_success(monkeypatch):
+async def test_rate_song_returns_success_on_ok(monkeypatch):
     svc = YTMusicService.__new__(YTMusicService)
     svc._ytm = MagicMock(name="fake-ytm-client")
     svc._consecutive_api_failures = 0
@@ -29,11 +34,11 @@ async def test_rate_song_returns_true_on_success(monkeypatch):
     fake_call = AsyncMock(return_value=None)
     monkeypatch.setattr(svc, "_call", fake_call)
 
-    accepted = await svc.rate_song("abc123", "LIKE")
-    assert accepted is True
+    result = await svc.rate_song("abc123", "LIKE")
+    assert result == "success"
 
 
-async def test_rate_song_returns_false_on_network_failure(monkeypatch):
+async def test_rate_song_returns_network_on_connection_failure(monkeypatch):
     svc = YTMusicService.__new__(YTMusicService)
     svc._ytm = MagicMock(name="fake-ytm-client")
     svc._consecutive_api_failures = 0
@@ -42,12 +47,37 @@ async def test_rate_song_returns_false_on_network_failure(monkeypatch):
     fake_call = AsyncMock(side_effect=requests.ConnectionError("network unreachable"))
     monkeypatch.setattr(svc, "_call", fake_call)
 
-    accepted = await svc.rate_song("abc123", "LIKE")
-    assert accepted is False
+    result = await svc.rate_song("abc123", "LIKE")
+    assert result == "network"
+    # Suffix the cascade site would render must mention connectivity.
+    assert "connection" in mutation_failure_suffix(result).lower()
 
 
-async def test_add_playlist_items_returns_false_per_batch(monkeypatch):
-    """Verifies that the spotify-import flow's per-batch failure tracking works."""
+async def test_rate_song_returns_auth_expired_on_http_401(monkeypatch):
+    """Auth-expired must map to the dedicated Literal, not "server_error",
+    so cascade sites can prompt the user to re-run `ytm setup`.
+    """
+    svc = YTMusicService.__new__(YTMusicService)
+    svc._ytm = MagicMock(name="fake-ytm-client")
+    svc._consecutive_api_failures = 0
+    svc._client_init_lock = threading.Lock()
+
+    fake_call = AsyncMock(
+        side_effect=YTMusicServerError(
+            "Server returned HTTP 401: Unauthorized.\nMissing auth credentials."
+        )
+    )
+    monkeypatch.setattr(svc, "_call", fake_call)
+
+    result = await svc.rate_song("abc123", "LIKE")
+    assert result == "auth_expired"
+    assert "setup" in mutation_failure_suffix(result).lower()
+
+
+async def test_add_playlist_items_returns_kind_per_batch(monkeypatch):
+    """Verifies the spotify-import flow's per-batch failure tracking still
+    works under the typed contract — three batches: ok, network-fail, ok.
+    """
     svc = YTMusicService.__new__(YTMusicService)
     svc._ytm = MagicMock(name="fake-ytm-client")
     svc._consecutive_api_failures = 0
@@ -68,6 +98,31 @@ async def test_add_playlist_items_returns_false_per_batch(monkeypatch):
     batch2 = await svc.add_playlist_items("PL_test", ["v3", "v4"])
     batch3 = await svc.add_playlist_items("PL_test", ["v5", "v6"])
 
-    assert batch1 is True
-    assert batch2 is False
-    assert batch3 is True
+    assert batch1 == "success"
+    assert batch2 == "network"
+    assert batch3 == "success"
+
+
+async def test_add_playlist_items_uniform_failure_reports_kind(monkeypatch):
+    """Spotify-import: when ALL batches fail with the same kind, the UI
+    surfaces that kind via mutation_failure_suffix. This test exercises the
+    service-side contract; the popup-side composition is tested implicitly
+    by relying on the same suffix helper.
+    """
+    svc = YTMusicService.__new__(YTMusicService)
+    svc._ytm = MagicMock(name="fake-ytm-client")
+    svc._consecutive_api_failures = 0
+    svc._client_init_lock = threading.Lock()
+
+    fake_call = AsyncMock(
+        side_effect=YTMusicServerError("Server returned HTTP 401: Unauthorized.\n")
+    )
+    monkeypatch.setattr(svc, "_call", fake_call)
+
+    results = [
+        await svc.add_playlist_items("PL_test", ["v1"]),
+        await svc.add_playlist_items("PL_test", ["v2"]),
+        await svc.add_playlist_items("PL_test", ["v3"]),
+    ]
+    # All same kind — popup branch shows per-cause suffix.
+    assert set(results) == {"auth_expired"}

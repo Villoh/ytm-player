@@ -68,8 +68,12 @@ class IPCMixin(YTMHostBase):
                         return {"ok": False, "error": "no track is playing"}
                     if not self.ytmusic:
                         return {"ok": False, "error": "ytmusic not initialized"}
-                    await self.ytmusic.rate_song(self.player.current_track["video_id"], "LIKE")
-                    return {"ok": True}
+                    result = await self.ytmusic.rate_song(
+                        self.player.current_track["video_id"], "LIKE"
+                    )
+                    if result == "success":
+                        return {"ok": True}
+                    return {"ok": False, "error": result}
 
                 case "dislike":
                     if (
@@ -80,8 +84,12 @@ class IPCMixin(YTMHostBase):
                         return {"ok": False, "error": "no track is playing"}
                     if not self.ytmusic:
                         return {"ok": False, "error": "ytmusic not initialized"}
-                    await self.ytmusic.rate_song(self.player.current_track["video_id"], "DISLIKE")
-                    return {"ok": True}
+                    result = await self.ytmusic.rate_song(
+                        self.player.current_track["video_id"], "DISLIKE"
+                    )
+                    if result == "success":
+                        return {"ok": True}
+                    return {"ok": False, "error": result}
 
                 case "unlike":
                     if (
@@ -92,10 +100,12 @@ class IPCMixin(YTMHostBase):
                         return {"ok": False, "error": "no track is playing"}
                     if not self.ytmusic:
                         return {"ok": False, "error": "ytmusic not initialized"}
-                    await self.ytmusic.rate_song(
+                    result = await self.ytmusic.rate_song(
                         self.player.current_track["video_id"], "INDIFFERENT"
                     )
-                    return {"ok": True}
+                    if result == "success":
+                        return {"ok": True}
+                    return {"ok": False, "error": result}
 
                 case _:
                     return {"ok": False, "error": f"unknown command: {command}"}

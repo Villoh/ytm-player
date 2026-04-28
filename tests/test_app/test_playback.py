@@ -225,7 +225,7 @@ class TestToggleLikeCurrent:
         track = {"video_id": "abc", "title": "X", "likeStatus": "LIKE"}
         host.player.current_track = track
         host.ytmusic = MagicMock()
-        host.ytmusic.rate_song = AsyncMock()
+        host.ytmusic.rate_song = AsyncMock(return_value="success")
 
         await host._toggle_like_current()
 
@@ -239,7 +239,7 @@ class TestToggleLikeCurrent:
         track = {"video_id": "abc", "title": "X", "likeStatus": "INDIFFERENT"}
         host.player.current_track = track
         host.ytmusic = MagicMock()
-        host.ytmusic.rate_song = AsyncMock()
+        host.ytmusic.rate_song = AsyncMock(return_value="success")
 
         await host._toggle_like_current()
 
@@ -253,7 +253,7 @@ class TestToggleLikeCurrent:
         track = {"video_id": "abc", "title": "X", "likeStatus": "DISLIKE"}
         host.player.current_track = track
         host.ytmusic = MagicMock()
-        host.ytmusic.rate_song = AsyncMock()
+        host.ytmusic.rate_song = AsyncMock(return_value="success")
 
         await host._toggle_like_current()
 
@@ -286,3 +286,38 @@ class TestToggleLikeCurrent:
 
         host.ytmusic.rate_song.assert_not_called()
         host.notify.assert_not_called()
+
+    async def test_failure_shows_per_cause_toast_network(self):
+        """Task 4.11: network failure renders the network-specific suffix."""
+        host = _fresh_playback_host()
+        track = {"video_id": "abc", "title": "X", "likeStatus": "INDIFFERENT"}
+        host.player.current_track = track
+        host.ytmusic = MagicMock()
+        host.ytmusic.rate_song = AsyncMock(return_value="network")
+
+        await host._toggle_like_current()
+
+        # Track state must NOT change on failure.
+        assert track["likeStatus"] == "INDIFFERENT"
+        # Toast must mention the network cause; severity must be error.
+        host.notify.assert_called_once()
+        call_kwargs = host.notify.call_args
+        msg = call_kwargs.args[0] if call_kwargs.args else call_kwargs.kwargs["message"]
+        assert "connection" in msg.lower()
+        assert call_kwargs.kwargs.get("severity") == "error"
+
+    async def test_failure_shows_per_cause_toast_auth_expired(self):
+        """Task 4.11: auth_expired surfaces the `ytm setup` hint."""
+        host = _fresh_playback_host()
+        track = {"video_id": "abc", "title": "X", "likeStatus": "INDIFFERENT"}
+        host.player.current_track = track
+        host.ytmusic = MagicMock()
+        host.ytmusic.rate_song = AsyncMock(return_value="auth_expired")
+
+        await host._toggle_like_current()
+
+        assert track["likeStatus"] == "INDIFFERENT"
+        host.notify.assert_called_once()
+        msg = host.notify.call_args.args[0]
+        # The user must see *some* mention of re-running setup.
+        assert "setup" in msg.lower()

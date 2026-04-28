@@ -553,9 +553,15 @@ class PlaybackMixin(YTMHostBase):
         current_status = (track.get("likeStatus") or "INDIFFERENT").upper()
         new_status = "INDIFFERENT" if current_status == "LIKE" else "LIKE"
 
-        accepted = await self.ytmusic.rate_song(video_id, new_status)
-        if not accepted:
-            self.notify("Couldn't update like state", severity="error", timeout=2)
+        result = await self.ytmusic.rate_song(video_id, new_status)
+        if result != "success":
+            from ytm_player.services.ytmusic import mutation_failure_suffix
+
+            self.notify(
+                f"Couldn't update like — {mutation_failure_suffix(result)}",
+                severity="error",
+                timeout=3,
+            )
             return
 
         # Update the track dict so subsequent reads reflect the new state.

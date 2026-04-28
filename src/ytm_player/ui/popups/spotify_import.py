@@ -883,14 +883,21 @@ class SpotifyImportPopup(ModalScreen[str | None]):
                     progress_bar.display = True
                     progress_bar.update(total=len(batches), progress=0)
 
+                from ytm_player.services.ytmusic import mutation_failure_suffix
+
                 failed_batches = 0
+                # Track distinct failure kinds across batches so the final
+                # toast can surface the dominant cause (e.g. all batches
+                # 401 → "session expired"; mixed → fall back to generic).
+                failure_kinds: list[str] = []
                 for batch_idx, batch in enumerate(batches, 1):
                     status.update(
                         f"Adding tracks... ({min(batch_idx * _ADD_BATCH_SIZE, total_ids)}/{total_ids})"
                     )
-                    added = await ytmusic_svc.add_playlist_items(playlist_id, batch)
-                    if not added:
+                    result = await ytmusic_svc.add_playlist_items(playlist_id, batch)
+                    if result != "success":
                         failed_batches += 1
+                        failure_kinds.append(result)
                     if len(batches) > 1:
                         progress_bar.update(progress=batch_idx)
 
@@ -900,11 +907,22 @@ class SpotifyImportPopup(ModalScreen[str | None]):
                         severity="information",
                     )
                 elif failed_batches == len(batches):
-                    self.notify(
-                        f"Created '{name}' but failed to add any tracks "
-                        f"({len(batches)} batch(es) rejected)",
-                        severity="error",
-                    )
+                    # All batches failed. If they all failed for the same
+                    # reason, surface that. Otherwise stay generic.
+                    unique_kinds = set(failure_kinds)
+                    if len(unique_kinds) == 1:
+                        kind = failure_kinds[0]
+                        suffix = mutation_failure_suffix(kind)  # type: ignore[arg-type]
+                        self.notify(
+                            f"Created '{name}' but couldn't add any tracks — {suffix}",
+                            severity="error",
+                        )
+                    else:
+                        self.notify(
+                            f"Created '{name}' but failed to add any tracks "
+                            f"({len(batches)} batch(es) rejected)",
+                            severity="error",
+                        )
                 else:
                     added_total = (len(batches) - failed_batches) * _ADD_BATCH_SIZE
                     self.notify(

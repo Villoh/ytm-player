@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import requests.exceptions
 from ytmusicapi import YTMusic
+from ytmusicapi.exceptions import YTMusicServerError, YTMusicUserError
 
 from ytm_player.config.paths import AUTH_FILE
 from ytm_player.config.settings import get_settings
@@ -29,6 +31,92 @@ _EXPECTED_API_EXCEPTIONS = (
     requests.exceptions.RequestException,  # covers ConnectionError, Timeout, HTTPError
     asyncio.TimeoutError,  # from wait_for
 )
+
+# Same as ``_EXPECTED_API_EXCEPTIONS`` plus the typed errors raised by
+# ytmusicapi itself. Used by mutation methods (rate_song, add_playlist_items,
+# remove_playlist_items) which classify the failure cause for per-cause
+# UI toasts (see Task 4.11).
+_EXPECTED_MUTATION_EXCEPTIONS = (
+    *_EXPECTED_API_EXCEPTIONS,
+    YTMusicServerError,
+    YTMusicUserError,
+)
+
+# Result type for mutation methods (rate_song, add_playlist_items,
+# remove_playlist_items). Replaces the bool contract introduced in Task 4.3
+# so callers can show a per-cause toast instead of a generic failure message.
+#
+# - "success":       server accepted the mutation
+# - "auth_required": user has no auth set up at all (run `ytm setup`)
+# - "auth_expired":  HTTP 401/403 from the server (cookies/session stale)
+# - "network":       requests.RequestException or asyncio.TimeoutError
+# - "server_error":  any other YTMusicServerError (4xx/5xx other than auth)
+MutationResult = Literal[
+    "success",
+    "auth_required",
+    "auth_expired",
+    "network",
+    "server_error",
+]
+
+# ytmusicapi formats _send_request errors as:
+#     "Server returned HTTP <code>: <reason>.\n<body-error>"
+# This regex captures the status code from the start of the message. If
+# upstream changes the format, we fall through to "server_error", which is
+# a sensible default.
+_HTTP_STATUS_RE = re.compile(r"^Server returned HTTP (\d{3})\b")
+
+
+def _classify_mutation_failure(exc: BaseException) -> MutationResult:
+    """Map an exception raised by a mutation call to a MutationResult.
+
+    Never returns "success".
+
+    The auth-vs-server-error distinction is made by parsing the HTTP status
+    out of YTMusicServerError's message string — ytmusicapi does not expose
+    a typed AuthenticationError subclass, so this is the only way short of
+    monkey-patching ``_send_request`` to surface the status code. The format
+    is stable in ytmusicapi 1.x but explicitly fall through to
+    "server_error" if the regex doesn't match.
+    """
+    if isinstance(exc, _EXPECTED_API_EXCEPTIONS):
+        return "network"
+    if isinstance(exc, YTMusicUserError):
+        # _check_auth() raises this when auth_type is UNAUTHORIZED — i.e.
+        # the user never set up auth at all. Other YTMusicUserError raises
+        # are programming errors (invalid args) and should NOT reach here
+        # because the mutation methods don't catch them; but if one does
+        # slip through, "auth_required" is a reasonable fallback.
+        return "auth_required"
+    if isinstance(exc, YTMusicServerError):
+        match = _HTTP_STATUS_RE.match(str(exc))
+        if match:
+            status = int(match.group(1))
+            if status in (401, 403):
+                return "auth_expired"
+        return "server_error"
+    # Shouldn't be reached — caller filters to known types — but be safe.
+    return "server_error"
+
+
+# Suffix templates for the failure kinds. Cascade sites combine these with
+# their own action-specific prefix (e.g. "Couldn't like — <suffix>").
+_MUTATION_TOAST_SUFFIX: dict[MutationResult, str] = {
+    "success": "",
+    "auth_required": "sign in first (run `ytm setup`)",
+    "auth_expired": "session expired, run `ytm setup` to sign in again",
+    "network": "check your connection",
+    "server_error": "YouTube Music had a problem, try again",
+}
+
+
+def mutation_failure_suffix(kind: MutationResult) -> str:
+    """Return the user-facing suffix text for a non-success MutationResult.
+
+    Empty string for ``"success"``. Cascade sites compose this with their
+    own action prefix and a sensible separator.
+    """
+    return _MUTATION_TOAST_SUFFIX.get(kind, "")
 
 
 class YTMusicService:
@@ -395,7 +483,7 @@ class YTMusicService:
     # Library actions
     # ------------------------------------------------------------------
 
-    async def rate_song(self, video_id: str, rating: str) -> bool:
+    async def rate_song(self, video_id: str, rating: str) -> MutationResult:
         """Rate a song.
 
         Args:
@@ -403,29 +491,35 @@ class YTMusicService:
             rating: ``"LIKE"``, ``"DISLIKE"``, or ``"INDIFFERENT"`` (remove rating).
 
         Returns:
-            True if the server accepted the rating, False on caught
-            API/network failure. Unexpected exceptions propagate.
+            ``"success"`` if the server accepted the rating, otherwise one
+            of ``"auth_required"``, ``"auth_expired"``, ``"network"``,
+            ``"server_error"``. Unexpected exceptions propagate.
         """
         try:
             await self._call(self.client.rate_song, video_id, rating)
-            return True
-        except _EXPECTED_API_EXCEPTIONS:
-            logger.exception("rate_song failed for %r rating=%r", video_id, rating)
-            return False
+            return "success"
+        except _EXPECTED_MUTATION_EXCEPTIONS as exc:
+            kind = _classify_mutation_failure(exc)
+            logger.exception("rate_song failed for %r rating=%r (kind=%s)", video_id, rating, kind)
+            return kind
 
-    async def add_playlist_items(self, playlist_id: str, video_ids: list[str]) -> bool:
+    async def add_playlist_items(self, playlist_id: str, video_ids: list[str]) -> MutationResult:
         """Add songs to an existing playlist.
 
         Returns:
-            True if the server accepted the add, False on caught
-            API/network failure. Unexpected exceptions propagate.
+            ``"success"`` if the server accepted the add, otherwise one of
+            ``"auth_required"``, ``"auth_expired"``, ``"network"``,
+            ``"server_error"``. Unexpected exceptions propagate.
         """
         try:
             await self._call(self.client.add_playlist_items, playlist_id, video_ids)
-            return True
-        except _EXPECTED_API_EXCEPTIONS:
-            logger.exception("add_playlist_items failed for playlist=%r", playlist_id)
-            return False
+            return "success"
+        except _EXPECTED_MUTATION_EXCEPTIONS as exc:
+            kind = _classify_mutation_failure(exc)
+            logger.exception(
+                "add_playlist_items failed for playlist=%r (kind=%s)", playlist_id, kind
+            )
+            return kind
 
     async def create_playlist(
         self,
@@ -492,7 +586,9 @@ class YTMusicService:
             logger.debug("unsubscribe_artist failed for %r", channel_id)
             return False
 
-    async def remove_playlist_items(self, playlist_id: str, videos: list[dict[str, Any]]) -> bool:
+    async def remove_playlist_items(
+        self, playlist_id: str, videos: list[dict[str, Any]]
+    ) -> MutationResult:
         """Remove items from a playlist.
 
         Args:
@@ -501,15 +597,19 @@ class YTMusicService:
                 must contain ``videoId`` and ``setVideoId``.
 
         Returns:
-            True if the server accepted the remove, False on caught
-            API/network failure. Unexpected exceptions propagate.
+            ``"success"`` if the server accepted the remove, otherwise one
+            of ``"auth_required"``, ``"auth_expired"``, ``"network"``,
+            ``"server_error"``. Unexpected exceptions propagate.
         """
         try:
             await self._call(self.client.remove_playlist_items, playlist_id, videos)
-            return True
-        except _EXPECTED_API_EXCEPTIONS:
-            logger.exception("remove_playlist_items failed for playlist=%r", playlist_id)
-            return False
+            return "success"
+        except _EXPECTED_MUTATION_EXCEPTIONS as exc:
+            kind = _classify_mutation_failure(exc)
+            logger.exception(
+                "remove_playlist_items failed for playlist=%r (kind=%s)", playlist_id, kind
+            )
+            return kind
 
     # ------------------------------------------------------------------
     # History

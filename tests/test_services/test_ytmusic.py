@@ -163,19 +163,24 @@ class TestClientThreadSafety:
         )
 
 
-class TestMutationMethodsReturnBool:
-    """Task 4.3: rate_song / add_playlist_items / remove_playlist_items
-    return bool (was None) so callers can branch on success."""
+class TestMutationMethodsReturnTypedResult:
+    """Tasks 4.3 + 4.11: rate_song / add_playlist_items / remove_playlist_items
+    return a MutationResult Literal so callers can branch on the failure cause.
 
-    async def test_rate_song_returns_true_on_success(self, ytmusic_service, monkeypatch):
+    Task 4.3 originally returned bool; Task 4.11 refined this to a typed
+    Literal (``"success"`` | ``"auth_required"`` | ``"auth_expired"`` |
+    ``"network"`` | ``"server_error"``) so the UI can show per-cause toasts.
+    """
+
+    async def test_rate_song_returns_success_on_ok(self, ytmusic_service, monkeypatch):
         async def fake_call(func, *_args, **_kwargs):
             return None  # ytmusicapi.rate_song's actual return is irrelevant
 
         monkeypatch.setattr(ytmusic_service, "_call", fake_call)
         result = await ytmusic_service.rate_song("abc123", "LIKE")
-        assert result is True
+        assert result == "success"
 
-    async def test_rate_song_returns_false_on_expected_api_failure(
+    async def test_rate_song_returns_network_on_connection_error(
         self, ytmusic_service, monkeypatch
     ):
         async def fake_call(func, *_args, **_kwargs):
@@ -183,7 +188,76 @@ class TestMutationMethodsReturnBool:
 
         monkeypatch.setattr(ytmusic_service, "_call", fake_call)
         result = await ytmusic_service.rate_song("abc123", "LIKE")
-        assert result is False
+        assert result == "network"
+
+    async def test_rate_song_returns_network_on_timeout(self, ytmusic_service, monkeypatch):
+        async def fake_call(func, *_args, **_kwargs):
+            raise asyncio.TimeoutError("api timed out")
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.rate_song("abc123", "LIKE")
+        assert result == "network"
+
+    async def test_rate_song_returns_auth_expired_on_http_401(self, ytmusic_service, monkeypatch):
+        from ytmusicapi.exceptions import YTMusicServerError
+
+        async def fake_call(func, *_args, **_kwargs):
+            raise YTMusicServerError(
+                "Server returned HTTP 401: Unauthorized.\nRequest had invalid authentication credentials."
+            )
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.rate_song("abc123", "LIKE")
+        assert result == "auth_expired"
+
+    async def test_rate_song_returns_auth_expired_on_http_403(self, ytmusic_service, monkeypatch):
+        from ytmusicapi.exceptions import YTMusicServerError
+
+        async def fake_call(func, *_args, **_kwargs):
+            raise YTMusicServerError(
+                "Server returned HTTP 403: Forbidden.\nThe request is missing a valid API key."
+            )
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.rate_song("abc123", "LIKE")
+        assert result == "auth_expired"
+
+    async def test_rate_song_returns_server_error_on_http_500(self, ytmusic_service, monkeypatch):
+        from ytmusicapi.exceptions import YTMusicServerError
+
+        async def fake_call(func, *_args, **_kwargs):
+            raise YTMusicServerError(
+                "Server returned HTTP 500: Internal Server Error.\nbackend exploded"
+            )
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.rate_song("abc123", "LIKE")
+        assert result == "server_error"
+
+    async def test_rate_song_returns_server_error_on_unparseable_message(
+        self, ytmusic_service, monkeypatch
+    ):
+        """If ytmusicapi changes the message format, fall through to server_error."""
+        from ytmusicapi.exceptions import YTMusicServerError
+
+        async def fake_call(func, *_args, **_kwargs):
+            raise YTMusicServerError("totally different format")
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.rate_song("abc123", "LIKE")
+        assert result == "server_error"
+
+    async def test_rate_song_returns_auth_required_on_user_error(
+        self, ytmusic_service, monkeypatch
+    ):
+        from ytmusicapi.exceptions import YTMusicUserError
+
+        async def fake_call(func, *_args, **_kwargs):
+            raise YTMusicUserError("Please provide authentication before using this function")
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.rate_song("abc123", "LIKE")
+        assert result == "auth_required"
 
     async def test_rate_song_propagates_unexpected_exceptions(self, ytmusic_service, monkeypatch):
         async def fake_call(func, *_args, **_kwargs):
@@ -193,15 +267,15 @@ class TestMutationMethodsReturnBool:
         with pytest.raises(TypeError, match="programming bug"):
             await ytmusic_service.rate_song("abc123", "LIKE")
 
-    async def test_add_playlist_items_returns_true_on_success(self, ytmusic_service, monkeypatch):
+    async def test_add_playlist_items_returns_success_on_ok(self, ytmusic_service, monkeypatch):
         async def fake_call(func, *_args, **_kwargs):
             return None
 
         monkeypatch.setattr(ytmusic_service, "_call", fake_call)
         result = await ytmusic_service.add_playlist_items("PL_test", ["v1", "v2"])
-        assert result is True
+        assert result == "success"
 
-    async def test_add_playlist_items_returns_false_on_expected_api_failure(
+    async def test_add_playlist_items_returns_network_on_connection_error(
         self, ytmusic_service, monkeypatch
     ):
         async def fake_call(func, *_args, **_kwargs):
@@ -209,11 +283,21 @@ class TestMutationMethodsReturnBool:
 
         monkeypatch.setattr(ytmusic_service, "_call", fake_call)
         result = await ytmusic_service.add_playlist_items("PL_test", ["v1"])
-        assert result is False
+        assert result == "network"
 
-    async def test_remove_playlist_items_returns_true_on_success(
+    async def test_add_playlist_items_returns_auth_expired_on_http_401(
         self, ytmusic_service, monkeypatch
     ):
+        from ytmusicapi.exceptions import YTMusicServerError
+
+        async def fake_call(func, *_args, **_kwargs):
+            raise YTMusicServerError("Server returned HTTP 401: Unauthorized.\n")
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.add_playlist_items("PL_test", ["v1"])
+        assert result == "auth_expired"
+
+    async def test_remove_playlist_items_returns_success_on_ok(self, ytmusic_service, monkeypatch):
         async def fake_call(func, *_args, **_kwargs):
             return None
 
@@ -221,9 +305,9 @@ class TestMutationMethodsReturnBool:
         result = await ytmusic_service.remove_playlist_items(
             "PL_test", [{"videoId": "v1", "setVideoId": "s1"}]
         )
-        assert result is True
+        assert result == "success"
 
-    async def test_remove_playlist_items_returns_false_on_expected_api_failure(
+    async def test_remove_playlist_items_returns_network_on_timeout(
         self, ytmusic_service, monkeypatch
     ):
         async def fake_call(func, *_args, **_kwargs):
@@ -233,4 +317,47 @@ class TestMutationMethodsReturnBool:
         result = await ytmusic_service.remove_playlist_items(
             "PL_test", [{"videoId": "v1", "setVideoId": "s1"}]
         )
-        assert result is False
+        assert result == "network"
+
+    async def test_remove_playlist_items_returns_server_error_on_http_503(
+        self, ytmusic_service, monkeypatch
+    ):
+        from ytmusicapi.exceptions import YTMusicServerError
+
+        async def fake_call(func, *_args, **_kwargs):
+            raise YTMusicServerError("Server returned HTTP 503: Service Unavailable.\n")
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.remove_playlist_items(
+            "PL_test", [{"videoId": "v1", "setVideoId": "s1"}]
+        )
+        assert result == "server_error"
+
+
+class TestMutationFailureSuffix:
+    """Task 4.11: cascade sites compose toast text via mutation_failure_suffix."""
+
+    def test_suffix_is_empty_for_success(self):
+        from ytm_player.services.ytmusic import mutation_failure_suffix
+
+        assert mutation_failure_suffix("success") == ""
+
+    def test_suffix_distinct_per_kind(self):
+        """Each non-success kind has a non-empty, distinct suffix so users
+        can tell them apart in the UI.
+        """
+        from ytm_player.services.ytmusic import mutation_failure_suffix
+
+        kinds = ("auth_required", "auth_expired", "network", "server_error")
+        suffixes = [mutation_failure_suffix(k) for k in kinds]  # type: ignore[arg-type]
+        assert all(s for s in suffixes), "every non-success kind needs text"
+        assert len(set(suffixes)) == len(kinds), "suffixes must be distinct"
+
+    def test_auth_suffixes_mention_setup(self):
+        """Auth failures must point users at `ytm setup` so they know how
+        to fix it.
+        """
+        from ytm_player.services.ytmusic import mutation_failure_suffix
+
+        assert "setup" in mutation_failure_suffix("auth_required").lower()
+        assert "setup" in mutation_failure_suffix("auth_expired").lower()

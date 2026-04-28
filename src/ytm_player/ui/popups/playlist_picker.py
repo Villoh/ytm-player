@@ -292,10 +292,12 @@ class PlaylistPicker(ModalScreen[str | None]):
                 return
 
             status.update(f"Adding tracks to '{name}'...")
-            added = await self.app.ytmusic.add_playlist_items(playlist_id, self.video_ids)
-            if not added:
+            from ytm_player.services.ytmusic import mutation_failure_suffix
+
+            result = await self.app.ytmusic.add_playlist_items(playlist_id, self.video_ids)
+            if result != "success":
                 self.notify(
-                    f"Created '{name}' but failed to add tracks",
+                    f"Created '{name}' but couldn't add tracks — {mutation_failure_suffix(result)}",
                     severity="warning",
                 )
                 status.update("Add failed")
@@ -327,9 +329,14 @@ class PlaylistPicker(ModalScreen[str | None]):
         status.update(f"Adding to '{title}'...")
 
         try:
-            added = await self.app.ytmusic.add_playlist_items(playlist_id, self.video_ids)
-            if not added:
-                self.notify(f"Failed to add to '{title}'", severity="error")
+            from ytm_player.services.ytmusic import mutation_failure_suffix
+
+            result = await self.app.ytmusic.add_playlist_items(playlist_id, self.video_ids)
+            if result != "success":
+                self.notify(
+                    f"Couldn't add to '{title}' — {mutation_failure_suffix(result)}",
+                    severity="error",
+                )
                 status.update("Error")
                 return
 
