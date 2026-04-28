@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from pathlib import Path
 from typing import Any
 
+import requests.exceptions
 from ytmusicapi import YTMusic
 
 from ytm_player.config.paths import AUTH_FILE
@@ -18,6 +20,15 @@ logger = logging.getLogger(__name__)
 # After this many consecutive API failures, re-create the YTMusic client
 # in case the session has gone stale (expired cookies, broken connection).
 _MAX_API_FAILURES_BEFORE_REINIT = 3
+
+# Exception types that count as "expected API/network failure" — these increment
+# the failure counter and may trigger a client reinit. Programming-error
+# exceptions (TypeError, AttributeError, etc.) propagate without bumping the
+# counter so bugs surface in development instead of silently triggering reinit.
+_EXPECTED_API_EXCEPTIONS = (
+    requests.exceptions.RequestException,  # covers ConnectionError, Timeout, HTTPError
+    asyncio.TimeoutError,  # from wait_for
+)
 
 
 class YTMusicService:
@@ -38,18 +49,28 @@ class YTMusicService:
         self._user = user or None  # normalise "" → None
         self._ytm: YTMusic | None = None
         self._consecutive_api_failures: int = 0
+        # Guards lazy init of self._ytm against concurrent first-access from
+        # asyncio.to_thread workers.
+        self._client_init_lock = threading.Lock()
         # Serializes get_playlist(order=...) monkey-patches so concurrent
         # calls don't stack patches on client._send_request.
         self._order_lock = asyncio.Lock()
 
     @property
     def client(self) -> YTMusic:
-        """Lazily initialise and return the underlying YTMusic client."""
+        """Lazily initialise and return the underlying YTMusic client.
+
+        Thread-safe under concurrent first-access via asyncio.to_thread.
+        """
         if self._ytm is None:
-            if self._auth_manager is not None:
-                self._ytm = self._auth_manager.create_ytmusic_client(user=self._user)
-            else:
-                self._ytm = YTMusic(str(self._auth_path), user=self._user)
+            with self._client_init_lock:
+                # Double-check: another thread may have initialised it
+                # between our None check and acquiring the lock.
+                if self._ytm is None:
+                    if self._auth_manager is not None:
+                        self._ytm = self._auth_manager.create_ytmusic_client(user=self._user)
+                    else:
+                        self._ytm = YTMusic(str(self._auth_path), user=self._user)
         return self._ytm
 
     async def _call(self, func: Any, *args: Any, timeout: int | None = None, **kwargs: Any) -> Any:
@@ -62,7 +83,7 @@ class YTMusicService:
             )
             self._consecutive_api_failures = 0
             return result
-        except Exception:
+        except _EXPECTED_API_EXCEPTIONS:
             logger.exception(
                 "ytmusicapi call failed (func=%s, consecutive_failures=%d)",
                 getattr(func, "__name__", str(func)),
@@ -74,7 +95,10 @@ class YTMusicService:
                     "Re-initializing YTMusic client after %d consecutive API failures",
                     self._consecutive_api_failures,
                 )
-                self._ytm = None
+                # Hold the lock while clearing _ytm so a concurrent .client
+                # access doesn't race with the reinit signal.
+                with self._client_init_lock:
+                    self._ytm = None
                 self._consecutive_api_failures = 0
             raise
 
