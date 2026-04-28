@@ -76,7 +76,11 @@ def save_spotify_creds(client_id: str, client_secret: str) -> None:
     import os
 
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    fd = os.open(str(SPOTIFY_CREDS_FILE), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, SECURE_FILE_MODE)
+    fd = os.open(
+        str(SPOTIFY_CREDS_FILE),
+        os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0),
+        SECURE_FILE_MODE,
+    )
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump({"client_id": client_id, "client_secret": client_secret}, f, indent=2)
 

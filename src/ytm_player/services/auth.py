@@ -438,8 +438,15 @@ class AuthManager:
             )
 
         # Write the final auth file for the chosen account.
+        # O_NOFOLLOW (POSIX-only; getattr fallback for Windows) refuses to
+        # follow a symlink at the target path — defense-in-depth against
+        # a malicious local user planting a symlink in CONFIG_DIR.
         headers = {**base_headers, "x-goog-authuser": str(chosen_index)}
-        fd = os.open(str(self._auth_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, SECURE_FILE_MODE)
+        fd = os.open(
+            str(self._auth_file),
+            os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0),
+            SECURE_FILE_MODE,
+        )
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(headers, f, ensure_ascii=True, indent=4, sort_keys=True)
         return True
