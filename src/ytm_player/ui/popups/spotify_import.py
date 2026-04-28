@@ -890,12 +890,18 @@ class SpotifyImportPopup(ModalScreen[str | None]):
                 # toast can surface the dominant cause (e.g. all batches
                 # 401 → "session expired"; mixed → fall back to generic).
                 failure_kinds: list[str] = []
+                # Cumulative count of tracks the server actually accepted.
+                # Computed by summing len(batch) on success so the final
+                # batch's partial size is reported accurately.
+                added_total = 0
                 for batch_idx, batch in enumerate(batches, 1):
                     status.update(
                         f"Adding tracks... ({min(batch_idx * _ADD_BATCH_SIZE, total_ids)}/{total_ids})"
                     )
                     result = await ytmusic_svc.add_playlist_items(playlist_id, batch)
-                    if result != "success":
+                    if result == "success":
+                        added_total += len(batch)
+                    else:
                         failed_batches += 1
                         failure_kinds.append(result)
                     if len(batches) > 1:
@@ -924,10 +930,9 @@ class SpotifyImportPopup(ModalScreen[str | None]):
                             severity="error",
                         )
                 else:
-                    added_total = (len(batches) - failed_batches) * _ADD_BATCH_SIZE
                     self.notify(
                         f"Created '{name}' with partial track set: "
-                        f"~{added_total}/{total_ids} added "
+                        f"{added_total}/{total_ids} added "
                         f"({failed_batches} batch(es) failed)",
                         severity="warning",
                     )
