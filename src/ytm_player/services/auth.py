@@ -354,6 +354,7 @@ class AuthManager:
         valid_accounts: list[tuple[int, str, str]] = []  # (authuser_index, accountName, handle)
         for authuser in authuser_indices:
             headers = {**base_headers, "x-goog-authuser": str(authuser)}
+            tmp_path: str | None = None
             try:
                 fd, tmp_path = tempfile.mkstemp(suffix=".json", dir=str(self._config_dir))
                 with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -367,10 +368,11 @@ class AuthManager:
             except Exception:
                 logger.debug("x-goog-authuser=%d did not work, skipping", authuser)
             finally:
-                try:
-                    os.unlink(tmp_path)
-                except (OSError, UnboundLocalError):
-                    pass
+                if tmp_path is not None:
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
 
         if not valid_accounts:
             logger.warning(

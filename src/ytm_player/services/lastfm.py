@@ -60,9 +60,9 @@ class LastFMService:
             self._network = pylast.LastFMNetwork(
                 api_key=self._api_key,
                 api_secret=self._api_secret,
-                session_key=self._session_key or None,
-                username=self._username or None,
-                password_hash=self._password_hash or None,
+                session_key=self._session_key,
+                username=self._username,
+                password_hash=self._password_hash,
             )
             self._connected = True
             logger.info("Connected to Last.fm")

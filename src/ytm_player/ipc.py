@@ -154,6 +154,9 @@ class IPCServer:
     async def _start_tcp(self) -> None:
         from ytm_player.config.paths import IPC_PORT_FILE
 
+        # _start_tcp is only invoked on Windows where IPC_PORT_FILE is set;
+        # on Unix start_unix_server is used instead and IPC_PORT_FILE is None.
+        assert IPC_PORT_FILE is not None
         # Bind to localhost with a random available port.
         self._server = await asyncio.start_server(self._client_connected, host="127.0.0.1", port=0)
         # Save the port so the client can find us.
