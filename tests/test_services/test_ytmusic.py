@@ -44,7 +44,7 @@ class TestCallNarrowedCatch:
         failure counter or clearing _ytm.
         """
 
-        def boom(*args, **kwargs):
+        def boom(*_args, **_kwargs):
             raise TypeError("expected str, got None")
 
         original_client = ytmusic_service._ytm
@@ -64,7 +64,7 @@ class TestCallNarrowedCatch:
         below threshold the client is NOT cleared.
         """
 
-        def network_failure(*args, **kwargs):
+        def network_failure(*_args, **_kwargs):
             raise requests.ConnectionError("network unreachable")
 
         original_client = ytmusic_service._ytm
@@ -83,7 +83,7 @@ class TestCallNarrowedCatch:
         signal) and the counter is reset.
         """
 
-        def timeout_failure(*args, **kwargs):
+        def timeout_failure(*_args, **_kwargs):
             raise asyncio.TimeoutError("api timed out")
 
         for _ in range(3):
@@ -112,7 +112,7 @@ class TestClientThreadSafety:
         construction_count = 0
         construction_lock = threading.Lock()
 
-        def fake_ytmusic_ctor(*args, **kwargs):
+        def fake_ytmusic_ctor(*_args, **_kwargs):
             nonlocal construction_count
             with construction_lock:
                 construction_count += 1
