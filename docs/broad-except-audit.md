@@ -614,7 +614,7 @@ Minor logging-hygiene notes for Phase 4: `get_home` (line 167) uses `logger.debu
 
 This is the load-bearing reference for Phase 5 sequencing. Each bullet maps a service-layer NARROW landing in Phase 4 to the UI / app handlers that wrap calls to that method and currently rely on the broad-catch contract. When the service-layer call is narrowed, every handler in the cascade list needs review (most can stay KEEP belt-and-braces, but several can be tightened or have their `notify(...)` text differentiated per error type once the service returns typed signals).
 
-- **`services/ytmusic.py:65 _call()` — Phase 4.1 cascade sinks** (every UI/app site that wraps a method which goes through `_call()`):
+- **`services/ytmusic.py:65 _call()` — Phase 4.1 cascade sinks** (UI/app sites flagged for active review when `_call()` narrows; the audit identifies many more KEEP-tier sinks — e.g. `library.py:207`, `_sidebar.py:141/158/176`, `lyrics_sidebar.py:283`, `browse.py:295/420/523/729`, `context.py:195-199`, `search.py:702/725` — that stay belt-and-braces and are not enumerated here):
   - `app/_playback.py:111` — `play_track()`, stream-resolution path (calls `stream_resolver.resolve()` which itself wraps `_call()`-derived data; belt-and-braces).
   - `app/_ipc.py:218` — `_ipc_queue_add()` single-call `await self.ytmusic.get_watch_playlist(video_id)` (also independently flagged NARROW in Phase 4.5e — narrows together).
   - `ui/pages/liked_songs.py:207` — `_fetch_remaining_liked()` background pagination via `get_liked_songs(limit=None, ...)`.
