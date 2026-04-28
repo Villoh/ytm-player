@@ -118,6 +118,9 @@ if TYPE_CHECKING:
         _sidebar_per_page: dict[str, bool]
         _lyrics_sidebar_open: bool
 
+        # ── Onboarding state ───────────────────────────────────────────
+        _first_run_hint_shown: bool
+
         # ── Cross-mixin method declarations ────────────────────────────
         # Each mixin is analyzed by Pyright in isolation, so calls to
         # methods defined in *other* mixins look unknown.  Re-declare

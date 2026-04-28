@@ -33,6 +33,7 @@ def _fresh_session_host():
     h._active_library_playlist_id = None
     h._pending_resume_video_id = None
     h._pending_resume_position = 0.0
+    h._first_run_hint_shown = False
     return h
 
 
@@ -307,3 +308,54 @@ class TestSaveSessionFailureVisibility:
         # Even though notify raises, _save_session_state must not propagate.
         h._save_session_state()
         h.notify.assert_called_once()
+
+
+class TestFirstRunHint:
+    """Task 4.8: track first-run state in session.json so the
+    'Press ? for help' toast fires only once."""
+
+    async def test_first_run_default_is_false(self, tmp_path, monkeypatch):
+        """A fresh install has no session.json, so first_run_hint_shown
+        defaults to False."""
+        h = _fresh_session_host()
+        missing = tmp_path / "missing.json"
+        monkeypatch.setattr("ytm_player.config.paths.SESSION_STATE_FILE", missing, raising=False)
+        await h._restore_session_state()
+        assert h._first_run_hint_shown is False
+
+    async def test_save_persists_first_run_flag(self, tmp_path, monkeypatch):
+        """When the flag is True at save time, it round-trips through
+        save → disk → restore."""
+        h = _save_session_host(tmp_path)
+        h._first_run_hint_shown = True
+        target = tmp_path / "session.json"
+        monkeypatch.setattr("ytm_player.config.paths.SESSION_STATE_FILE", target, raising=False)
+
+        h._save_session_state()
+
+        # Build a fresh host with the saved file and verify the flag rehydrates.
+        h2 = _fresh_session_host()
+        await h2._restore_session_state()
+        assert h2._first_run_hint_shown is True
+
+    async def test_legacy_session_without_field_loads_as_false(self, tmp_path, monkeypatch):
+        """A pre-4.8 session.json (no first_run_hint_shown key) loads
+        without crashing; flag defaults to False so the hint shows once
+        for users who upgrade from earlier versions."""
+        import json
+
+        legacy = {
+            "schema_version": 1,
+            "volume": 80,
+            "repeat": "off",
+            "shuffle": False,
+            "queue_tracks": [],
+            "queue_index": 0,
+        }
+        target = tmp_path / "session.json"
+        target.write_text(json.dumps(legacy), encoding="utf-8")
+        monkeypatch.setattr("ytm_player.config.paths.SESSION_STATE_FILE", target, raising=False)
+
+        h = _fresh_session_host()
+        await h._restore_session_state()
+        assert h._first_run_hint_shown is False

@@ -85,6 +85,10 @@ class SessionMixin(YTMHostBase):
         # Always start with lyrics sidebar closed regardless of previous session.
         self._lyrics_sidebar_open = False
 
+        # Restore first-run hint flag — defaults False so legacy session.json
+        # files (or fresh installs) trigger the toast on first launch.
+        self._first_run_hint_shown = bool(state.get("first_run_hint_shown", False))
+
         # Restore Textual theme from last session.
         saved_theme = state.get("theme")
         if saved_theme and isinstance(saved_theme, str):
@@ -190,6 +194,7 @@ class SessionMixin(YTMHostBase):
             "lyrics_sidebar_open": self._lyrics_sidebar_open,
             "transliteration_enabled": self._get_transliteration_state(),
             "theme": self.theme,
+            "first_run_hint_shown": self._first_run_hint_shown,
         }
         try:
             import os

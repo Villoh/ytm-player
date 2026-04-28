@@ -249,6 +249,11 @@ class YTMPlayerApp(
         self._sidebar_per_page: dict[str, bool] = {}
         self._lyrics_sidebar_open: bool = False
 
+        # First-run discoverability hint (Task 4.8). Flipped to True after
+        # the toast fires; persisted via session.json so the hint shows
+        # exactly once per install.
+        self._first_run_hint_shown: bool = False
+
     def get_css_variables(self) -> dict[str, str]:
         """Inject app-specific CSS variables alongside Textual's theme variables.
 
@@ -507,6 +512,21 @@ class YTMPlayerApp(
         await self.navigate_to(startup)
 
         self._start_update_check()
+
+        # First-run discoverability hint (Task 4.8). Delay slightly so the
+        # toast lands after the initial layout settles, not during the
+        # first paint flash.
+        if not self._first_run_hint_shown:
+
+            def _show_first_run_hint() -> None:
+                self.notify(
+                    "Press ? for help · vim-style keys",
+                    severity="information",
+                    timeout=8,
+                )
+                self._first_run_hint_shown = True
+
+            self.set_timer(1.5, _show_first_run_hint)
 
     async def on_unmount(self) -> None:
         """Clean up services and remove PID file."""
