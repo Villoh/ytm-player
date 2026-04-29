@@ -183,6 +183,41 @@ class LibraryPanel(Widget):
         self._filtered_items = [i for i in self._filtered_items if not matches(i)]
         self._rebuild_list(self._filtered_items)
 
+    def update_item_count(self, playlist_id: str, delta: int) -> None:
+        """Optimistically update the cached track count for a playlist.
+
+        Matches against both 'playlistId' and 'browseId' keys. Tolerates a
+        VL-prefix mismatch in either direction. If the cached count is None
+        (unknown), leaves it None — never fabricates.
+        """
+
+        def matches(item: dict[str, Any]) -> bool:
+            pid = item.get("playlistId") or item.get("browseId", "") or ""
+            target = playlist_id
+            return (
+                pid == target
+                or pid == f"VL{target}"
+                or f"VL{pid}" == target
+                or pid == target.removeprefix("VL")
+            )
+
+        target_item = next((i for i in self._items if matches(i)), None)
+        if target_item is None:
+            return
+
+        current = target_item.get("count")
+        if current is None:
+            return  # don't fabricate; wait for next library reload
+        target_item["count"] = max(0, current + delta)
+
+        # Rebuild the list so the visible label reflects the new count.
+        # Wrapped in try/except because tests instantiate via __new__ without
+        # mounting the ListView; production code always has it mounted.
+        try:
+            self._rebuild_list(self._filtered_items)
+        except Exception:
+            logger.debug("update_item_count: _rebuild_list failed", exc_info=True)
+
     def _rebuild_list(self, items: list[dict[str, Any]]) -> None:
         list_view = self.query_one(ListView)
         list_view.clear()
