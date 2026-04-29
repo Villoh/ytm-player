@@ -349,12 +349,12 @@ class LibraryPage(Widget):
 
     def on_click(self, event: Click) -> None:
         """Handle clicks on header action buttons."""
-        if event.widget.id == "start-radio-btn":
+        if event.widget is not None and event.widget.id == "start-radio-btn":
             event.stop()
             data = getattr(self, "_playlist_data", None)
             if data:
                 self.run_worker(
-                    self.app._start_playlist_radio(data),  # type: ignore[attr-defined]
+                    cast("YTMHostBase", self.app)._start_playlist_radio(data),
                     name="start_radio",
                     exclusive=True,
                 )

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from ytm_player.app._base import YTMHostBase
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
@@ -574,7 +577,7 @@ class ContextPage(Widget):
         """Start radio seeded from the current playlist."""
         data = self._data
         data.setdefault("playlistId", self.context_id)
-        await self.app._start_playlist_radio(data)  # type: ignore[attr-defined]
+        await cast("YTMHostBase", self.app)._start_playlist_radio(data)
 
     async def on_track_table_track_selected(self, event: TrackTable.TrackSelected) -> None:
         """Play the selected track and enqueue remaining tracks."""
