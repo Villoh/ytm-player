@@ -1,0 +1,75 @@
+name: Publish AUR
+
+# Runs after the Publish workflow succeeds on a tag push, mirroring the
+# updated PKGBUILD + regenerated .SRCINFO to the AUR ytm-player-git repo.
+#
+# First-run setup:
+# - Generate dedicated SSH key, add public key to AUR account
+# - Set repo secrets AUR_SSH_PRIVATE_KEY and AUR_KNOWN_HOSTS
+# See RELEASING.md for full instructions.
+
+on:
+  workflow_run:
+    workflows: ["Publish"]
+    types: [completed]
+
+jobs:
+  aur-publish:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Read version from PKGBUILD
+        id: version
+        run: |
+          PKGVER=$(grep '^pkgver=' aur/PKGBUILD | head -1 | cut -d= -f2 | tr -d "'\"")
+          echo "pkgver=$PKGVER" >> "$GITHUB_OUTPUT"
+          echo "Detected version: $PKGVER"
+
+      - name: Set up SSH for AUR
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.AUR_SSH_PRIVATE_KEY }}" > ~/.ssh/aur_publish_key
+          chmod 600 ~/.ssh/aur_publish_key
+          echo "${{ secrets.AUR_KNOWN_HOSTS }}" >> ~/.ssh/known_hosts
+          cat <<EOF >> ~/.ssh/config
+          Host aur.archlinux.org
+            User aur
+            IdentityFile ~/.ssh/aur_publish_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+          EOF
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Clone the AUR repo
+        run: |
+          git clone ssh://aur@aur.archlinux.org/ytm-player-git.git /tmp/aur-repo
+          cd /tmp/aur-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Copy PKGBUILD and regenerate .SRCINFO
+        run: |
+          cp aur/PKGBUILD /tmp/aur-repo/PKGBUILD
+          python3 scripts/regenerate_srcinfo.py /tmp/aur-repo/PKGBUILD /tmp/aur-repo/.SRCINFO
+          echo "--- Diff vs previous AUR state ---"
+          cd /tmp/aur-repo
+          git diff --stat HEAD || true
+
+      - name: Commit and push to AUR
+        run: |
+          cd /tmp/aur-repo
+          if git diff --quiet HEAD; then
+            echo "No changes to push to AUR."
+            exit 0
+          fi
+          git add PKGBUILD .SRCINFO
+          git commit -m "Update to v${{ steps.version.outputs.pkgver }}"
+          git push origin master
+          echo "AUR push complete for v${{ steps.version.outputs.pkgver }}"
