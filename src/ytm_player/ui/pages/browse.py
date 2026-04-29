@@ -36,9 +36,9 @@ class BrowseTabBar(Widget):
 
     DEFAULT_CSS = """
     BrowseTabBar {
-        height: 3;
+        height: 4;
         width: 1fr;
-        padding: 0 1;
+        padding: 1 1 0 1;
         background: $surface;
         border-bottom: solid $border;
     }
@@ -433,7 +433,13 @@ class ChartsSection(Widget):
             logger.debug("Failed to hide charts content on mount", exc_info=True)
 
     async def load_data(self, country: str | None = None) -> None:
-        """Fetch and display chart data for *country* (defaults to ``settings.ui.region``)."""
+        """Fetch and display chart data for *country* (defaults to ``settings.ui.region``).
+
+        ytmusicapi's ``get_charts`` returns chart *playlists* — daily/weekly/genres
+        plus a list of trending artists. There's no flat "top songs" list anymore.
+        We load the first daily chart playlist (typically "Top Songs - <country>")
+        so users see actual tracks in the table they expect.
+        """
         self.is_loading = True
         if country is None:
             country = get_settings().ui.region
@@ -442,14 +448,25 @@ class ChartsSection(Widget):
             ytmusic = cast("YTMHostBase", self.app).ytmusic
             assert ytmusic is not None
             self._chart_data = await ytmusic.get_charts(country=country)
-            self._populate_charts()
+
+            # Resolve the top daily chart playlist into a track list.
+            tracks: list[dict[str, Any]] = []
+            daily = self._chart_data.get("daily") if isinstance(self._chart_data, dict) else None
+            if isinstance(daily, list) and daily:
+                playlist_id = daily[0].get("playlistId") if isinstance(daily[0], dict) else None
+                if playlist_id:
+                    playlist = await ytmusic.get_playlist(playlist_id)
+                    if isinstance(playlist, dict):
+                        tracks = playlist.get("tracks", []) or []
+
+            self._populate_charts(tracks)
         except Exception:
             logger.exception("Failed to load charts for country=%r", country)
             self._show_error("Failed to load charts.")
         finally:
             self.is_loading = False
 
-    def _populate_charts(self) -> None:
+    def _populate_charts(self, tracks: list[dict[str, Any]]) -> None:
         loading = self.query_one("#charts-loading", Static)
         loading.display = False
 
@@ -458,18 +475,7 @@ class ChartsSection(Widget):
 
         # Update country label.
         country_label = self.query_one("#charts-country", Static)
-        country_name = self._chart_data.get("country", self._country)
-        country_label.update(f"Country: {country_name}")
-
-        # Extract tracks from chart data.
-        # ytmusicapi get_charts returns { "songs": { "items": [...] }, ... }
-        songs_section = self._chart_data.get("songs", {})
-        if isinstance(songs_section, dict):
-            tracks = songs_section.get("items", [])
-        elif isinstance(songs_section, list):
-            tracks = songs_section
-        else:
-            tracks = []
+        country_label.update(f"Country: {self._country}")
 
         table = self.query_one("#charts-table", TrackTable)
         table.load_tracks(normalize_tracks(tracks))
