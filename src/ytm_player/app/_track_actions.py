@@ -98,6 +98,15 @@ class TrackActionsMixin(YTMHostBase):
                 self.queue.add(track)
                 self._refresh_queue_page()
                 self.notify("Added to queue", timeout=2)
+            elif action_id == "remove_from_queue":
+                video_id = get_video_id(track)
+                if video_id:
+                    for i, t in enumerate(self.queue.tracks):
+                        if t.get("video_id") == video_id:
+                            self.queue.remove(i)
+                            self._refresh_queue_page()
+                            self.notify("Removed from queue", timeout=2)
+                            break
             elif action_id == "start_radio":
                 self.run_worker(self._fetch_and_play_radio(track))
             elif action_id == "go_to_artist":
@@ -152,7 +161,16 @@ class TrackActionsMixin(YTMHostBase):
                     else:
                         self.notify(link, timeout=5)
 
-        self.push_screen(ActionsPopup(track, item_type="track"), _handle_action_result)
+        # Detect whether this track is currently in the queue so the popup
+        # can swap "Add to Queue" for "Remove from Queue".
+        track_vid = get_video_id(track)
+        in_queue = bool(track_vid) and any(
+            t.get("video_id") == track_vid for t in self.queue.tracks
+        )
+        self.push_screen(
+            ActionsPopup(track, item_type="track", in_queue=in_queue),
+            _handle_action_result,
+        )
 
     def _refresh_queue_page(self) -> None:
         """Refresh the queue page if it's currently displayed."""

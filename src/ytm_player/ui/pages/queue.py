@@ -348,6 +348,31 @@ class QueuePage(Widget):
         """Always allow reorder in the queue page."""
         return True
 
+    def on_mouse_down(self, event: Any) -> None:
+        """Forward right-click on the queue table to the app's actions popup.
+
+        Queue page uses a raw DataTable (not TrackTable), so the
+        right-click → actions popup wiring on TrackTable doesn't apply.
+        We use the cursor row (right-click typically lands on the
+        currently-highlighted row).
+        """
+        if getattr(event, "button", 1) != 3:
+            return
+        try:
+            table = self.query_one("#queue-table", DataTable)
+            row = table.cursor_row
+            idx = self._resolve_row_idx(row)
+            if idx is None:
+                return
+            queue = self.app.queue  # type: ignore[attr-defined]
+            if not (0 <= idx < queue.length):
+                return
+            track = queue.tracks[idx]
+            self.app._open_actions_for_track(track)  # type: ignore[attr-defined]
+            event.stop()
+        except Exception:
+            logger.debug("Failed to open queue actions popup", exc_info=True)
+
     def _remove_selected(self, table: DataTable, queue: Any) -> None:
         """Remove the currently highlighted track from the queue."""
         idx = self._resolve_row_idx(table.cursor_row)

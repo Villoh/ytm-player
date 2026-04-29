@@ -63,12 +63,26 @@ _ACTIONS_BY_TYPE: dict[str, list[tuple[str, str]]] = {
 }
 
 
-def _build_actions(item: dict[str, Any], item_type: str) -> list[tuple[str, str]]:
-    """Return the action list for *item_type*, adjusting labels dynamically."""
+def _build_actions(
+    item: dict[str, Any],
+    item_type: str,
+    *,
+    in_queue: bool = False,
+) -> list[tuple[str, str]]:
+    """Return the action list for *item_type*, adjusting labels dynamically.
+
+    *in_queue* signals that the track is currently in the playback queue —
+    "Add to Queue" gets swapped for "Remove from Queue" in that case.
+    """
     base = list(_ACTIONS_BY_TYPE.get(item_type, TRACK_ACTIONS))
     result: list[tuple[str, str]] = []
 
     for action_id, label in base:
+        # Swap "Add to Queue" / "Remove from Queue" depending on queue membership.
+        if action_id == "add_to_queue" and in_queue:
+            action_id = "remove_from_queue"
+            label = "Remove from Queue"
+
         # Swap "Like" / "Unlike" depending on the item's current rating.
         if action_id == "toggle_like":
             is_liked = item.get("likeStatus") == "LIKE" or item.get("liked", False)
@@ -161,11 +175,17 @@ class ActionsPopup(ModalScreen[str | None]):
     }
     """
 
-    def __init__(self, item: dict[str, Any], item_type: str = "track") -> None:
+    def __init__(
+        self,
+        item: dict[str, Any],
+        item_type: str = "track",
+        *,
+        in_queue: bool = False,
+    ) -> None:
         super().__init__()
         self.item = item
         self.item_type = item_type
-        self._actions = _build_actions(item, item_type)
+        self._actions = _build_actions(item, item_type, in_queue=in_queue)
 
     @property
     def _title_text(self) -> str:
