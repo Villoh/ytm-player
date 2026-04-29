@@ -27,9 +27,16 @@ _MAX_API_FAILURES_BEFORE_REINIT = 3
 # the failure counter and may trigger a client reinit. Programming-error
 # exceptions (TypeError, AttributeError, etc.) propagate without bumping the
 # counter so bugs surface in development instead of silently triggering reinit.
+#
+# Note: KeyError is here because ytmusicapi's parsers raise KeyError on
+# renderer-key mismatches whenever YouTube tweaks its response shape — that's
+# an upstream API drift, not our bug. Without this entry the KeyError
+# propagates out of _call as an "unexpected exception" and may surface as a
+# hard crash in worker contexts.
 _EXPECTED_API_EXCEPTIONS = (
     requests.exceptions.RequestException,  # covers ConnectionError, Timeout, HTTPError
     asyncio.TimeoutError,  # from wait_for
+    KeyError,  # ytmusicapi parser drift on YouTube response shape changes
 )
 
 # Same as ``_EXPECTED_API_EXCEPTIONS`` plus the typed errors raised by
@@ -303,9 +310,23 @@ class YTMusicService:
         ]
 
     async def get_mood_playlists(self, category_id: str) -> list[dict[str, Any]]:
-        """Return playlists for a given mood/genre *category_id*."""
+        """Return playlists for a given mood/genre *category_id*.
+
+        ytmusicapi's ``parse_content_list`` raises ``KeyError`` when YouTube
+        returns a renderer key the parser doesn't recognise (this happens
+        every time YouTube ships a UI tweak). Treated as a soft failure —
+        empty list, log a warning, no crash.
+        """
         try:
             return await self._call(self.client.get_mood_playlists, category_id)
+        except (KeyError, IndexError, TypeError) as exc:
+            logger.warning(
+                "get_mood_playlists: ytmusicapi parser error for %r: %s: %s",
+                category_id,
+                type(exc).__name__,
+                exc,
+            )
+            return []
         except Exception:
             logger.exception("get_mood_playlists failed for %r", category_id)
             return []
