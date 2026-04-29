@@ -76,6 +76,7 @@ class Action(str, Enum):
     SELECTED_ACTIONS = "selected_actions"
     ADD_TO_QUEUE = "add_to_queue"
     ADD_TO_PLAYLIST = "add_to_playlist"
+    DISCOVERY_MIX = "discovery_mix"
     FILTER = "filter"
 
     # Sorting
@@ -146,6 +147,7 @@ DEFAULT_BINDINGS: dict[str, list[str]] = {
     "selected_actions": ["g a", "C-space"],
     "add_to_queue": ["Z", "C-z"],
     "add_to_playlist": ["A"],
+    "discovery_mix": ["D"],
     "filter": ["/"],
     # Sorting
     "sort_title": ["s t"],
