@@ -344,17 +344,11 @@ class TrackTable(DataTable):
             except Exception:
                 logger.debug("Failed to set row label", exc_info=True)
 
-        # Resolve the theme accent for the playing row. Normalize to
+        # Resolve the theme's text color for the ▶ glyph. Normalize to
         # #rrggbb so Rich always parses (Textual may emit rgb(...) form).
         from textual.color import Color
 
         from ytm_player.ui.theme import get_theme
-
-        raw = get_theme().primary or "#ff0000"
-        try:
-            color_hex = Color.parse(raw).hex
-        except Exception:
-            color_hex = raw if raw.startswith("#") else "#ff0000"
 
         # Restore the old row: plain data cells + blank label.
         if old_index is not None and old_index < len(self._row_keys):
@@ -367,12 +361,18 @@ class TrackTable(DataTable):
                 logger.debug("Failed to restore row %d cells", old_index, exc_info=True)
             _set_row_label(row_key, Text(" "))
 
-        # Mark the new row: bold-accent data cells + ▶ label.
+        # Mark the new row: bold (no color) on data cells + ▶ label.
+        # Why no color: the user's theme can have $primary close to
+        # $selected-item (the cursor bg), so any colored foreground on the
+        # playing row's data cells produces unreadable monochrome blocks
+        # when the cursor lands on it. The ▶ glyph in the row-label column
+        # is the unambiguous primary signal — it lives in its own render
+        # path so it's always visible. Bold on the data cells is the
+        # secondary cue for at-a-glance recognition without color clash.
         if new_index is not None and new_index < len(self._row_keys):
             row_key = self._row_keys[new_index]
             try:
-                style = f"bold {color_hex}"
-                cells = _styled_cells(self._tracks[new_index], new_index, style)
+                cells = _styled_cells(self._tracks[new_index], new_index, "bold")
                 for col_key, value in cells.items():
                     self.update_cell(row_key, col_key, value)
             except Exception:
