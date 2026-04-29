@@ -59,6 +59,12 @@ class QueueManager:
         self._shuffle_order: list[int] = []
         self._shuffle_position: int = -1
 
+        # Stable ID of the collection (playlist/album/artist) the queue
+        # was populated from, or None for ephemeral queues (search,
+        # discovery roulette, single-track radio).  Used by the
+        # per-collection shuffle memory feature — see ShufflePreferences.
+        self._current_context_id: str | None = None
+
     # -- Properties -------------------------------------------------------
 
     @property
@@ -104,6 +110,17 @@ class QueueManager:
         """Current index into _tracks regardless of shuffle mode."""
         with self._lock:
             return self._real_index()
+
+    @property
+    def current_context_id(self) -> str | None:
+        """ID of the collection this queue was populated from, or None."""
+        with self._lock:
+            return self._current_context_id
+
+    def set_context(self, context_id: str | None) -> None:
+        """Set (or clear with None) the collection ID backing this queue."""
+        with self._lock:
+            self._current_context_id = context_id
 
     @property
     def remaining_tracks(self) -> int:

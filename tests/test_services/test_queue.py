@@ -406,3 +406,26 @@ class TestQueuePositionTracking:
         queue_manager.toggle_shuffle()
         queue_manager.jump_to(0)
         assert queue_manager.remaining_tracks == len(sample_tracks) - 1
+
+
+class TestContextId:
+    def test_default_is_none(self, queue_manager):
+        assert queue_manager.current_context_id is None
+
+    def test_set_and_read_back(self, queue_manager):
+        queue_manager.set_context("PLABCD")
+        assert queue_manager.current_context_id == "PLABCD"
+
+    def test_set_to_none_clears(self, queue_manager):
+        queue_manager.set_context("PLABCD")
+        queue_manager.set_context(None)
+        assert queue_manager.current_context_id is None
+
+    def test_clear_does_not_affect_context(self, queue_manager, sample_track):
+        # clear() resets tracks/shuffle state but does NOT reset context_id —
+        # the context only changes via explicit set_context() at the
+        # playback-start sites.
+        queue_manager.set_context("PLABCD")
+        queue_manager.add(sample_track)
+        queue_manager.clear()
+        assert queue_manager.current_context_id == "PLABCD"
