@@ -408,7 +408,7 @@ class ChartsSection(Widget):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._chart_data: dict[str, Any] = {}
-        self._country: str = "ZZ"
+        self._country: str = get_settings().ui.region
 
     def on_unmount(self) -> None:
         """Release chart data to prevent memory retention."""
@@ -432,9 +432,11 @@ class ChartsSection(Widget):
         except Exception:
             logger.debug("Failed to hide charts content on mount", exc_info=True)
 
-    async def load_data(self, country: str = "ZZ") -> None:
-        """Fetch and display chart data for *country*."""
+    async def load_data(self, country: str | None = None) -> None:
+        """Fetch and display chart data for *country* (defaults to ``settings.ui.region``)."""
         self.is_loading = True
+        if country is None:
+            country = get_settings().ui.region
         self._country = country
         try:
             ytmusic = cast("YTMHostBase", self.app).ytmusic

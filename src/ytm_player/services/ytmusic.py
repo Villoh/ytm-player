@@ -281,12 +281,26 @@ class YTMusicService:
             return []
 
     async def get_mood_categories(self) -> list[dict[str, Any]]:
-        """Return available mood/genre categories."""
+        """Return available mood/genre categories.
+
+        ytmusicapi's ``get_mood_categories`` returns a ``dict`` keyed by
+        section title (e.g. ``"For you"``, ``"Genres"``, ``"Moods & moments"``,
+        ``"Decades"``) where each value is a list of category dicts. We
+        normalize that to a list of ``{"title": <section>, "categories": [...]}``
+        dicts so the Browse page can iterate uniformly.
+        """
         try:
-            return await self._call(self.client.get_mood_categories)
+            raw = await self._call(self.client.get_mood_categories)
         except Exception:
             logger.exception("get_mood_categories failed")
             return []
+        if not isinstance(raw, dict):
+            return []
+        return [
+            {"title": section, "categories": categories}
+            for section, categories in raw.items()
+            if isinstance(categories, list)
+        ]
 
     async def get_mood_playlists(self, category_id: str) -> list[dict[str, Any]]:
         """Return playlists for a given mood/genre *category_id*."""
@@ -296,8 +310,14 @@ class YTMusicService:
             logger.exception("get_mood_playlists failed for %r", category_id)
             return []
 
-    async def get_charts(self, country: str = "ZZ") -> dict[str, Any]:
-        """Return chart data for *country* (``ZZ`` = global)."""
+    async def get_charts(self, country: str = "US") -> dict[str, Any]:
+        """Return chart data for *country* (ISO 3166-1 alpha-2, e.g. ``"US"``).
+
+        ``"ZZ"`` is YouTube's catch-all "no specific region" code which
+        returns no chart data — defaulting to ``"US"`` matches what most
+        users expect to see and the Charts page passes ``settings.ui.region``
+        in production code.
+        """
         try:
             return await self._call(self.client.get_charts, country=country)
         except Exception:
