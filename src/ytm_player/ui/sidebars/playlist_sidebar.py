@@ -15,6 +15,7 @@ from textual.widget import Widget
 from textual.widgets import Input, Label, ListItem, ListView, Rule, Static
 
 from ytm_player.config.settings import get_settings
+from ytm_player.ui.selection_info_bar import SelectionChanged
 from ytm_player.utils.formatting import copy_to_clipboard, truncate
 
 logger = logging.getLogger(__name__)
@@ -340,6 +341,18 @@ class LibraryPanel(Widget):
             except Exception:
                 sidebar_width = 30
             labels[idx].start_bounce(int(sidebar_width))
+
+        # Post SelectionChanged so SelectionInfoBar can display the full title.
+        try:
+            sel_idx = event.list_view.index
+            if sel_idx is not None and 0 <= sel_idx < len(self._filtered_items):
+                item = self._filtered_items[sel_idx]
+                title = item.get("title", item.get("name", ""))
+                self.post_message(SelectionChanged(title))
+            else:
+                self.post_message(SelectionChanged(""))
+        except Exception:
+            self.post_message(SelectionChanged(""))
 
     # -- Selection --
 
