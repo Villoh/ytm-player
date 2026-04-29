@@ -96,7 +96,10 @@ class TrackTable(DataTable):
         )
         # Make inline cell styles (Rich Text) win over the cursor-row CSS,
         # so the now-playing row stays bold+red even when the cursor is on it.
+        # Both priorities are needed — fg lets our color win, bg lets us keep
+        # a readable background instead of the cursor's $selected-item.
         self.cursor_foreground_priority = "renderable"
+        self.cursor_background_priority = "renderable"
         self._show_index = show_index
         self._show_album = show_album
         self._all_tracks: list[dict] = []
@@ -346,17 +349,24 @@ class TrackTable(DataTable):
 
                 from ytm_player.ui.theme import get_theme
 
-                # Normalize the theme's primary color into a #rrggbb hex
-                # string Rich can always parse — Textual may emit the
-                # variable as rgb(…) or a named color which Rich won't
-                # consistently render inside DataTable cells.
-                raw = get_theme().primary or "#ff0000"
+                # Normalize the theme's primary + surface colors to #rrggbb
+                # so Rich can always parse them. Textual emits CSS vars in
+                # rgb(...) or named-color form which Rich doesn't reliably
+                # render inside DataTable cells.
+                theme = get_theme()
                 try:
-                    color_hex = Color.parse(raw).hex
+                    fg_hex = Color.parse(theme.primary or "#ff0000").hex
                 except Exception:
-                    color_hex = raw if raw.startswith("#") else "#ff0000"
+                    fg_hex = "#ff0000"
+                try:
+                    bg_hex = Color.parse(theme.surface or "#1a1a1a").hex
+                except Exception:
+                    bg_hex = "#1a1a1a"
 
-                style = f"bold {color_hex}"
+                # Both fg AND bg in the Rich style — pairs with cursor_*_priority
+                # = "renderable" so the playing row stays readable regardless of
+                # cursor position (cursor's $selected-item bg can't override).
+                style = f"bold {fg_hex} on {bg_hex}"
                 cells = _styled_cells(self._tracks[new_index], new_index, style)
                 row_key = self._row_keys[new_index]
                 for col_key, value in cells.items():
