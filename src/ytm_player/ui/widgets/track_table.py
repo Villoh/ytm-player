@@ -94,6 +94,9 @@ class TrackTable(DataTable):
             id=id,
             classes=classes,
         )
+        # Make inline cell styles (Rich Text) win over the cursor-row CSS,
+        # so the now-playing row stays bold+red even when the cursor is on it.
+        self.cursor_foreground_priority = "renderable"
         self._show_index = show_index
         self._show_album = show_album
         self._all_tracks: list[dict] = []
