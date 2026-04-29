@@ -38,8 +38,8 @@ class SelectionInfoBar(Widget):
         dock: bottom;
         height: 1;
         width: 100%;
-        background: $surface;
-        color: $text-muted;
+        background: red;
+        color: white;
         content-align: center middle;
         padding: 0 1;
     }
