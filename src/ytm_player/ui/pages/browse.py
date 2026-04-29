@@ -762,16 +762,28 @@ class BrowsePage(Widget):
             ytmusic = host.ytmusic
             assert ytmusic is not None
             playlists = await ytmusic.get_mood_playlists(category_params)
-            if playlists:
-                # Navigate to the first playlist as a preview, or show a list.
-                # For now, navigate to the first one.
-                first = playlists[0] if isinstance(playlists, list) else None
-                if first:
-                    playlist_id = first.get("playlistId") or first.get("browseId")
-                    if playlist_id:
-                        await host.navigate_to(
-                            "context", context_type="playlist", context_id=playlist_id
-                        )
+
+            # Empty result — service caught a parser error or YouTube returned
+            # nothing. Don't silently no-op; tell the user.
+            if not playlists or not isinstance(playlists, list):
+                host.notify(
+                    "This mood is currently unavailable (YouTube changed its data shape)",
+                    severity="warning",
+                    timeout=4,
+                )
+                return
+
+            first = playlists[0] if isinstance(playlists[0], dict) else None
+            if first is None:
+                host.notify("No playlists found for this mood", severity="warning", timeout=3)
+                return
+
+            playlist_id = first.get("playlistId") or first.get("browseId")
+            if not playlist_id:
+                host.notify("No playlists found for this mood", severity="warning", timeout=3)
+                return
+
+            await host.navigate_to("context", context_type="playlist", context_id=playlist_id)
         except Exception:
             logger.exception("Failed to load mood playlists")
             host.notify("Failed to load mood playlists", severity="error")
