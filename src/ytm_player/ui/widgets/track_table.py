@@ -13,6 +13,7 @@ from textual.widgets.data_table import Column, RowKey
 
 from ytm_player.config import Action
 from ytm_player.config.settings import get_settings
+from ytm_player.ui.selection_info_bar import SelectionChanged
 from ytm_player.utils.formatting import extract_artist, extract_duration, format_duration
 
 logger = logging.getLogger(__name__)
@@ -422,10 +423,23 @@ class TrackTable(DataTable):
             self.post_message(self.TrackSelected(self._tracks[row_idx], original_idx))
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
-        """Forward row highlight as a TrackHighlighted message."""
+        """Forward row highlight as a TrackHighlighted message and update SelectionInfoBar."""
         row_idx = event.cursor_row
         track = self._tracks[row_idx] if 0 <= row_idx < len(self._tracks) else None
         self.post_message(self.TrackHighlighted(track, row_idx))
+
+        # Bubble a SelectionChanged message for SelectionInfoBar.
+        try:
+            if track is None:
+                self.post_message(SelectionChanged(""))
+                return
+            title = track.get("title", "") or ""
+            artist = extract_artist(track) or ""
+            label = f"{title} — {artist}" if artist else title
+            self.post_message(SelectionChanged(label))
+        except Exception:
+            # Graceful degrade: never let SelectionInfoBar bookkeeping break navigation.
+            self.post_message(SelectionChanged(""))
 
     def on_click(self, event: Click) -> None:
         """Handle right-click to emit TrackRightClicked."""
