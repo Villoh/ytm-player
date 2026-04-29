@@ -41,7 +41,6 @@ class SelectionInfoBar(Widget):
         color: $text-muted;
         content-align: center middle;
         padding: 0 1;
-        border-top: solid $border;
     }
     """
 
