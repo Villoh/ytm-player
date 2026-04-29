@@ -339,9 +339,21 @@ class TrackTable(DataTable):
         # Style the new row.
         if new_index is not None and new_index < len(self._row_keys):
             try:
+                from textual.color import Color
+
                 from ytm_player.ui.theme import get_theme
 
-                style = f"bold {get_theme().primary}"
+                # Normalize the theme's primary color into a #rrggbb hex
+                # string Rich can always parse — Textual may emit the
+                # variable as rgb(…) or a named color which Rich won't
+                # consistently render inside DataTable cells.
+                raw = get_theme().primary or "#ff0000"
+                try:
+                    color_hex = Color.parse(raw).hex
+                except Exception:
+                    color_hex = raw if raw.startswith("#") else "#ff0000"
+
+                style = f"bold {color_hex}"
                 cells = _styled_cells(self._tracks[new_index], new_index, style)
                 row_key = self._row_keys[new_index]
                 for col_key, value in cells.items():
