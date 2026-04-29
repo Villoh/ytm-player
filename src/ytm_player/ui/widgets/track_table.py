@@ -90,6 +90,7 @@ class TrackTable(DataTable):
         super().__init__(
             cursor_type="row",
             zebra_stripes=zebra_stripes,
+            cursor_foreground_priority="renderable",
             name=name,
             id=id,
             classes=classes,
@@ -235,7 +236,10 @@ class TrackTable(DataTable):
         cells.append(format_duration(duration) if duration else "--:--")
 
         video_id = track.get("video_id", f"row_{index}")
-        return self.add_row(*cells, key=f"{video_id}_{index}")
+        # Pass label=" " on every row so Textual reserves the row-label
+        # column once any row has a non-None label. _highlight_playing
+        # mutates this slot to show ▶ on the playing row.
+        return self.add_row(*cells, key=f"{video_id}_{index}", label=" ")
 
     # -- Playing state ----------------------------------------------------
 
@@ -320,46 +324,60 @@ class TrackTable(DataTable):
             return cells
 
         def _styled_cells(track: dict, row_index: int, style: str) -> dict[str, Any]:
-            """Active-cells: same content but wrapped in a Rich Text with *style*."""
+            """Active-cells: same data values wrapped in Rich Text with *style*.
+
+            Unlike before, we do NOT overload the # column with a play
+            glyph — the playing indicator now lives in Textual's row-label
+            column (left of #). The # column keeps its original number.
+            """
             plain = _plain_cells(track, row_index)
-            # Replace the "#" cell with the play indicator before styling.
-            plain["index"] = "\u25b6"
             return {key: Text(value, style=style) for key, value in plain.items()}
 
-        # Restore the old row to plain cells.
+        def _set_row_label(row_key: RowKey, label_text: Text) -> None:
+            """Mutate Textual's per-row label slot. Internal access
+            wrapped so any breaking change degrades to a debug log."""
+            try:
+                row = self.rows[row_key]
+                row.label = label_text
+                self._update_count += 1
+                self.refresh()
+            except Exception:
+                logger.debug("Failed to set row label", exc_info=True)
+
+        # Resolve the theme accent for the playing row. Normalize to
+        # #rrggbb so Rich always parses (Textual may emit rgb(...) form).
+        from textual.color import Color
+
+        from ytm_player.ui.theme import get_theme
+
+        raw = get_theme().primary or "#ff0000"
+        try:
+            color_hex = Color.parse(raw).hex
+        except Exception:
+            color_hex = raw if raw.startswith("#") else "#ff0000"
+
+        # Restore the old row: plain data cells + blank label.
         if old_index is not None and old_index < len(self._row_keys):
+            row_key = self._row_keys[old_index]
             try:
                 cells = _plain_cells(self._tracks[old_index], old_index)
-                row_key = self._row_keys[old_index]
                 for col_key, value in cells.items():
                     self.update_cell(row_key, col_key, value)
             except Exception:
                 logger.debug("Failed to restore row %d cells", old_index, exc_info=True)
+            _set_row_label(row_key, Text(" "))
 
-        # Style the new row.
+        # Mark the new row: bold-accent data cells + ▶ label.
         if new_index is not None and new_index < len(self._row_keys):
+            row_key = self._row_keys[new_index]
             try:
-                from textual.color import Color
-
-                from ytm_player.ui.theme import get_theme
-
-                # Normalize the theme primary to #rrggbb so Rich always parses.
-                raw = get_theme().primary or "#ff0000"
-                try:
-                    color_hex = Color.parse(raw).hex
-                except Exception:
-                    color_hex = raw if raw.startswith("#") else "#ff0000"
-
-                # Foreground only — cursor styling wins on overlap, like
-                # every other TUI music player. The ▶ glyph in the index
-                # column remains the unambiguous "this is playing" marker.
                 style = f"bold {color_hex}"
                 cells = _styled_cells(self._tracks[new_index], new_index, style)
-                row_key = self._row_keys[new_index]
                 for col_key, value in cells.items():
                     self.update_cell(row_key, col_key, value)
             except Exception:
                 logger.debug("Failed to style row %d cells", new_index, exc_info=True)
+            _set_row_label(row_key, Text("▶", style=f"bold {color_hex}"))
 
         self._playing_index = new_index
 
