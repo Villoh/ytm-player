@@ -153,6 +153,12 @@ class YTMPlayerApp(
         width: 1fr;
     }
 
+    #bottom-stack {
+        dock: bottom;
+        height: auto;
+        width: 1fr;
+    }
+
     #main-content {
         width: 1fr;
         height: 1fr;
@@ -363,9 +369,9 @@ class YTMPlayerApp(
 
     def compose(self) -> ComposeResult:
         yield HeaderBar(id="app-header")
-        yield PlaybackBar(id="playback-bar")
         with Vertical(id="bottom-stack"):
             yield SelectionInfoBar(id="selection-info-bar")
+            yield PlaybackBar(id="playback-bar")
             yield FooterBar(id="app-footer")
         with Horizontal(id="app-body"):
             yield PlaylistSidebar(id="playlist-sidebar")
