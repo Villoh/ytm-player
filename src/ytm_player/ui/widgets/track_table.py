@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from textual.events import Click, MouseDown, MouseMove, MouseUp
 from textual.geometry import Size
@@ -139,6 +140,20 @@ class TrackTable(DataTable):
 
     def on_mount(self) -> None:
         self._setup_columns()
+        # Pick up the currently-playing video_id from the app's player so
+        # the playing-row highlight survives navigating away and back.
+        try:
+            player = getattr(self.app, "player", None)
+            current = player.current_track if player else None
+            video_id = current.get("video_id", "") if current else ""
+            if video_id:
+                self._playing_video_id = video_id
+                # _highlight_playing runs after columns/rows are populated;
+                # load_tracks will trigger it. If the table is already empty,
+                # this is a no-op until tracks land.
+                self._highlight_playing()
+        except Exception:
+            logger.debug("Failed to pick up current playing track on mount", exc_info=True)
 
     def _setup_columns(self) -> None:
         """Add the standard track table columns."""
@@ -251,11 +266,11 @@ class TrackTable(DataTable):
                 return
 
     def _highlight_playing(self) -> None:
-        """Update the index + title columns to show the playing indicator.
+        """Style the now-playing row across its full width.
 
         Only touches the previously-playing and newly-playing rows
-        instead of iterating every row. The title cell of the playing
-        row gets bold + accent styling so the row stays visually
+        instead of iterating every row. Every cell of the playing row
+        gets bold + accent-color styling so the row stays visually
         distinct even when the cursor is elsewhere \u2014 without competing
         with the cursor-row CSS background.
         """
@@ -265,6 +280,15 @@ class TrackTable(DataTable):
         from rich.text import Text
 
         from ytm_player.utils.bidi import isolate_bidi, reorder_rtl_line
+        from ytm_player.utils.formatting import (
+            extract_artist as _extract_artist,
+        )
+        from ytm_player.utils.formatting import (
+            extract_duration as _extract_duration,
+        )
+        from ytm_player.utils.formatting import (
+            format_duration as _format_duration,
+        )
 
         # Find the new playing index by matching video_id.
         new_index: int | None = None
@@ -280,42 +304,50 @@ class TrackTable(DataTable):
         if old_index == new_index:
             return
 
-        # Restore the old row's original index column + plain title cell.
+        def _plain_cells(track: dict, row_index: int) -> dict[str, Any]:
+            """Restore-cells: original (un-styled) values for a row."""
+            title = track.get("title", "Unknown")
+            artist = _extract_artist(track)
+            album = track.get("album") or ""
+            duration = _extract_duration(track)
+            cells: dict[str, Any] = {}
+            cells["index"] = str(track.get("_original_index", row_index) + 1)
+            cells["title"] = isolate_bidi(reorder_rtl_line(title))
+            cells["artist"] = isolate_bidi(reorder_rtl_line(artist))
+            if self._show_album:
+                cells["album"] = isolate_bidi(reorder_rtl_line(album))
+            cells["duration"] = _format_duration(duration) if duration else "--:--"
+            return cells
+
+        def _styled_cells(track: dict, row_index: int, style: str) -> dict[str, Any]:
+            """Active-cells: same content but wrapped in a Rich Text with *style*."""
+            plain = _plain_cells(track, row_index)
+            # Replace the "#" cell with the play indicator before styling.
+            plain["index"] = "\u25b6"
+            return {key: Text(value, style=style) for key, value in plain.items()}
+
+        # Restore the old row to plain cells.
         if old_index is not None and old_index < len(self._row_keys):
             try:
-                orig = self._tracks[old_index].get("_original_index", old_index) + 1
-                self.update_cell(self._row_keys[old_index], "index", str(orig))
+                cells = _plain_cells(self._tracks[old_index], old_index)
+                row_key = self._row_keys[old_index]
+                for col_key, value in cells.items():
+                    self.update_cell(row_key, col_key, value)
             except Exception:
-                logger.debug("Failed to restore row number for index %d", old_index, exc_info=True)
-            try:
-                old_title = self._tracks[old_index].get("title", "Unknown")
-                self.update_cell(
-                    self._row_keys[old_index],
-                    "title",
-                    isolate_bidi(reorder_rtl_line(old_title)),
-                )
-            except Exception:
-                logger.debug("Failed to restore title for index %d", old_index, exc_info=True)
+                logger.debug("Failed to restore row %d cells", old_index, exc_info=True)
 
-        # Set the play indicator + bold-accent title on the new row.
+        # Style the new row.
         if new_index is not None and new_index < len(self._row_keys):
-            try:
-                self.update_cell(self._row_keys[new_index], "index", "\u25b6")
-            except Exception:
-                logger.debug(
-                    "Failed to set playing indicator for index %d", new_index, exc_info=True
-                )
             try:
                 from ytm_player.ui.theme import get_theme
 
-                new_title = self._tracks[new_index].get("title", "Unknown")
-                styled = Text(
-                    isolate_bidi(reorder_rtl_line(new_title)),
-                    style=f"bold {get_theme().primary}",
-                )
-                self.update_cell(self._row_keys[new_index], "title", styled)
+                style = f"bold {get_theme().primary}"
+                cells = _styled_cells(self._tracks[new_index], new_index, style)
+                row_key = self._row_keys[new_index]
+                for col_key, value in cells.items():
+                    self.update_cell(row_key, col_key, value)
             except Exception:
-                logger.debug("Failed to set styled title for index %d", new_index, exc_info=True)
+                logger.debug("Failed to style row %d cells", new_index, exc_info=True)
 
         self._playing_index = new_index
 
