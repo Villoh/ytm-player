@@ -42,6 +42,7 @@ from ytm_player.services.stream import StreamResolver
 from ytm_player.services.ytmusic import YTMusicService
 from ytm_player.ui.header_bar import HeaderBar
 from ytm_player.ui.playback_bar import FooterBar, PlaybackBar
+from ytm_player.ui.selection_info_bar import SelectionInfoBar
 from ytm_player.ui.sidebars.lyrics_sidebar import LyricsSidebar
 from ytm_player.ui.sidebars.playlist_sidebar import PlaylistSidebar
 from ytm_player.ui.theme import DEFAULT_LYRIC_CURRENT, ThemeColors, get_theme
@@ -357,6 +358,7 @@ class YTMPlayerApp(
     def compose(self) -> ComposeResult:
         yield HeaderBar(id="app-header")
         yield PlaybackBar(id="playback-bar")
+        yield SelectionInfoBar(id="selection-info-bar")
         yield FooterBar(id="app-footer")
         with Horizontal(id="app-body"):
             yield PlaylistSidebar(id="playlist-sidebar")
@@ -510,6 +512,13 @@ class YTMPlayerApp(
         if startup not in PAGE_NAMES:
             startup = "library"
         await self.navigate_to(startup)
+
+        # Honour the [ui] show_selection_info toggle (TP-3).
+        try:
+            bar = self.query_one("#selection-info-bar", SelectionInfoBar)
+            bar.display = self.settings.ui.show_selection_info
+        except Exception:
+            logger.exception("Failed to apply show_selection_info toggle")
 
         self._start_update_check()
 
