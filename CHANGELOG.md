@@ -6,14 +6,71 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
-### Unreleased
+### v1.9.0 (UNRELEASED — 2026-04-30)
 
-**New**
+A community-PR-driven feature release. Six PRs from @wgordon17 (Principal SRE on OpenShift at Red Hat) plus user-reported UX work, an AUR auto-publish pipeline, and a per-collection shuffle memory system. Distribution data milestone — crossed 10,000 lifetime PyPI downloads on the day this release was assembled.
 
-- **Proactive queue refill** — autoplay silently tops up the queue before it runs dry, seeded from recently-played tracks
-- **Discovery Mix** — new sidebar item that plays a random mix from your home picks, trending, moods, charts, liked songs, library artists, or listening history
-- **Multi-seed radio** — radio requests use multiple seeds for better variety
-- **Per-collection shuffle memory** — shuffle state is now remembered per playlist, album, and artist. Toggle shuffle on a playlist, switch to another, come back later — preferences stick. Persists to `~/.config/ytm-player/shuffle_prefs.json`. LRU-capped at 1000 entries.
+**New features**
+
+- **"Start Radio" from playlist** — context-menu entry in the sidebar plus a `[▶ Start Radio]` header button on the Library and Context pages. Backed by ytmusicapi's `RDAMPL` watch-playlist convention. New service method `YTMusicService.get_playlist_radio(playlist_id)`. Six unit tests covering VL-prefix stripping, normal flow, exceptions, empty results, non-dict responses. Thanks @wgordon17 (#70).
+- **Proactive radio refill** — when ≤3 tracks remain in queue with autoplay on and repeat off, the app silently fetches more tracks in the background, seeded from up to 5 already-played items in the current queue. New methods `_maybe_extend_queue` / `_extend_queue` on PlaybackMixin. Thanks @wgordon17 (#71).
+- **Multi-seed `get_radio`** — service method now accepts a list of seeds, fetches in parallel via `asyncio.gather`, dedups by `videoId`, shuffles, and trims to limit. Backward-compatible at the signature level (single string still accepted). 8 dedicated tests. Thanks @wgordon17 (#71).
+- **Single-seed shuffle guard** — `get_radio` only shuffles the result pool when `len(video_ids) > 1`. Single-seed callers (the existing "Start Radio on track X" flow) keep their seed-first ordering. Two new tests covering single-seed-deterministic and multi-seed-shuffled behavior.
+- **Discovery roulette** — random mix from one of seven sources (trending, mood, charts, home, liked songs, library artist, recent history) with last-source-exclusion rotation to avoid repeats. New service method `get_discovery_mix() -> tuple[list[dict], str]`. 6 dedicated tests. Bound to the **`D`** keybinding (added by us alongside the merge — PR description had mentioned the binding but it didn't ship). Discovery is also reachable via the new "♫ Discovery Mix" item in the playlist sidebar's pinned-nav block. Help page lists the new action. Thanks @wgordon17 (#71).
+- **Per-collection shuffle memory** (Spotify-style) — shuffle state is now remembered per playlist, album, artist, and special collections (Liked Songs, Recently Played). Toggle shuffle on Playlist A, switch to Playlist B with shuffle off, come back to A and shuffle is on automatically. Persists to `~/.config/ytm-player/shuffle_prefs.json`, LRU-capped at 1000 entries. New service `ShufflePreferences` (thread-safe, atomic JSON writes). New `QueueManager.current_context_id` attribute + `set_context()` setter. Hooked into all 9 playback-start sites in the codebase (library, context page, sidebar playlist double-click, Start Radio, liked songs, recently played, search, browse, fetch-and-play radio). 19 new tests across `test_shuffle_prefs.py` and `test_queue.py::TestContextId`. Session restore preserves `queue_context_id` so the collection identity survives an app restart.
+- **Configurable home shelf count** — set `home_shelves` under `[ui]` in `config.toml` to control how many recommendation shelves are fetched on the Browse > For You tab (default 3, range 1–25). Shelves now scroll as a single section instead of independently, with subtle separators (`$border`) and theme-primary section titles for readability. Thanks @wgordon17 (#69).
+- **Sidebar overflow config** (`[ui] sidebar_overflow`) — `"truncate"` (default) guarantees exactly 1 row per playlist with a `…` ellipsis on overflow, or `"wrap"` to let names span multiple lines naturally. Implementation via a `truncate-items` CSS class on `LibraryPanel` plus a `_render_text` helper that picks the right strategy per mode.
+- **Selection info bar** — a 1-row strip mounted between the page body and the playback bar, displays the full name of the currently-focused item (sidebar playlist or TrackTable row). Toggleable via `[ui] show_selection_info: bool = True`. Replaces the old marquee/bouncing-text animation in playlist sidebars. The bar is gated on widget focus so it shows only what the user is actively navigating, not whatever auto-highlighted in a freshly-mounted panel.
+- **Now-playing row indicator** — every TrackTable now uses Textual's row-label feature to show a `▶` glyph in a dedicated 1-char column to the left of the index, marking the playing row independently of cursor state. Bold (no color) on data cells of the playing row provides a secondary at-a-glance signal. The glyph survives navigation away and back via `cursor_foreground_priority="renderable"` and an `on_mount` lookup of the app's current playing track. This pattern follows the canonical approach used by spotify-tui, ncmpcpp, and cmus.
+- **Charts country support** — `get_charts(country=)` now defaults to `"US"` instead of YouTube's empty-data `"ZZ"` placeholder. New `[ui] region` config field (ISO 3166-1 alpha-2) lets users pin Charts to their preferred country without code changes. The Charts page now resolves the top daily chart playlist into a track table (ytmusicapi's `get_charts` no longer returns a flat songs list — daily/weekly/genres/artists chart playlists is the new shape).
+
+**Fixes**
+
+- **macOS built-in keyboard media keys (prev/next)** — built-in MacBook keyboards send key codes 19/20 (FAST/REWIND) instead of 17/18 (NEXT/PREVIOUS) that external keyboards use. The Quartz event tap now maps both sets. Verified against Apple's IOKit constants and Rogue Amoeba's canonical reference. Thanks @wgordon17 (#67).
+- **Browse tab bar visibility** — was rendering at `height: 1` with `border-bottom: solid` on the active tab clipping its label. Now uses `height: 4`, `border-bottom: tall`, `width: auto` for content-sized tabs, hover state, `$surface` background, `$border` separator, plus 1-row top padding for breathing room from the page edge. Thanks @wgordon17 (#68).
+- **yt-dlp android client fallback** — madeForKids content (e.g., children's music tracks) was failing with "Video unavailable" on the default web client. yt-dlp now also tries the android client which falls through to a non-PoT legacy format that succeeds. Empirically validated: Baby Shark goes from broken to playing format-18 m4a audio. Normal songs unaffected. The line carries a `# WHY:` comment explaining the rationale so a future audit doesn't strip it as cargo-cult config. Thanks @wgordon17 (#72).
+- **Browse > Moods & Genres** — `get_mood_categories` now normalises ytmusicapi's dict response (keyed by section title — `"For you"`, `"Genres"`, `"Moods & moments"`, `"Decades"`) to the list-of-dicts shape the Browse page expects. Was returning the raw dict, the page iterated dict keys (strings), every `category_group.get(...)` call failed silently, "No categories available" surfaced. Now the actual moods and genres show up.
+- **Browse > Moods click failure** — clicking a mood category now shows a clear toast (`"This mood is currently unavailable"`) instead of silently no-op'ing when ytmusicapi's parser fails on YouTube response shape changes. Service-layer `get_mood_playlists` catches `(KeyError, IndexError, TypeError)` parser-drift exceptions explicitly with a clearer log line.
+- **`KeyError` from ytmusicapi parsers no longer counted as "unexpected"** — added `KeyError` to `_EXPECTED_API_EXCEPTIONS` so `_call` treats parser drift as a recoverable API-side failure instead of letting it propagate as a "programming error." This was masking real upstream issues and surfacing crash files for routine YouTube response-shape changes.
+- **Sidebar playlist track count now updates immediately after add** — was reading the cached `count` field from the library payload and never bumping it after `add_playlist_items` succeeded, so the `(N tracks)` suffix stayed stale until the next library reload. New `LibraryPanel.update_item_count(playlist_id, delta)` primitive optimistically updates the cached count and rebuilds the affected row's label text. Wired into both `_do_add` and `_do_create_and_add` in playlist_picker. Tolerates VL-prefix mismatches in either direction. Leaves `count = None` (unknown) untouched rather than fabricating.
+- **Queue right-click now opens the actions popup** — previously did nothing because the Queue page uses a raw `DataTable` (not `TrackTable`), so the `TrackRightClicked` handler never fired. Added `on_mouse_down` on `QueuePage` that forwards button-3 clicks to `_open_actions_for_track` using the cursor row.
+- **Track actions popup conditionally swaps "Add to Queue" ↔ "Remove from Queue"** — when the track being right-clicked is currently in the playback queue, the menu shows "Remove from Queue" (action_id `remove_from_queue`) instead of "Add to Queue". Same menu slot, different label and action based on queue state. Detection happens at popup-open time by scanning `queue.tracks` for the track's `video_id`.
+
+**UI / theming**
+
+- **Marquee removed from sidebars** — `_BouncingLabel` (the bouncing-text animation that fired on highlighted playlist names that overflowed) deleted entirely (~60 lines). Replaced with static truncate-with-ellipsis. Long names show `Some long playlist nam…`; the full name surfaces in the new selection info bar when the item is highlighted.
+- **Bottom-stack layout reflow** — `SelectionInfoBar`, `PlaybackBar`, and `FooterBar` are now wrapped in a single `Vertical(id="bottom-stack")` docked to the bottom. Order top-to-bottom: info bar (1 row) → playback bar (4 rows) → footer (1 row). Replaces the previous three-sibling-dock-bottom approach which produced inconsistent stacking.
+- **`truncate()` uses Unicode `…`** instead of three ASCII dots. Frees 2 chars of visible content space; matches every modern UI's truncation idiom.
+- **CONTRIBUTING.md "Theming & UI" section** — documents the rule that all widget colors flow through `theme.py` variables (`$primary`, `$text`, `$surface`, `$border`, `$accent`, `$secondary`, `$text-muted`) and that hardcoded hex colors in widget CSS are forbidden because they break custom `theme.toml` files. Closes a contributor-docs gap surfaced during PR #69 review.
+
+**Refactors / internal**
+
+- **`type: ignore[attr-defined]` removed** in PR #70's `_start_playlist_radio` call sites in `context.py` and `library.py`. Replaced with the project-standard `cast("YTMHostBase", self.app)._start_playlist_radio(...)` pattern. Added stub method to `_base.py:YTMHostBase` (CLEANUP-1).
+- **`_fetch_and_play_radio`, `_start_discovery_mix`, `_start_playlist_radio`, `shuffle_prefs`, `home_shelves`, `region`, `show_selection_info`, `sidebar_overflow`** — all added as TYPE_CHECKING stubs / config fields with the project's existing patterns.
+- **`_BouncingLabel` and timing constants (`_BOUNCE_INTERVAL`, `_BOUNCE_PAUSE`) removed.**
+
+**Infrastructure / release engineering**
+
+- **AUR auto-publish workflow** — new `.github/workflows/aur-publish.yml` triggered after the `Publish` workflow succeeds. Clones the AUR `ytm-player-git` repository via SSH key (stored in `secrets.AUR_SSH_PRIVATE_KEY`), copies `aur/PKGBUILD`, regenerates `.SRCINFO` via the new `scripts/regenerate_srcinfo.py` helper, commits, and pushes. Gated on `event.workflow_run.event == 'push'` so TestPyPI dry-runs don't trigger a real AUR push.
+- **`scripts/regenerate_srcinfo.py`** — pure-Python `.SRCINFO` generator that parses `aur/PKGBUILD` (handles scalar fields, array fields, multi-line arrays, single/double quotes, shell-variable expansion via `_expand_vars`, and emits the canonical key-value format consumed by AUR). Runs on Ubuntu CI runners without requiring Arch Linux base-devel. 6 unit tests covering parser primitives, repo-PKGBUILD round-trip, and emit format.
+- **`RELEASING.md`** — repo-root release procedure. Documents the tag-driven flow (bump `__version__` → tag `vX.Y.Z` → push), what each automated workflow does (`publish.yml`, `aur-publish.yml`), the manual fallback for the AUR push if the action fails, the one-time setup for AUR SSH keys + GitHub secrets + PyPI trusted publishing, the dry-run path via TestPyPI, and the distribution-channel matrix (PyPI/AUR/GitHub Release automated; NixOS flake manual; Gentoo GURU community-maintained by @dsafxP).
+- **`AUR_SSH_PRIVATE_KEY` and `AUR_KNOWN_HOSTS` repo secrets** configured (one-time setup).
+
+**Distribution / community**
+
+- GitHub Sponsors profile published with 6 one-time tiers (Tip jar 🫙 / Coffee ☕ / Supporter 🙌 / Big supporter 💪 / Generous supporter 🎉 / Patron 👑). `.github/FUNDING.yml` added.
+- README screenshot refreshed to v6.
+
+**Known issues — deferred / outstanding**
+
+- **Charts country selector UI** — picker / predictive search to switch chart country at runtime instead of via config. Spec only.
+- **UX polish (4-8 from the in-session UX review)** — Library track-count subtitle, Search panel border deduplication + mode-toggle markup cleanup, Browse active-tab visual weight, Queue "Now Playing" header hierarchy.
+- **Phase 8 pre-release QA pass** — manual smoke through every page, exercising the new shuffle memory, sidebar overflow modes, discovery roulette, and Browse sub-tabs with realistic data.
+- **Mood click "crash" investigation** — user reports the app exiting on Mood category click; service-layer parser-error catching is in place and logged, but the exit mechanism (if any) hasn't been pinned down. Open thread.
+
+**Session note — release engineering**
+
+This release was assembled across one long session that pushed 50+ commits to public master, including ~14 UI-iteration commits that should have lived on a feature branch. Going forward: UI-iteration sagas land on `dev`, get squash-merged into `master` as one clean commit per saga.
 
 ---
 
