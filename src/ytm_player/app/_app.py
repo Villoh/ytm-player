@@ -14,7 +14,7 @@ else:
     import tomli as tomllib  # pyright: ignore[reportMissingImports]
 
 from textual.app import App, ComposeResult
-from textual.containers import Container, Horizontal
+from textual.containers import Container, Horizontal, Vertical
 
 from ytm_player.app._ipc import IPCMixin
 from ytm_player.app._keys import KeyHandlingMixin
@@ -364,8 +364,9 @@ class YTMPlayerApp(
     def compose(self) -> ComposeResult:
         yield HeaderBar(id="app-header")
         yield PlaybackBar(id="playback-bar")
-        yield SelectionInfoBar(id="selection-info-bar")
-        yield FooterBar(id="app-footer")
+        with Vertical(id="bottom-stack"):
+            yield SelectionInfoBar(id="selection-info-bar")
+            yield FooterBar(id="app-footer")
         with Horizontal(id="app-body"):
             yield PlaylistSidebar(id="playlist-sidebar")
             yield Container(id="main-content")

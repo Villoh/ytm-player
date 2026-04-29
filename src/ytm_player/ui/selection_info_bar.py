@@ -35,7 +35,6 @@ class SelectionInfoBar(Widget):
 
     DEFAULT_CSS = """
     SelectionInfoBar {
-        dock: bottom;
         height: 1;
         width: 100%;
         background: red;
