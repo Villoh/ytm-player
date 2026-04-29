@@ -52,7 +52,8 @@ class SelectionInfoBar(Widget):
         self._inner: Static | None = None
 
     def compose(self) -> ComposeResult:
-        self._inner = Static("", id="selection-info-text")
+        # DEBUG: force-render visible text on mount so we can verify the bar is laid out.
+        self._inner = Static("◀ SELECTION BAR ▶ (waiting for highlight)", id="selection-info-text")
         yield self._inner
 
     def watch_text(self, old: str, new: str) -> None:
