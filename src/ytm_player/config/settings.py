@@ -78,6 +78,7 @@ class UISettings:
     col_album: int = 0
     col_duration: int = 8
     bidi_mode: str = "auto"  # "auto", "reorder", "passthrough"
+    show_selection_info: bool = True
 
 
 @dataclass
