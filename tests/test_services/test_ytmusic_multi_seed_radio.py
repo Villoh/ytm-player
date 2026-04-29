@@ -133,3 +133,46 @@ class TestGetSeededRadio:
 
         ids = [t.get("video_id") for t in result]
         assert ids.count("shared") == 1
+
+    async def test_single_seed_preserves_order(self, svc):
+        """Single-seed get_radio must NOT shuffle — seed track stays first in result."""
+        raw_tracks = [
+            {"videoId": "seed", "title": "Seed Song"},
+            {"videoId": "next1", "title": "Next 1"},
+            {"videoId": "next2", "title": "Next 2"},
+        ]
+        with patch.object(
+            svc,
+            "_call",
+            new_callable=AsyncMock,
+            return_value={"tracks": raw_tracks},
+        ):
+            result = await svc.get_radio(["seed"])
+        # Single seed: order preserved, seed first.
+        assert [t["video_id"] for t in result] == ["seed", "next1", "next2"]
+
+    async def test_multi_seed_still_shuffles(self, svc):
+        """Multi-seed get_radio still shuffles for variety."""
+        import random
+
+        raw_tracks_a = [{"videoId": f"a{i}", "title": f"A{i}"} for i in range(20)]
+        raw_tracks_b = [{"videoId": f"b{i}", "title": f"B{i}"} for i in range(20)]
+
+        async def mock_call(func, **kwargs):
+            vid = kwargs.get("videoId", "")
+            if vid == "seedA":
+                return {"tracks": raw_tracks_a}
+            if vid == "seedB":
+                return {"tracks": raw_tracks_b}
+            return {"tracks": []}
+
+        random.seed(42)
+        with patch.object(svc, "_call", side_effect=mock_call):
+            result = await svc.get_radio(["seedA", "seedB"], limit=10)
+
+        # With shuffle, the result is overwhelmingly unlikely to match the
+        # raw concatenated order. limit=10 first 10 of (a0..a19, b0..b19).
+        ids = [t["video_id"] for t in result]
+        assert len(ids) == 10
+        raw_order = [f"a{i}" for i in range(10)]
+        assert ids != raw_order

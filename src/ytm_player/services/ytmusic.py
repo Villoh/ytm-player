@@ -511,7 +511,10 @@ class YTMusicService:
                     seen_ids.add(vid)
                     pool.append(track)
 
-        random.shuffle(pool)
+        # Single-seed callers (e.g., "Start Radio on this track") expect the seed
+        # track to lead. Only shuffle when there are multiple seeds (refill, discovery).
+        if len(video_ids) > 1:
+            random.shuffle(pool)
         return normalize_tracks(pool[:limit])
 
     async def get_discovery_mix(self) -> tuple[list[dict], str]:
