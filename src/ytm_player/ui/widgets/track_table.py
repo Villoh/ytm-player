@@ -251,13 +251,20 @@ class TrackTable(DataTable):
                 return
 
     def _highlight_playing(self) -> None:
-        """Update the index column to show the playing indicator.
+        """Update the index + title columns to show the playing indicator.
 
         Only touches the previously-playing and newly-playing rows
-        instead of iterating every row.
+        instead of iterating every row. The title cell of the playing
+        row gets bold + accent styling so the row stays visually
+        distinct even when the cursor is elsewhere \u2014 without competing
+        with the cursor-row CSS background.
         """
         if not self._show_index:
             return
+
+        from rich.text import Text
+
+        from ytm_player.utils.bidi import isolate_bidi, reorder_rtl_line
 
         # Find the new playing index by matching video_id.
         new_index: int | None = None
@@ -273,15 +280,24 @@ class TrackTable(DataTable):
         if old_index == new_index:
             return
 
-        # Restore the old row's original playlist number.
+        # Restore the old row's original index column + plain title cell.
         if old_index is not None and old_index < len(self._row_keys):
             try:
                 orig = self._tracks[old_index].get("_original_index", old_index) + 1
                 self.update_cell(self._row_keys[old_index], "index", str(orig))
             except Exception:
                 logger.debug("Failed to restore row number for index %d", old_index, exc_info=True)
+            try:
+                old_title = self._tracks[old_index].get("title", "Unknown")
+                self.update_cell(
+                    self._row_keys[old_index],
+                    "title",
+                    isolate_bidi(reorder_rtl_line(old_title)),
+                )
+            except Exception:
+                logger.debug("Failed to restore title for index %d", old_index, exc_info=True)
 
-        # Set the play indicator on the new row.
+        # Set the play indicator + bold-accent title on the new row.
         if new_index is not None and new_index < len(self._row_keys):
             try:
                 self.update_cell(self._row_keys[new_index], "index", "\u25b6")
@@ -289,6 +305,17 @@ class TrackTable(DataTable):
                 logger.debug(
                     "Failed to set playing indicator for index %d", new_index, exc_info=True
                 )
+            try:
+                from ytm_player.ui.theme import get_theme
+
+                new_title = self._tracks[new_index].get("title", "Unknown")
+                styled = Text(
+                    isolate_bidi(reorder_rtl_line(new_title)),
+                    style=f"bold {get_theme().primary}",
+                )
+                self.update_cell(self._row_keys[new_index], "title", styled)
+            except Exception:
+                logger.debug("Failed to set styled title for index %d", new_index, exc_info=True)
 
         self._playing_index = new_index
 
