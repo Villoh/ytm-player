@@ -52,9 +52,11 @@ def _build_session_host():
     h.queue.add_multiple = MagicMock()
     h.queue.jump_to = MagicMock()
     h.queue.toggle_shuffle = MagicMock()
+    h.queue.set_context = MagicMock()
     h.queue.tracks = []
     h.queue.current_track = None
     h.queue.current_index = 0
+    h.queue.current_context_id = None
     h.queue.repeat_mode = RepeatMode.OFF
     h.queue.shuffle_enabled = False
 

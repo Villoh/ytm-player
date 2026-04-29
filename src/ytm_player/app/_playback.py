@@ -311,6 +311,11 @@ class PlaybackMixin(YTMHostBase):
 
         self.queue.clear()
         self.queue.set_radio_tracks(tracks)
+        # Track-seeded radio and discovery mix are ephemeral — clear any
+        # prior context so a later shuffle toggle is not persisted to
+        # the wrong key (TP-7).  Playlist-seeded radio uses its own
+        # set_context() in _start_playlist_radio.
+        self.queue.set_context(None)
         self._refresh_queue_page()
         label = label or f"Radio generated from {seeds[0].get('title', 'Unknown')}"
         first = self.queue.next_track()

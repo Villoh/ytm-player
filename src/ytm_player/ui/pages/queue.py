@@ -343,6 +343,11 @@ class QueuePage(Widget):
             case Action.TOGGLE_SHUFFLE:
                 queue.toggle_shuffle()
                 self._refresh_queue()
+                # Persist preference for the active collection (no-op if
+                # the queue is ephemeral / has no context).
+                ctx = queue.current_context_id
+                if ctx:
+                    self.app.shuffle_prefs.set(ctx, queue.shuffle_enabled)  # type: ignore[attr-defined]
 
     def _is_reorder_context(self) -> bool:
         """Always allow reorder in the queue page."""

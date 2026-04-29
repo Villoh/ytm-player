@@ -178,6 +178,16 @@ class RecentlyPlayedPage(Widget):
             pass
         return state
 
+    _CONTEXT_ID = "__RECENTLY_PLAYED__"
+
+    def _apply_shuffle_pref(self, queue: Any) -> None:
+        """Set queue context to the Recently Played sentinel and restore shuffle pref."""
+        queue.set_context(self._CONTEXT_ID)
+        prefs = self.app.shuffle_prefs  # type: ignore[attr-defined]
+        saved = prefs.get(self._CONTEXT_ID)
+        if saved is not None and queue.shuffle_enabled != saved:
+            queue.toggle_shuffle()
+
     async def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         event.stop()
         idx = event.cursor_row
@@ -186,6 +196,7 @@ class RecentlyPlayedPage(Widget):
             queue = self.app.queue  # type: ignore[attr-defined]
             queue.add(track)
             queue.jump_to_real(queue.length - 1)
+            self._apply_shuffle_pref(queue)
             await self.app.play_track(track)  # type: ignore[attr-defined]
 
     async def handle_action(self, action: Action, count: int = 1) -> None:
@@ -223,6 +234,7 @@ class RecentlyPlayedPage(Widget):
                     queue = self.app.queue  # type: ignore[attr-defined]
                     queue.add(track)
                     queue.jump_to_real(queue.length - 1)
+                    self._apply_shuffle_pref(queue)
                     await self.app.play_track(track)  # type: ignore[attr-defined]
             case Action.ADD_TO_QUEUE:
                 if table.cursor_row is not None and 0 <= table.cursor_row < len(self._tracks):

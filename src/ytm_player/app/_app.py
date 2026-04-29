@@ -38,6 +38,7 @@ from ytm_player.services.mediakeys import MediaKeysService
 from ytm_player.services.mpris import MPRISService
 from ytm_player.services.player import Player, PlayerEvent
 from ytm_player.services.queue import QueueManager
+from ytm_player.services.shuffle_prefs import ShufflePreferences
 from ytm_player.services.stream import StreamResolver
 from ytm_player.services.ytmusic import YTMusicService
 from ytm_player.ui.header_bar import HeaderBar
@@ -201,6 +202,11 @@ class YTMPlayerApp(
         self.discord: DiscordRPC | None = None
         self.lastfm: LastFMService | None = None
         self.downloader: DownloadService = DownloadService()
+
+        # Per-collection shuffle memory (Spotify-style).
+        from ytm_player.config.paths import SHUFFLE_PREFS_FILE
+
+        self.shuffle_prefs: ShufflePreferences = ShufflePreferences(SHUFFLE_PREFS_FILE)
 
         # Key input state for multi-key sequences and count prefixes.
         self._key_buffer: list[str] = []

@@ -13,6 +13,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **Proactive queue refill** — autoplay silently tops up the queue before it runs dry, seeded from recently-played tracks
 - **Discovery Mix** — new sidebar item that plays a random mix from your home picks, trending, moods, charts, liked songs, library artists, or listening history
 - **Multi-seed radio** — radio requests use multiple seeds for better variety
+- **Per-collection shuffle memory** — shuffle state is now remembered per playlist, album, and artist. Toggle shuffle on a playlist, switch to another, come back later — preferences stick. Persists to `~/.config/ytm-player/shuffle_prefs.json`. LRU-capped at 1000 entries.
 
 ---
 

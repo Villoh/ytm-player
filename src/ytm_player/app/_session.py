@@ -67,6 +67,12 @@ class SessionMixin(YTMHostBase):
         if state.get("shuffle", False):
             self.queue.toggle_shuffle()
 
+        # Restore the queue's collection identity so a post-restart
+        # shuffle toggle persists to the right key (TP-7).
+        saved_context = state.get("queue_context_id")
+        if isinstance(saved_context, str) and saved_context:
+            self.queue.set_context(saved_context)
+
         # Update the playback bar to reflect restored state.
         try:
             bar = self.query_one("#playback-bar", PlaybackBar)
@@ -189,6 +195,7 @@ class SessionMixin(YTMHostBase):
             "shuffle": self.queue.shuffle_enabled,
             "queue_tracks": queue_tracks,
             "queue_index": queue_index,
+            "queue_context_id": self.queue.current_context_id,
             "resume": resume,
             "sidebar_per_page": self._sidebar_per_page,
             "lyrics_sidebar_open": self._lyrics_sidebar_open,

@@ -128,6 +128,11 @@ class SidebarMixin(YTMHostBase):
             self.queue.clear()
             self.queue.add_multiple(tracks)
             self.queue.jump_to(0)
+            # Per-collection shuffle memory (TP-7).
+            self.queue.set_context(playlist_id)
+            saved = self.shuffle_prefs.get(playlist_id)
+            if saved is not None and self.queue.shuffle_enabled != saved:
+                self.queue.toggle_shuffle()
             self._active_library_playlist_id = playlist_id
             await self.play_track(self.queue.current_track)
 
@@ -288,6 +293,12 @@ class SidebarMixin(YTMHostBase):
         if radio_tracks:
             self.queue.clear()
             self.queue.set_radio_tracks(radio_tracks)
+            # Per-collection shuffle memory (TP-7) — radio of a playlist
+            # still belongs to that playlist's identity.
+            self.queue.set_context(playlist_id)
+            saved = self.shuffle_prefs.get(playlist_id)
+            if saved is not None and self.queue.shuffle_enabled != saved:
+                self.queue.toggle_shuffle()
             first = self.queue.next_track()
             if first:
                 await self.play_track(first)

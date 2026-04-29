@@ -851,6 +851,10 @@ class SearchPage(Widget):
             host.queue.clear()
             host.queue.add_multiple(table.tracks)
             host.queue.jump_to_real(event.index)
+            # Search results are ephemeral — clear context so a later
+            # shuffle toggle isn't saved against whatever collection
+            # was previously playing (TP-7).
+            host.queue.set_context(None)
             await host.play_track(track)
 
     async def on_search_result_panel_item_selected(

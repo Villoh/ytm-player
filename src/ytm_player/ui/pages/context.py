@@ -586,13 +586,23 @@ class ContextPage(Widget):
         tracks = table.tracks
         idx = event.index
 
+        host = cast("YTMHostBase", self.app)
+
         # Load all tracks into the queue starting from the selected one.
-        self.app.queue.clear()  # type: ignore[attr-defined]
-        self.app.queue.add_multiple(tracks)  # type: ignore[attr-defined]
-        self.app.queue.jump_to_real(idx)  # type: ignore[attr-defined]
+        host.queue.clear()
+        host.queue.add_multiple(tracks)
+        host.queue.jump_to_real(idx)
+
+        # Per-collection shuffle memory (TP-7) — context_id is the album/
+        # artist/playlist ID this page is showing.
+        host.queue.set_context(self.context_id)
+        if self.context_id:
+            saved = host.shuffle_prefs.get(self.context_id)
+            if saved is not None and host.queue.shuffle_enabled != saved:
+                host.queue.toggle_shuffle()
 
         # Play selected track.
-        await self.app.play_track(event.track)  # type: ignore[attr-defined]
+        await host.play_track(event.track)
 
     async def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handle album selection in artist view."""

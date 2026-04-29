@@ -252,7 +252,18 @@ class LikedSongsPage(Widget):
             queue.clear()
             queue.add_multiple(self._tracks)
             queue.jump_to_real(idx)
+            self._apply_shuffle_pref(queue)
             await self.app.play_track(self._tracks[idx])  # type: ignore[attr-defined]
+
+    _CONTEXT_ID = "__LIKED_SONGS__"
+
+    def _apply_shuffle_pref(self, queue: Any) -> None:
+        """Set queue context to the Liked Songs sentinel and restore shuffle pref."""
+        queue.set_context(self._CONTEXT_ID)
+        prefs = self.app.shuffle_prefs  # type: ignore[attr-defined]
+        saved = prefs.get(self._CONTEXT_ID)
+        if saved is not None and queue.shuffle_enabled != saved:
+            queue.toggle_shuffle()
 
     async def handle_action(self, action: Action, count: int = 1) -> None:
         table = self.query_one("#liked-table", DataTable)
@@ -296,6 +307,7 @@ class LikedSongsPage(Widget):
                     queue.clear()
                     queue.add_multiple(self._tracks)
                     queue.jump_to_real(idx)
+                    self._apply_shuffle_pref(queue)
                     await self.app.play_track(self._tracks[idx])  # type: ignore[attr-defined]
             case Action.ADD_TO_QUEUE:
                 idx = self._resolve_row_idx(table.cursor_row)

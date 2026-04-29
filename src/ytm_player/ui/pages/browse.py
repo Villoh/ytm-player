@@ -788,6 +788,8 @@ class BrowsePage(Widget):
         host.queue.clear()
         host.queue.add_multiple(table.tracks)
         host.queue.jump_to_real(event.index)
+        # Charts queue is ephemeral — clear any prior context (TP-7).
+        host.queue.set_context(None)
         await host.play_track(event.track)
 
     async def _navigate_item(self, item: dict[str, Any]) -> None:

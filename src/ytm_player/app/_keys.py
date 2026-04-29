@@ -171,6 +171,11 @@ class KeyHandlingMixin(YTMHostBase):
                 bar.update_shuffle(self.queue.shuffle_enabled)
                 state = "on" if self.queue.shuffle_enabled else "off"
                 self.notify(f"Shuffle: {state}", timeout=2)
+                # Persist preference for the active collection (no-op if
+                # the queue is ephemeral / has no context).
+                ctx = self.queue.current_context_id
+                if ctx:
+                    self.shuffle_prefs.set(ctx, self.queue.shuffle_enabled)
 
             # -- Page navigation --
             case Action.LIBRARY:

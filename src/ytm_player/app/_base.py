@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from ytm_player.services.mpris import MPRISService
     from ytm_player.services.player import Player
     from ytm_player.services.queue import QueueManager
+    from ytm_player.services.shuffle_prefs import ShufflePreferences
     from ytm_player.services.stream import StreamResolver
     from ytm_player.services.ytmusic import YTMusicService
     from ytm_player.ui.theme import ThemeColors
@@ -84,6 +85,7 @@ if TYPE_CHECKING:
         discord: DiscordRPC | None
         lastfm: LastFMService | None
         downloader: DownloadService
+        shuffle_prefs: ShufflePreferences
 
         # ── Key input state ────────────────────────────────────────────
         _key_buffer: list[str]

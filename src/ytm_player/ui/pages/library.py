@@ -374,7 +374,12 @@ class LibraryPage(Widget):
         host.queue.clear()
         host.queue.add_multiple(tracks)
         host.queue.jump_to_real(idx)
+        # Per-collection shuffle memory (TP-7).
+        host.queue.set_context(self._active_playlist_id)
         if self._active_playlist_id:
+            saved = host.shuffle_prefs.get(self._active_playlist_id)
+            if saved is not None and host.queue.shuffle_enabled != saved:
+                host.queue.toggle_shuffle()
             host._active_library_playlist_id = self._active_playlist_id
         await host.play_track(event.track)
 
