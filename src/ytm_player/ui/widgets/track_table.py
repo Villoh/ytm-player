@@ -377,7 +377,11 @@ class TrackTable(DataTable):
                     self.update_cell(row_key, col_key, value)
             except Exception:
                 logger.debug("Failed to style row %d cells", new_index, exc_info=True)
-            _set_row_label(row_key, Text("▶", style=f"bold {color_hex}"))
+            try:
+                text_hex = Color.parse(get_theme().text or "#ffffff").hex
+            except Exception:
+                text_hex = "#ffffff"
+            _set_row_label(row_key, Text("▶", style=f"bold {text_hex}"))
 
         self._playing_index = new_index
 
