@@ -29,9 +29,9 @@ def truncate(text: str, max_len: int) -> str:
         return ""
     if len(text) <= max_len:
         return text
-    if max_len <= 3:
+    if max_len <= 1:
         return text[:max_len]
-    return text[: max_len - 3] + "..."
+    return text[: max_len - 1] + "…"
 
 
 def format_count(n: int) -> str:

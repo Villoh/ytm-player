@@ -51,9 +51,9 @@ class TestTruncate:
             ("", 10, ""),
             ("Hello", 10, "Hello"),
             ("Hello", 5, "Hello"),
-            ("Hello World", 8, "Hello..."),
-            ("Hello World", 3, "Hel"),
-            ("Hello World", 2, "He"),
+            ("Hello World", 8, "Hello W…"),
+            ("Hello World", 3, "He…"),
+            ("Hello World", 2, "H…"),
             ("Hello World", 1, "H"),
             ("Hello World", 0, ""),
             ("Hi", 4, "Hi"),
@@ -61,6 +61,27 @@ class TestTruncate:
     )
     def test_truncate(self, text, max_len, expected):
         assert truncate(text, max_len) == expected
+
+    def test_truncate_uses_unicode_ellipsis_on_overflow(self):
+        """When text exceeds max_len, the suffix is the single Unicode char '…' not '...'."""
+        result = truncate("Hello World", 8)
+        # Expect "Hello W…" — 7 chars + 1 ellipsis = 8 total
+        assert result == "Hello W…"
+        assert "…" in result
+        assert "..." not in result
+
+    def test_truncate_unicode_ellipsis_max_len_one(self):
+        """When max_len is 1, return single ellipsis char (or first char — match implementation)."""
+        result = truncate("abcdef", 1)
+        # max_len <= 1 falls into the small-buffer path; we accept either "a" or "…"
+        # as long as it's 1 char
+        assert len(result) == 1
+
+    def test_truncate_unicode_ellipsis_no_overflow(self):
+        """When text fits, no ellipsis added."""
+        result = truncate("short", 10)
+        assert result == "short"
+        assert "…" not in result
 
 
 # ── format_count ─────────────────────────────────────────────────────
