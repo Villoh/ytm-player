@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from ytm_player.app._base import YTMHostBase
 from ytm_player.ui.playback_bar import PlaybackBar
@@ -189,3 +190,20 @@ class TrackActionsMixin(YTMHostBase):
     def on_playback_bar_track_right_clicked(self, message: PlaybackBar.TrackRightClicked) -> None:
         """Handle right-click on the playback bar -- open actions popup."""
         self._open_actions_for_track(message.track)
+
+    def on_selection_changed(self, message: Any) -> None:
+        """Relay SelectionChanged messages to the SelectionInfoBar.
+
+        SelectionChanged bubbles up the DOM from descendants (sidebar items,
+        TrackTable rows). The bar is a sibling of those widgets — it's NOT
+        an ancestor — so the bubble never reaches it directly. The App is
+        the common ancestor: catch the message here and push the text to
+        the bar by id.
+        """
+        try:
+            from ytm_player.ui.selection_info_bar import SelectionInfoBar
+
+            bar = self.query_one("#selection-info-bar", SelectionInfoBar)
+            bar.text = getattr(message, "text", "")
+        except Exception:
+            logger.debug("Failed to relay SelectionChanged to bar", exc_info=True)
