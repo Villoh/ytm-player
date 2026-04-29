@@ -482,12 +482,19 @@ class TrackTable(DataTable):
             self.post_message(self.TrackSelected(self._tracks[row_idx], original_idx))
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
-        """Forward row highlight as a TrackHighlighted message and update SelectionInfoBar."""
+        """Forward row highlight as a TrackHighlighted message and update SelectionInfoBar.
+
+        Only posts SelectionChanged when this table is actually focused —
+        otherwise a freshly-mounted table fires RowHighlighted at row 0
+        on init and stomps the sidebar's selection in the info bar.
+        """
         row_idx = event.cursor_row
         track = self._tracks[row_idx] if 0 <= row_idx < len(self._tracks) else None
         self.post_message(self.TrackHighlighted(track, row_idx))
 
-        # Bubble a SelectionChanged message for SelectionInfoBar.
+        if not self.has_focus:
+            return
+
         try:
             if track is None:
                 self.post_message(SelectionChanged(""))
@@ -497,7 +504,21 @@ class TrackTable(DataTable):
             label = f"{title} — {artist}" if artist else title
             self.post_message(SelectionChanged(label))
         except Exception:
-            # Graceful degrade: never let SelectionInfoBar bookkeeping break navigation.
+            self.post_message(SelectionChanged(""))
+
+    def on_focus(self) -> None:
+        """When focus moves to this table, push the current row into the bar."""
+        try:
+            row_idx = self.cursor_row
+            if row_idx is None or not (0 <= row_idx < len(self._tracks)):
+                self.post_message(SelectionChanged(""))
+                return
+            track = self._tracks[row_idx]
+            title = track.get("title", "") or ""
+            artist = extract_artist(track) or ""
+            label = f"{title} — {artist}" if artist else title
+            self.post_message(SelectionChanged(label))
+        except Exception:
             self.post_message(SelectionChanged(""))
 
     def on_click(self, event: Click) -> None:

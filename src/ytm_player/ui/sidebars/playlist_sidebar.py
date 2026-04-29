@@ -320,9 +320,31 @@ class LibraryPanel(Widget):
     # -- Highlight --
 
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
-        """Post SelectionChanged so SelectionInfoBar can display the full title."""
+        """Post SelectionChanged so SelectionInfoBar can display the full title.
+
+        Only posts when this panel's ListView actually has focus — otherwise
+        a freshly-mounted ListView fires Highlighted at index 0 on init and
+        stomps a different focused widget's selection in the info bar.
+        """
         try:
-            sel_idx = event.list_view.index
+            list_view = event.list_view
+            if not list_view.has_focus:
+                return
+            sel_idx = list_view.index
+            if sel_idx is not None and 0 <= sel_idx < len(self._filtered_items):
+                item = self._filtered_items[sel_idx]
+                title = item.get("title", item.get("name", ""))
+                self.post_message(SelectionChanged(title))
+            else:
+                self.post_message(SelectionChanged(""))
+        except Exception:
+            self.post_message(SelectionChanged(""))
+
+    def on_focus(self) -> None:
+        """When the panel gains focus, push the current highlight into the info bar."""
+        try:
+            list_view = self.query_one(ListView)
+            sel_idx = list_view.index
             if sel_idx is not None and 0 <= sel_idx < len(self._filtered_items):
                 item = self._filtered_items[sel_idx]
                 title = item.get("title", item.get("name", ""))
