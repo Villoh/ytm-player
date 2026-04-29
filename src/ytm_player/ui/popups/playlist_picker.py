@@ -312,6 +312,15 @@ class PlaylistPicker(ModalScreen[str | None]):
 
             _record_recent(playlist_id)
 
+            # Optimistic sidebar count update — before next library reload.
+            try:
+                from ytm_player.ui.sidebars.playlist_sidebar import LibraryPanel
+
+                panel = self.app.query_one("#ps-playlists", LibraryPanel)
+                panel.update_item_count(playlist_id, +len(self.video_ids))
+            except Exception:
+                logger.debug("Sidebar count update failed", exc_info=True)
+
             track_word = "track" if len(self.video_ids) == 1 else "tracks"
             self.notify(
                 f"Added {len(self.video_ids)} {track_word} to '{name}'",
@@ -350,6 +359,15 @@ class PlaylistPicker(ModalScreen[str | None]):
                 return
 
             _record_recent(playlist_id)
+
+            # Optimistic sidebar count update — before next library reload.
+            try:
+                from ytm_player.ui.sidebars.playlist_sidebar import LibraryPanel
+
+                panel = self.app.query_one("#ps-playlists", LibraryPanel)
+                panel.update_item_count(playlist_id, +len(self.video_ids))
+            except Exception:
+                logger.debug("Sidebar count update failed", exc_info=True)
 
             track_word = "track" if len(self.video_ids) == 1 else "tracks"
             self.notify(
