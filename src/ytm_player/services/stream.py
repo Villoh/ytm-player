@@ -85,6 +85,8 @@ class StreamResolver:
             # Avoid writing any files to disk.
             "writeinfojson": False,
             "writethumbnail": False,
+            # Android client provides a non-PoT fallback path (legacy format 18)
+            # that unblocks madeForKids content which the default web client refuses.
             "extractor_args": {"youtube": {"player_client": ["default", "android"]}},
         }
         return apply_configured_yt_dlp_options(opts, settings)

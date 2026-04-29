@@ -108,6 +108,42 @@ Pyright narrows on `sys.version_info` correctly, so the `# pyright: ignore` only
 
 **Mixin attribute typing** — mixins in `src/ytm_player/app/_*.py` (PlaybackMixin, SessionMixin, etc.) extend `YTMHostBase` from `app/_base.py`, a `TYPE_CHECKING`-only stub class that mirrors the runtime instance attribute surface. At runtime `YTMHostBase = object` — zero behaviour change. If you add a new instance attribute to `YTMPlayerApp.__init__` and reference it from a mixin, also declare it on `YTMHostBase` so Pyright doesn't emit "Cannot access attribute X" noise.
 
+## Theming & UI
+
+ytm-player ships with a CSS-variable–based theming system. Users can override every color by editing `~/.config/ytm-player/theme.toml`, so widget code must respect that contract.
+
+**Rule: no hardcoded hex colors in widget CSS.**
+
+All UI colors flow through theme variables defined in `src/ytm_player/ui/theme.py:ThemeColors`. Use the variables in your `DEFAULT_CSS` strings:
+
+| Variable | Use for |
+|----------|---------|
+| `$primary` | Active states, accents, focus indicators |
+| `$secondary` | Secondary accents |
+| `$text` | Primary readable text |
+| `$text-muted` | Subtitles, captions, less-important info |
+| `$surface` | Background fills for distinct UI areas |
+| `$border` | Lines, separators, edges |
+| `$accent` | High-emphasis highlights |
+
+**Don't write:**
+
+```css
+border-bottom: solid #444444;
+color: #2ecc71;
+```
+
+**Do write:**
+
+```css
+border-bottom: solid $border;
+color: $primary;
+```
+
+Hardcoded hex colors break theme switching and make custom `theme.toml` files inconsistent. The exception is `theme.py:ThemeColors` itself, which defines the defaults. Lyrics-current color is themed via `lyrics_current` (default `#2ecc71`) — even that goes through the theme system, never hardcoded in widget CSS.
+
+When adding a new UI element with a color requirement that doesn't fit existing variables, propose adding a new variable to `ThemeColors` (with a sensible default) rather than hardcoding.
+
 ## Architecture pointers
 
 - `app/` — main app split into mixins (lifecycle, playback, navigation, etc.)
