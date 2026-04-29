@@ -62,6 +62,14 @@ class LibraryPanel(Widget):
         background: $accent 30%;
     }
 
+    LibraryPanel.truncate-items ListView ListItem {
+        height: 1;
+    }
+
+    LibraryPanel.truncate-items ListView ListItem Static {
+        height: 1;
+    }
+
     LibraryPanel .panel-loading {
         height: 1fr;
         width: 1fr;
@@ -138,6 +146,14 @@ class LibraryPanel(Widget):
 
     def on_mount(self) -> None:
         self._set_loading_visible(True)
+        # Apply [ui] sidebar_overflow setting via CSS class.
+        try:
+            from ytm_player.config.settings import get_settings
+
+            if get_settings().ui.sidebar_overflow == "truncate":
+                self.add_class("truncate-items")
+        except Exception:
+            logger.debug("Failed to apply sidebar_overflow class", exc_info=True)
 
     def _set_loading_visible(self, visible: bool) -> None:
         try:
@@ -161,7 +177,7 @@ class LibraryPanel(Widget):
         self._items.insert(0, item)
         self._filtered_items.insert(0, item)
         full_text = self._format_item(item)
-        lbl = Static(truncate(full_text, 60))
+        lbl = Static(self._render_text(full_text))
         list_view = self.query_one(ListView)
         list_view.insert(0, [ListItem(lbl)])
         count_label = self.query_one(".panel-count", Static)
@@ -223,7 +239,7 @@ class LibraryPanel(Widget):
         list_view.clear()
         for item in items:
             full_text = self._format_item(item)
-            lbl = Static(truncate(full_text, 60))
+            lbl = Static(self._render_text(full_text))
             list_view.append(ListItem(lbl))
         count_label = self.query_one(".panel-count", Static)
         total = len(self._items)
@@ -239,6 +255,25 @@ class LibraryPanel(Widget):
         if count is not None:
             return f"{title} ({count} tracks)"
         return title
+
+    def _render_text(self, full_text: str) -> str:
+        """Apply the configured overflow rule to *full_text*.
+
+        - "truncate" (default): hard-cut to 60 chars with `…` suffix on overflow.
+          The `truncate-items` CSS class additionally clips the row to height 1
+          so even truncated-but-still-too-wide text won't wrap visually.
+        - "wrap": pass the text through unchanged; Textual's Static widget will
+          wrap to multiple lines naturally.
+        """
+        try:
+            from ytm_player.config.settings import get_settings
+
+            mode = get_settings().ui.sidebar_overflow
+        except Exception:
+            mode = "truncate"
+        if mode == "wrap":
+            return full_text
+        return truncate(full_text, 60)
 
     # -- Filtering --
 
