@@ -80,7 +80,7 @@ class UISettings:
     bidi_mode: str = "auto"  # "auto", "reorder", "passthrough"
     show_selection_info: bool = True
     home_shelves: int = 3
-    region: str = "US"  # ISO 3166-1 alpha-2 — used by Browse > Charts
+    region: str = "GB"  # ISO 3166-1 alpha-2 — used by Browse > Charts
     sidebar_overflow: str = "truncate"  # "truncate" or "wrap"
 
 

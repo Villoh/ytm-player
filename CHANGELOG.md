@@ -8,6 +8,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### v1.9.0 (2026-04-30)
 
+This is the third and final wave of major updates in a rapid release cycle — quieter cadence ahead.
+
 A community-PR-driven feature release. Six PRs from @wgordon17 plus user-reported UX work, an AUR auto-publish pipeline, and a per-collection shuffle memory system. Distribution data milestone — crossed 10,000 lifetime PyPI downloads on the day this release was assembled.
 
 **New features**
@@ -22,7 +24,7 @@ A community-PR-driven feature release. Six PRs from @wgordon17 plus user-reporte
 - **Sidebar overflow config** (`[ui] sidebar_overflow`) — `"truncate"` (default) guarantees exactly 1 row per playlist with a `…` ellipsis on overflow, or `"wrap"` to let names span multiple lines naturally. Implementation via a `truncate-items` CSS class on `LibraryPanel` plus a `_render_text` helper that picks the right strategy per mode.
 - **Selection info bar** — a 1-row strip mounted between the page body and the playback bar, displays the full name of the currently-focused item (sidebar playlist or TrackTable row). Toggleable via `[ui] show_selection_info: bool = True`. Replaces the old marquee/bouncing-text animation in playlist sidebars. The bar is gated on widget focus so it shows only what the user is actively navigating, not whatever auto-highlighted in a freshly-mounted panel.
 - **Now-playing row indicator** — every TrackTable now uses Textual's row-label feature to show a `▶` glyph in a dedicated 1-char column to the left of the index, marking the playing row independently of cursor state. Bold (no color) on data cells of the playing row provides a secondary at-a-glance signal. The glyph survives navigation away and back via `cursor_foreground_priority="renderable"` and an `on_mount` lookup of the app's current playing track. This pattern follows the canonical approach used by spotify-tui, ncmpcpp, and cmus.
-- **Charts country support** — `get_charts(country=)` now defaults to `"US"` instead of YouTube's empty-data `"ZZ"` placeholder. New `[ui] region` config field (ISO 3166-1 alpha-2) lets users pin Charts to their preferred country without code changes. The Charts page now resolves the top daily chart playlist into a track table (ytmusicapi's `get_charts` no longer returns a flat songs list — daily/weekly/genres/artists chart playlists is the new shape).
+- **Charts country support** — `get_charts(country=)` now defaults to `"GB"` instead of YouTube's empty-data `"ZZ"` placeholder. New `[ui] region` config field (ISO 3166-1 alpha-2) lets users pin Charts to their preferred country without code changes. The Charts page now resolves the top daily chart playlist into a track table (ytmusicapi's `get_charts` no longer returns a flat songs list — daily/weekly/genres/artists chart playlists is the new shape).
 
 **Fixes**
 
@@ -45,9 +47,18 @@ A community-PR-driven feature release. Six PRs from @wgordon17 plus user-reporte
 - **App-level `_handle_exception` override** — the YTMPlayerApp overrides Textual's `App._handle_exception` (documented "Always results in the app exiting") to write a crash file via `write_crash_file()`, surface a toast, and **not** call `super()`. Keeps the TUI alive on otherwise-fatal worker / render / event errors so the user doesn't lose their queue position to a transient failure.
 - **`write_crash_file` self-bootstraps** — falls back to `paths.CRASH_DIR` when `install_excepthooks` was never called, and logs `OSError` instead of silently returning `None`. Fixes the "crashes dir empty after a real crash" diagnostic black hole.
 
-**Charts country selector**
+**Charts**
 
-- **Press `c` on Browse → Charts** to open a filterable region modal. Type to filter on ISO code or country name; Enter to select; Esc to cancel. Selection persists to `[ui] region` in `config.toml` and triggers a chart refetch. New `Action.PICK_COUNTRY` enum entry, default binding `c`. Region list (53 markets + ZZ-Global) lives in `src/ytm_player/services/regions.py`. Modal at `src/ytm_player/ui/popups/country_picker.py` follows the existing `playlist_picker.py` pattern. Help-page coverage updated.
+- **Country picker (`c`)** — press `c` on Browse → Charts to open a filterable region modal. Type to filter on ISO code or country name; Enter to select; Esc to cancel. Selection persists to `[ui] region` in `config.toml` and triggers a chart refetch. New `Action.PICK_COUNTRY` enum entry, default binding `c`.
+- **Region list trimmed to 17** empirically-verified working countries (Australia, Brazil, Canada, France, Germany, Hong Kong, Japan, Malaysia, Mexico, Singapore, South Korea, Taiwan, Thailand, UAE, UK, US, Vietnam). YouTube's `countries.options` advertises 62 but most return no daily-chart data even with auth; trimmed to the subset that actually displays tracks.
+- **Daily-shelf pills** — clickable pill row above the track table shows all available daily chart shelves for the selected country (typically `Daily Top 100` / `Trending 20` / `Daily Top Videos` / `Daily Top Songs (Shorts)` — labels stripped of brand prefixes like `Coachella 2026:` and country suffixes). Click a pill to swap the table to that shelf's playlist. `HorizontalScroll` container keeps pills usable on narrow terminals.
+- **OLAK5 playlist fallback** — Trending shelves use OLAK5-prefixed auto-generated playlist IDs that ytmusicapi's `get_playlist` chokes on (`tracks[0]['album']` is `None` → TypeError). `ChartsSection._load_active_daily` detects the prefix and uses `get_watch_playlist` instead, which calls a different endpoint and parses correctly. Service-layer `YTMusicService.get_watch_playlist` extended to accept a `playlist_id`-only call shape (was video-only before).
+- **Empty-region UX** — a region picked with no chart data now shows `"No chart data available for <country>. YouTube Music coverage varies by region — press 'c' to pick a different one."` instead of the previous catch-all `"Failed to load charts."`.
+
+**Navigation**
+
+- **Browser-style back / forward** — `← Back` and `Forward →` buttons in the header bar (next to `☰ Playlists`). Auto-hide on root pages and at the front of history. Keys: `Backspace` (back), `Shift+Backspace` (forward). Forward stack invalidates on any non-back/forward navigation, matching every browser/file-explorer.
+- **Click bubbling fix** — `Action.PICK_COUNTRY` was missing from `app/_keys.py:_handle_action`'s page-delegation allowlist, so `c` silently no-op'd when first shipped. Added the entry; same `_app-header` ID-based HeaderBar lookup as the rest of the codebase.
 
 **UI / theming**
 
@@ -69,14 +80,8 @@ A community-PR-driven feature release. Six PRs from @wgordon17 plus user-reporte
 - **`RELEASING.md`** — repo-root release procedure. Documents the tag-driven flow (bump `__version__` → tag `vX.Y.Z` → push), what each automated workflow does (`publish.yml`, `aur-publish.yml`), the manual fallback for the AUR push if the action fails, the one-time setup for AUR SSH keys + GitHub secrets + PyPI trusted publishing, the dry-run path via TestPyPI, and the distribution-channel matrix (PyPI/AUR/GitHub Release automated; NixOS flake manual; Gentoo GURU community-maintained by @dsafxP).
 - **`AUR_SSH_PRIVATE_KEY` and `AUR_KNOWN_HOSTS` repo secrets** configured (one-time setup).
 
-**Distribution / community**
+**Coming next**
 
-- GitHub Sponsors profile published with 6 one-time tiers (Tip jar 🫙 / Coffee ☕ / Supporter 🙌 / Big supporter 💪 / Generous supporter 🎉 / Patron 👑). `.github/FUNDING.yml` added.
-- README screenshot refreshed to v6.
-
-**Known issues — deferred / outstanding**
-
-- **Moods & Genres tab restoration** — removed for v1.9.0 because clicking a mood produced a silent process-exit no Python-level handler could catch (audit at `docs/superpowers/specs/2026-04-30-mood-crash-findings.md` ruled out every enumerated cause). The diagnostic infrastructure shipped this release should capture the actual exit on the next reproduction; restoring the tab depends on that trace.
 - **UX polish (4-8 from the in-session UX review)** — Library track-count subtitle, Search panel border deduplication + mode-toggle markup cleanup, Browse active-tab visual weight, Queue "Now Playing" header hierarchy.
 - **Phase 8 pre-release QA pass** — manual smoke through every page, exercising the new shuffle memory, sidebar overflow modes, discovery roulette, and Browse sub-tabs with realistic data.
 
