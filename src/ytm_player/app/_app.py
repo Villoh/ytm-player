@@ -417,7 +417,7 @@ class YTMPlayerApp(
         # error shouldn't cost them their queue position.
 
     def _asyncio_exception_handler(
-        self, loop: asyncio.AbstractEventLoop, context: dict[str, Any]
+        self, _loop: asyncio.AbstractEventLoop, context: dict[str, Any]
     ) -> None:
         """Capture asyncio loop exceptions that bypass _handle_exception.
 
