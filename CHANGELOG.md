@@ -8,7 +8,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### v1.9.0 (2026-04-30)
 
-A community-PR-driven feature release. Six PRs from @wgordon17 (Principal SRE on OpenShift at Red Hat) plus user-reported UX work, an AUR auto-publish pipeline, and a per-collection shuffle memory system. Distribution data milestone — crossed 10,000 lifetime PyPI downloads on the day this release was assembled.
+A community-PR-driven feature release. Six PRs from @wgordon17 plus user-reported UX work, an AUR auto-publish pipeline, and a per-collection shuffle memory system. Distribution data milestone — crossed 10,000 lifetime PyPI downloads on the day this release was assembled.
 
 **New features**
 

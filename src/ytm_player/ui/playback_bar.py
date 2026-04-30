@@ -200,6 +200,12 @@ class _ShuffleButton(Widget):
         app = cast("YTMHostBase", self.app)
         app.queue.toggle_shuffle()
         enabled = app.queue.shuffle_enabled
+        # Persist per-collection preference so future visits to this
+        # collection restore the toggle (TP-7 shuffle memory). Mirrors
+        # the keymap path in app/_keys.py:Action.TOGGLE_SHUFFLE.
+        ctx = app.queue.current_context_id
+        if ctx:
+            app.shuffle_prefs.set(ctx, enabled)
         try:
             bar = app.query_one("#playback-bar", PlaybackBar)
             bar.update_shuffle(enabled)
