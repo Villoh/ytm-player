@@ -395,3 +395,95 @@ class TestUnraisableHook:
 
         assert len(chain_calls) == 1
         assert chain_calls[0] is hook_args
+
+
+class TestGetRecentLogLinesFilter:
+    """get_recent_log_lines must support filtering by level >= threshold."""
+
+    def test_no_filter_returns_all_recent(self, tmp_path: Path):
+        from ytm_player.utils.logging import get_recent_log_lines
+
+        log = tmp_path / "ytm.log"
+        log.write_text(
+            "2026-04-30 01:00:00 [DEBUG] [MainThread] foo: trace 1\n"
+            "2026-04-30 01:00:01 [INFO] [MainThread] foo: info 1\n"
+            "2026-04-30 01:00:02 [WARNING] [MainThread] foo: warn 1\n"
+            "2026-04-30 01:00:03 [ERROR] [MainThread] foo: err 1\n"
+        )
+        out = get_recent_log_lines(log, n=10)
+        assert "trace 1" in out
+        assert "info 1" in out
+        assert "warn 1" in out
+        assert "err 1" in out
+
+    def test_min_level_warning_filters_below(self, tmp_path: Path):
+        from ytm_player.utils.logging import get_recent_log_lines
+
+        log = tmp_path / "ytm.log"
+        log.write_text(
+            "2026-04-30 01:00:00 [DEBUG] [MainThread] foo: trace 1\n"
+            "2026-04-30 01:00:01 [INFO] [MainThread] foo: info 1\n"
+            "2026-04-30 01:00:02 [WARNING] [MainThread] foo: warn 1\n"
+            "2026-04-30 01:00:03 [ERROR] [MainThread] foo: err 1\n"
+            "2026-04-30 01:00:04 [CRITICAL] [MainThread] foo: critical 1\n"
+        )
+        out = get_recent_log_lines(log, n=10, min_level="WARNING")
+        assert "trace 1" not in out
+        assert "info 1" not in out
+        assert "warn 1" in out
+        assert "err 1" in out
+        assert "critical 1" in out
+
+    def test_min_level_error_filters_warning(self, tmp_path: Path):
+        from ytm_player.utils.logging import get_recent_log_lines
+
+        log = tmp_path / "ytm.log"
+        log.write_text(
+            "2026-04-30 01:00:02 [WARNING] [MainThread] foo: warn 1\n"
+            "2026-04-30 01:00:03 [ERROR] [MainThread] foo: err 1\n"
+        )
+        out = get_recent_log_lines(log, n=10, min_level="ERROR")
+        assert "warn 1" not in out
+        assert "err 1" in out
+
+    def test_unknown_level_returns_all(self, tmp_path: Path):
+        from ytm_player.utils.logging import get_recent_log_lines
+
+        log = tmp_path / "ytm.log"
+        log.write_text("2026-04-30 [DEBUG] foo\n")
+        out = get_recent_log_lines(log, n=10, min_level="BOGUS")
+        assert "DEBUG" in out
+
+    def test_min_level_lowercase_accepted(self, tmp_path: Path):
+        """min_level should be case-insensitive."""
+        from ytm_player.utils.logging import get_recent_log_lines
+
+        log = tmp_path / "ytm.log"
+        log.write_text("2026-04-30 [INFO] foo: info 1\n2026-04-30 [WARNING] foo: warn 1\n")
+        out = get_recent_log_lines(log, n=10, min_level="warning")
+        assert "info 1" not in out
+        assert "warn 1" in out
+
+
+class TestListActiveHooks:
+    def test_reports_all_four_hook_categories(self):
+        from ytm_player.utils.logging import list_active_hooks
+
+        out = list_active_hooks()
+        # The output must always mention all four hook categories.
+        assert "sys.excepthook" in out
+        assert "threading.excepthook" in out
+        assert "sys.unraisablehook" in out
+        assert "faulthandler" in out
+
+    def test_reports_default_when_unhooked(self, monkeypatch):
+        """When hooks haven't been installed, report 'default' explicitly."""
+        from ytm_player.utils.logging import list_active_hooks
+
+        # Reset all hooks to the defaults
+        monkeypatch.setattr(sys, "excepthook", sys.__excepthook__)
+        monkeypatch.setattr(threading, "excepthook", threading.__excepthook__)
+        monkeypatch.setattr(sys, "unraisablehook", sys.__unraisablehook__)
+
+        out = list_active_hooks()
+        assert "default" in out.lower()

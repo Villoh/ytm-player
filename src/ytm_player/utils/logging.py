@@ -187,16 +187,28 @@ def install_excepthooks(*, crash_dir: Path, keep: int = 10) -> None:
     sys.unraisablehook = _unraisable_hook
 
 
-def get_recent_log_lines(log_file: Path, n: int = 50) -> str:
-    """Return the last *n* lines of the log file (or empty string)."""
+def get_recent_log_lines(log_file: Path, n: int = 50, *, min_level: str | None = None) -> str:
+    """Return the last *n* lines of *log_file*, optionally filtered to lines
+    at or above *min_level* (case-insensitive: DEBUG / INFO / WARNING /
+    ERROR / CRITICAL). Unknown level → no filter applied."""
     if not log_file.exists():
         return ""
     try:
         with open(log_file, encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
-        return "".join(lines[-n:])
     except OSError:
         return ""
+    if min_level is not None:
+        order = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+        try:
+            threshold = order.index(min_level.upper())
+        except ValueError:
+            return "".join(lines[-n:])
+        wanted = order[threshold:]
+        # Match the [LEVEL] token written by our log format:
+        # "%(asctime)s [%(levelname)s] [%(threadName)s] %(name)s: %(message)s"
+        lines = [ln for ln in lines if any(f"[{w}]" in ln for w in wanted)]
+    return "".join(lines[-n:])
 
 
 def get_recent_crash(crash_dir: Path) -> tuple[Path, str] | None:
@@ -211,3 +223,22 @@ def get_recent_crash(crash_dir: Path) -> tuple[Path, str] | None:
         return latest, latest.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return None
+
+
+def list_active_hooks() -> str:
+    """Return a human-readable summary of which crash hooks are installed.
+
+    Used by ytm doctor's 'Active hooks' section as a sanity check —
+    if any hook reports 'default (unhooked)' when ytm is running, the
+    diagnostic story is broken and finalisation/fatal-signal failures
+    will be invisible.
+    """
+    import faulthandler as _fh
+
+    lines = [
+        f"sys.excepthook:        {'installed' if sys.excepthook is not sys.__excepthook__ else 'default (unhooked)'}",
+        f"threading.excepthook:  {'installed' if threading.excepthook is not threading.__excepthook__ else 'default (unhooked)'}",
+        f"sys.unraisablehook:    {'installed' if sys.unraisablehook is not sys.__unraisablehook__ else 'default (unhooked)'}",
+        f"faulthandler:          {'enabled' if _fh.is_enabled() else 'disabled'}",
+    ]
+    return "\n".join(lines)
