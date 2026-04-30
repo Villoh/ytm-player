@@ -595,6 +595,9 @@ class ContextPage(Widget):
 
         # Shuffle lock — force shuffle ON if the context (album/artist/
         # playlist) has the lock set. Lock is one-way enforcement on entry.
+        # set_context(None) is meaningful (clears prior context); the lock
+        # check below is gated on a truthy id, so None never reaches
+        # shuffle_prefs.get.
         host.queue.set_context(self.context_id)
         if self.context_id and host.shuffle_prefs.get(self.context_id):
             if not host.queue.shuffle_enabled:
@@ -627,7 +630,7 @@ class ContextPage(Widget):
 
     # ── Track filter ──────────────────────────────────────────────────
 
-    def on_track_table_filter_requested(self, event: TrackTable.FilterRequested) -> None:
+    def on_track_table_filter_requested(self, _event: TrackTable.FilterRequested) -> None:
         try:
             f = self.query_one("#track-filter", Input)
             f.value = ""
@@ -636,7 +639,7 @@ class ContextPage(Widget):
         except Exception:
             pass
 
-    def on_track_table_filter_closed(self, event: TrackTable.FilterClosed) -> None:
+    def on_track_table_filter_closed(self, _event: TrackTable.FilterClosed) -> None:
         try:
             f = self.query_one("#track-filter", Input)
             f.remove_class("visible")

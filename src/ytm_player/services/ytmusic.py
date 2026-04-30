@@ -287,50 +287,6 @@ class YTMusicService:
             logger.exception("get_home failed")
             return []
 
-    async def get_mood_categories(self) -> list[dict[str, Any]]:
-        """Return available mood/genre categories.
-
-        ytmusicapi's ``get_mood_categories`` returns a ``dict`` keyed by
-        section title (e.g. ``"For you"``, ``"Genres"``, ``"Moods & moments"``,
-        ``"Decades"``) where each value is a list of category dicts. We
-        normalize that to a list of ``{"title": <section>, "categories": [...]}``
-        dicts so the Browse page can iterate uniformly.
-        """
-        try:
-            raw = await self._call(self.client.get_mood_categories)
-        except Exception:
-            logger.exception("get_mood_categories failed")
-            return []
-        if not isinstance(raw, dict):
-            return []
-        return [
-            {"title": section, "categories": categories}
-            for section, categories in raw.items()
-            if isinstance(categories, list)
-        ]
-
-    async def get_mood_playlists(self, category_id: str) -> list[dict[str, Any]]:
-        """Return playlists for a given mood/genre *category_id*.
-
-        ytmusicapi's ``parse_content_list`` raises ``KeyError`` when YouTube
-        returns a renderer key the parser doesn't recognise (this happens
-        every time YouTube ships a UI tweak). Treated as a soft failure —
-        empty list, log a warning, no crash.
-        """
-        try:
-            return await self._call(self.client.get_mood_playlists, category_id)
-        except (KeyError, IndexError, TypeError) as exc:
-            logger.warning(
-                "get_mood_playlists: ytmusicapi parser error for %r: %s: %s",
-                category_id,
-                type(exc).__name__,
-                exc,
-            )
-            return []
-        except Exception:
-            logger.exception("get_mood_playlists failed for %r", category_id)
-            return []
-
     async def get_charts(self, country: str = "GB") -> dict[str, Any]:
         """Return chart data for *country* (ISO 3166-1 alpha-2, e.g. ``"GB"``).
 

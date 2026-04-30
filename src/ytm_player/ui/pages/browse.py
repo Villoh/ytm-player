@@ -44,11 +44,16 @@ def _clean_shelf_title(raw: str) -> str:
       "Trending 20 United Kingdom"
       "Daily Top Music Videos - United Kingdom"
       "Daily Top Songs on Shorts - United Kingdom"
+      "Daily Top 100 Songs (Live)"   (hypothetical YouTube variant)
 
-    We strip brand prefixes, country suffixes, and apply Peter's preferred
-    short labels: "Daily Top 100", "Trending 20", "Daily Top Videos",
-    "Daily Top Songs (Shorts)".
+    We strip brand prefixes, country suffixes, and apply preferred short
+    labels: "Daily Top 100", "Trending 20", "Daily Top Videos",
+    "Daily Top Songs (Shorts)". Patterns are regex-anchored so a future
+    title like "Daily Top 100 Songs (Live)" rewrites to
+    "Daily Top 100 (Live)" rather than failing the rewrite chain.
     """
+    import re
+
     from ytm_player.services.regions import CHART_REGIONS
 
     s = raw.strip()
@@ -66,10 +71,12 @@ def _clean_shelf_title(raw: str) -> str:
         if s.endswith(suffix):
             s = s[: -len(suffix)].strip()
             break
-    # Apply Peter's canonical labels.
-    s = s.replace("Daily Top 100 Songs", "Daily Top 100")
-    s = s.replace("Daily Top Music Videos", "Daily Top Videos")
-    s = s.replace("Daily Top Songs on Shorts", "Daily Top Songs (Shorts)")
+    # Apply canonical short-label rewrites. Each pattern matches against the
+    # core token only — trailing decorations like " (Live)" / " (Acoustic)"
+    # / extra suffixes are preserved verbatim.
+    s = re.sub(r"\bDaily Top 100 Songs\b", "Daily Top 100", s)
+    s = re.sub(r"\bDaily Top Music Videos\b", "Daily Top Videos", s)
+    s = re.sub(r"\bDaily Top Songs on Shorts\b", "Daily Top Songs (Shorts)", s)
     return s
 
 

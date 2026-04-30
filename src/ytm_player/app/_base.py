@@ -95,6 +95,7 @@ if TYPE_CHECKING:
         _current_page: str
         _current_page_kwargs: dict[str, Any]
         _nav_stack: list[tuple[str, dict]]
+        _forward_stack: list[tuple[str, dict]]
         _page_state_cache: dict[str, dict]
         _active_library_playlist_id: str | None
         _context_seq: int

@@ -311,6 +311,12 @@ class SidebarMixin(YTMHostBase):
             self.queue.set_context(playlist_id)
             if self.shuffle_prefs.get(playlist_id) and not self.queue.shuffle_enabled:
                 self.queue.toggle_shuffle()
+            try:
+                bar = self.query_one("#playback-bar")
+                bar.update_shuffle(self.queue.shuffle_enabled)  # type: ignore[attr-defined]
+                bar.refresh_shuffle_lock_state()  # type: ignore[attr-defined]
+            except Exception:
+                pass
             first = self.queue.next_track()
             if first:
                 await self.play_track(first)

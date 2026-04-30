@@ -121,12 +121,14 @@ class NavigationMixin(YTMHostBase):
             logger.warning("Unknown page: %s", page_name)
             return
 
+        same_page_back = False
         if page_name == self._current_page and not kwargs:
             # Clicking the same page again goes back to the previous page.
             if self._nav_stack:
                 prev_page, prev_kwargs = self._nav_stack.pop()
                 page_name = prev_page
                 kwargs = prev_kwargs
+                same_page_back = True
             else:
                 return
 
@@ -140,10 +142,12 @@ class NavigationMixin(YTMHostBase):
                     self._page_state_cache[self._current_page] = page_state
 
         # Push current page onto the nav stack before switching.
-        # Skip for back/forward — we already managed the stacks above.
+        # Skip for back / forward / same-page-back — those already managed
+        # the stacks above (or popped, in the same-page case).
         if (
             not is_back
             and not is_forward
+            and not same_page_back
             and self._current_page
             and self._current_page != page_name
         ):

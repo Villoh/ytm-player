@@ -443,6 +443,9 @@ class LibraryPage(Widget):
         host.queue.add_multiple(tracks)
         host.queue.jump_to_real(idx)
         # Shuffle lock (per-playlist, replaces TP-7 implicit memory).
+        # set_context() accepts None — that case clears any previous context;
+        # the lock check below is gated on a truthy id, so None never reaches
+        # shuffle_prefs.get.
         host.queue.set_context(self._active_playlist_id)
         if self._active_playlist_id:
             locked = bool(host.shuffle_prefs.get(self._active_playlist_id))
