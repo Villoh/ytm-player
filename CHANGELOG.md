@@ -83,7 +83,6 @@ A community-PR-driven feature release. Six PRs from @wgordon17 plus user-reporte
 **Coming next**
 
 - **UX polish (4-8 from the in-session UX review)** — Library track-count subtitle, Search panel border deduplication + mode-toggle markup cleanup, Browse active-tab visual weight, Queue "Now Playing" header hierarchy.
-- **Phase 8 pre-release QA pass** — manual smoke through every page, exercising the new shuffle memory, sidebar overflow modes, discovery roulette, and Browse sub-tabs with realistic data.
 
 **Session note — release engineering**
 
