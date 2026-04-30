@@ -44,7 +44,9 @@ src/ytm_player/
 │   ├── theme.py        # Textual theme integration + app-specific color overrides
 │   ├── sidebars/       # Persistent playlist sidebar (left) and lyrics sidebar (right)
 │   ├── pages/          # Library, Search, Browse, Context, Queue, Liked Songs, Recently Played, Help
-│   ├── popups/         # Actions menu, playlist picker, Spotify import, country picker (charts region)
+│                       #   Queue/Liked/Recent share the project's TrackTable widget
+│                       #   (right-click context menu, filter, sort, play indicator)
+│   ├── popups/         # Actions menu, playlist picker, Spotify import, country picker (charts region — 68 entries with Global default)
 │   └── widgets/        # TrackTable, PlaybackProgress, AlbumArt
 └── utils/              # Terminal detection, formatting, BiDi text, transliteration
 ```

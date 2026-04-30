@@ -48,8 +48,9 @@
 | Click | Footer buttons | Navigate pages, play/pause, prev/next |
 | Click | Header `← Back` / `Forward →` | Navigate history (auto-show/hide based on stack state) |
 | Click | Playlist header `Shuffle lock: ON/off` | Toggle per-playlist forced-shuffle |
-| Click | Charts shelf pills | Switch between daily chart variants (Top 100 / Trending / etc.) |
-| Right-click | Track row | Open context menu (play, queue, add to playlist, etc.) |
+| Click | Charts shelf pills | Switch between chart shelves. Two rows: `Featured globally:` (events like Coachella, hidden on terminals < 80 cols) and the country charts (Top 100 Songs → Weekly Top Songs on Shorts → Trending 20 → rest). |
+| Click | Liked Songs / Recently Played `[▶ Start Radio]` | Seed a radio from 5 random tracks in the collection |
+| Right-click | Track row | Open context menu (play, queue, add to playlist, etc.). Works on every track-listing page including Queue / Liked Songs / Recently Played. |
 
 ## Custom keybindings
 

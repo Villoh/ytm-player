@@ -37,7 +37,6 @@ class SelectionInfoBar(Widget):
     SelectionInfoBar {
         height: 1;
         width: 100%;
-        background: $surface;
         color: $text-muted;
         content-align: center middle;
         padding: 0 1;

@@ -197,6 +197,12 @@ class TrackTable(DataTable):
             row_key = self._add_track_row(i, track)
             self._row_keys.append(row_key)
 
+        # Reflow the title column now that rows (with row labels) exist
+        # — the row-label column eats ~3 cells, so the initial column
+        # widths from settings would push the rightmost column off-screen.
+        self._fill_title_column()
+        self._invalidate_table()
+
         self._highlight_playing()
 
     def append_tracks(self, tracks: list[dict]) -> None:
@@ -214,6 +220,10 @@ class TrackTable(DataTable):
             self._filtered_map.append(i)
             row_key = self._add_track_row(len(self._tracks) - 1, t)
             self._row_keys.append(row_key)
+        # Same reflow as load_tracks — the row-label column may have been
+        # 0-width if append_tracks fires before any rows existed.
+        self._fill_title_column()
+        self._invalidate_table()
 
     def _add_track_row(self, index: int, track: dict) -> RowKey:
         """Add a single track as a row in the table."""

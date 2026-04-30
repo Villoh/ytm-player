@@ -127,18 +127,30 @@ A reliability and quality release driven by a multi-agent expert audit. Hardens 
 - **README polish** — badges, tagline, Contributors section.
 - **Audit-driven follow-up plans** at `docs/superpowers/plans/2026-04-28-audit-driven-error-handling-cleanup.md` and `docs/superpowers/plans/2026-04-28-audit-driven-followup.md` — written via the superpowers writing-plans + subagent-driven-development workflow.
 
-### Unreleased
+### v1.9.2 (2026-05-01)
+
+A focused fix release. The Charts page region selector was effectively non-functional — three structural bugs in how we read YouTube's chart response made a global event playlist appear regardless of region. Also includes a TrackTable migration that retires three hand-rolled `DataTable` pages and two related bug fixes.
+
+**Charts** — bug report thanks @dmnmsc (#73)
+
+- **Events visually separated from country charts.** YouTube injects a global event playlist (currently `"Coachella 2026: Daily Top 100 Songs"` — same playlist ID worldwide) at position 0 of every country's response. Previously the Charts page default-loaded that slot, so picking a country still showed the global Coachella playlist. The Charts page now renders two stacked pill rows: a `Featured globally:` strip for any shelves whose title carries a brand prefix (`": "` separator) and a country-charts row for the actual regional shelves. Country charts sort by priority — `Top 100 Songs` → `Weekly Top Songs on Shorts` → `Trending 20` → rest — and the default-loaded pill is the first country chart, never an event. The event row hides automatically on narrow terminals (< 80 cols) to reclaim a row of vertical space.
+- **Now reads `daily + weekly + videos` from the API.** Previously only `daily` was consulted, which silently dropped Spain (returns its data under `videos`) and missed the Top 100 Songs / Top 100 Music Videos shelves under `weekly` for premium-supported regions. All three keys are now concatenated, then split into events vs charts.
+- **Region picker expanded 17 → 68 entries.** Global (`ZZ`) is the new default. The list now mirrors YouTube's full advertised set (62 codes from `countries.options`) plus six historically-supported codes outside that list (Hong Kong, Malaysia, Singapore, Taiwan, Thailand, Vietnam). Settings default flips `region = "GB"` → `region = "ZZ"`.
+- **Locale-style configs auto-normalise.** New `services/regions.normalise_region()` helper strips locale tails — `"ES-ES"`, `"en-GB"`, `"es_ES"` now resolve to bare two-letter codes (`ES`, `EN`, `ES`) before hitting the API. YouTube's chart endpoint silently falls back to Global for any locale-shaped input; this prevents existing configs from being broken by that quirk.
+- **`_clean_shelf_title` no longer strips brand prefixes.** Coachella keeps its `"Coachella 2026:"` prefix on the pill so users can tell an event from a country chart at a glance.
 
 **New**
 
-- Queue, Liked Songs, and Recently Played pages migrated from raw DataTable to TrackTable — gains right-click context menus, play indicators, column resize, filtering, and sorting
-- `[▶ Start Radio]` button in Liked Songs and Recently Played page headers — seeds radio from 5 random tracks in the collection
-- Shuffle-lock integration for Liked Songs and Recently Played — selecting a track applies the per-collection shuffle preference
+- **TrackTable migration on Queue, Liked Songs, Recently Played.** Three pages migrated from raw `DataTable` to `TrackTable`. Gains right-click context menus, play indicators, column resize, filtering, and sorting — for free, on three pages that previously rolled those manually. Also retires the `on_mouse_down` right-click workaround we added to QueuePage in v1.9.0 (TrackTable already wires this up). Thanks @wgordon17 (#74).
+- **`[▶ Start Radio]` button** added to Liked Songs and Recently Played page headers — seeds a radio from 5 random tracks in the collection. Thanks @wgordon17 (#74).
+- **Shuffle-lock integration** on Liked Songs and Recently Played — selecting a track applies the per-collection shuffle preference. Thanks @wgordon17 (#74).
 
 **Fixes**
 
-- Radio track durations no longer show `--:--` — ytmusicapi's `get_watch_playlist` returns duration as `length` (e.g. "3:07") instead of `duration`; `extract_duration` now checks all three keys
-- Play history no longer stores duration as 0 — `log_play` was using `duration_seconds` but normalized tracks store `duration`; fixed with `extract_duration()`
+- **Radio track durations no longer show `--:--`** — ytmusicapi's `get_watch_playlist` returns duration under a `length` key (e.g. `"3:07"`), not `duration`. `extract_duration()` now checks `duration_seconds` → `duration` → `length` in priority order. Thanks @wgordon17 (#74).
+- **Play history no longer stores duration as 0** — `log_play` was reading raw `track.get("duration_seconds", 0)`, but normalized tracks store the value under `duration`. Switched to `extract_duration()` so the value is always correct regardless of source. Thanks @wgordon17 (#74).
+- **TrackTable Duration column no longer cut off on first paint.** The row-label column (which carries the `▶` playing indicator) reserves ~3 cells of width that the original column-fit pass didn't account for, so the rightmost column ("Duratio…") got pushed past the visible viewport on initial render. `_fill_title_column` now runs after `load_tracks` and `append_tracks` so the Title column shrinks to compensate as soon as rows exist.
+- **Sidebar gains a bottom separator under the Playlists panel** — the existing top separator (a `Rule` widget between the pinned-nav block and the LibraryPanel) is now mirrored below the LibraryPanel, so the `Playlists` panel sits between two matching `$border`-coloured horizontal rules instead of just one.
 
 ---
 

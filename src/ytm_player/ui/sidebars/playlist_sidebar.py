@@ -465,7 +465,8 @@ class PlaylistSidebar(Widget):
         text-style: bold;
     }
 
-    #ps-separator {
+    #ps-separator,
+    #ps-separator-bottom {
         margin: 0 1;
         color: $border;
     }
@@ -514,6 +515,7 @@ class PlaylistSidebar(Widget):
             yield Static("\u266b Discovery Mix", id="ps-nav-discovery", classes="ps-pinned-item")
         yield Rule(id="ps-separator")
         yield LibraryPanel("Playlists", id="ps-playlists", instant_select=True)
+        yield Rule(id="ps-separator-bottom")
 
     def on_mount(self) -> None:
         settings = get_settings()
