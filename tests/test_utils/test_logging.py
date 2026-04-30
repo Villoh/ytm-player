@@ -211,6 +211,10 @@ class TestWriteCrashFileFallback:
         assert "Test crash" in result.read_text()
         assert "traceback body" in result.read_text()
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="NTFS ignores POSIX chmod(0o500) bits — can't simulate read-only dir on Windows.",
+    )
     def test_logs_oserror_instead_of_silent_none(self, tmp_path: Path, monkeypatch, caplog):
         """When the write fails, we must log the reason — silent failure
         is what hid the original ``crashes dir empty`` symptom for hours.
