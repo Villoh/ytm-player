@@ -337,7 +337,7 @@ class TestUnraisableHook:
         install_excepthooks(crash_dir=crash_dir, keep=5)
 
         # Mock __unraisablehook__ to avoid TypeError from SimpleNamespace.
-        monkeypatch.setattr(sys, "__unraisablehook__", lambda args: None)
+        monkeypatch.setattr(sys, "__unraisablehook__", lambda _args: None)
 
         try:
             raise RuntimeError("unraisable boom")
