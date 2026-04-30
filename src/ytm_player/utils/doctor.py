@@ -1,17 +1,37 @@
 """Diagnostic gathering for the `ytm doctor` command.
 
 Produces a single-string report users can paste directly into a GitHub
-issue.  Includes ytm-player version, Python version, OS, mpv version,
-config file paths, last 50 log lines, and the most recent crash trace
-(if any).
+issue. v2 covers eight sections so every failure class is visible:
+version, paths, process status, recent ERROR/WARNING, recent mpv
+warnings, faulthandler trace, last crash file, active hooks. All
+output passes through a redaction layer so auth tokens never leak.
 """
 
 from __future__ import annotations
 
+import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
+from pathlib import Path
+
+_REDACT_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # Match header-value pairs — consume the rest of the line to catch multi-word tokens
+    re.compile(r"(authorization\s*[:=]\s*)(.+)", re.IGNORECASE),
+    re.compile(r"(cookie\s*[:=]\s*)(.+)", re.IGNORECASE),
+    re.compile(r"(bearer\s+)(\S+)", re.IGNORECASE),
+    re.compile(r"(token\s*[:=]\s*)(\S+)", re.IGNORECASE),
+    re.compile(r"(x-goog-pageid\s*[:=]\s*)(\S+)", re.IGNORECASE),
+    re.compile(r"(SAPISID\s*=\s*)(\S+)"),
+)
+
+
+def _redact(text: str) -> str:
+    for pat in _REDACT_PATTERNS:
+        text = pat.sub(r"\1[REDACTED]", text)
+    return text
 
 
 def _mpv_version() -> str:
@@ -33,6 +53,83 @@ def _mpv_version() -> str:
         return "mpv: failed to execute"
 
 
+def _running_status() -> str:
+    """Best-effort check whether a ytm TUI process is currently running.
+
+    Uses /proc on Linux (no psutil dependency); on other platforms or if
+    /proc is unavailable, returns a 'cannot determine' marker.
+    """
+    proc_root = Path("/proc")
+    if not proc_root.exists():
+        return "(cannot determine — /proc not available on this OS)"
+    pids: list[tuple[int, int]] = []
+    for entry in proc_root.iterdir():
+        if not entry.name.isdigit():
+            continue
+        cmdline_path = entry / "cmdline"
+        try:
+            cmdline_raw = cmdline_path.read_bytes()
+        except OSError:
+            continue
+        cmdline = cmdline_raw.replace(b"\x00", b" ").decode("utf-8", errors="replace")
+        argv = cmdline.split()
+        if not argv:
+            continue
+        if "/ytm" in cmdline or argv[0].endswith("/ytm"):
+            try:
+                status = (entry / "status").read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            rss_kb = 0
+            for line in status.splitlines():
+                if line.startswith("VmRSS:"):
+                    try:
+                        rss_kb = int(line.split()[1])
+                    except (IndexError, ValueError):
+                        rss_kb = 0
+                    break
+            pids.append((int(entry.name), rss_kb))
+    pids = [(pid, rss) for pid, rss in pids if pid != os.getpid()]
+    if not pids:
+        return "ytm not running"
+    parts = [f"PID {pid} (RSS {rss // 1024} MB)" for pid, rss in pids]
+    return "ytm running: " + ", ".join(parts)
+
+
+def _recent_mpv_lines(log_file: Path, n: int = 20) -> str:
+    """Return the last *n* log lines that contain 'mpv[' (our log_handler prefix)."""
+    if not log_file.exists():
+        return "(log file is empty or missing)"
+    try:
+        with open(log_file, encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    except OSError:
+        return "(could not read log file)"
+    matches = [ln for ln in lines if "mpv[" in ln]
+    if not matches:
+        return "(no mpv warnings/errors logged)"
+    return "".join(matches[-n:])
+
+
+def _recent_faulthandler(crash_dir: Path) -> str:
+    """Return the last 'Fatal Python error' block from crash_dir/faulthandler.log,
+    or a marker if the file is missing/empty."""
+    fh_log = crash_dir / "faulthandler.log"
+    if not fh_log.exists():
+        return "(no faulthandler trace — file does not exist)"
+    try:
+        text = fh_log.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return "(could not read faulthandler.log)"
+    if not text.strip():
+        return "(faulthandler.log is empty — no fatal signals captured)"
+    marker = "Fatal Python error:"
+    last_idx = text.rfind(marker)
+    if last_idx == -1:
+        return text[-4000:]
+    return text[last_idx:]
+
+
 def gather_diagnostics() -> str:
     """Return a multi-section text report describing the install."""
     from ytm_player import __version__
@@ -43,7 +140,11 @@ def gather_diagnostics() -> str:
         SESSION_STATE_FILE,
         THEME_FILE,
     )
-    from ytm_player.utils.logging import get_recent_crash, get_recent_log_lines
+    from ytm_player.utils.logging import (
+        get_recent_crash,
+        get_recent_log_lines,
+        list_active_hooks,
+    )
 
     sections: list[str] = []
 
@@ -65,12 +166,24 @@ def gather_diagnostics() -> str:
     sections.append(f"crashes:  {CRASH_DIR}")
 
     sections.append("")
-    sections.append("=== Recent log (last 50 lines) ===")
-    log_text = get_recent_log_lines(LOG_FILE, n=50)
-    sections.append(log_text if log_text else "(log file is empty or missing)")
+    sections.append("=== Process status ===")
+    sections.append(_running_status())
 
     sections.append("")
-    sections.append("=== Most recent crash ===")
+    sections.append("=== Recent ERROR/WARNING (last 20) ===")
+    filtered = get_recent_log_lines(LOG_FILE, n=20, min_level="WARNING")
+    sections.append(filtered if filtered else "(no warnings or errors logged)")
+
+    sections.append("")
+    sections.append("=== Recent mpv warnings/errors ===")
+    sections.append(_recent_mpv_lines(LOG_FILE))
+
+    sections.append("")
+    sections.append("=== Most recent faulthandler trace ===")
+    sections.append(_recent_faulthandler(CRASH_DIR))
+
+    sections.append("")
+    sections.append("=== Most recent crash file ===")
     crash = get_recent_crash(CRASH_DIR)
     if crash is None:
         sections.append("(no crash files found)")
@@ -79,4 +192,8 @@ def gather_diagnostics() -> str:
         sections.append(f"From: {path}")
         sections.append(content)
 
-    return "\n".join(sections)
+    sections.append("")
+    sections.append("=== Active hooks ===")
+    sections.append(list_active_hooks())
+
+    return _redact("\n".join(sections))
