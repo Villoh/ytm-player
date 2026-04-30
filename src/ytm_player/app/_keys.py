@@ -222,6 +222,9 @@ class KeyHandlingMixin(YTMHostBase):
             case Action.GO_BACK:
                 await self.navigate_to("back")
 
+            case Action.GO_FORWARD:
+                await self.navigate_to("forward")
+
             case Action.CLOSE_POPUP:
                 # Dismiss active popup if any; otherwise ignore.
                 pass

@@ -48,6 +48,7 @@ class Action(str, Enum):
     FOCUS_NEXT = "focus_next"
     FOCUS_PREV = "focus_prev"
     GO_BACK = "go_back"
+    GO_FORWARD = "go_forward"
     CLOSE_POPUP = "close_popup"
     QUIT = "quit"
 
@@ -123,6 +124,7 @@ DEFAULT_BINDINGS: dict[str, list[str]] = {
     "focus_next": ["tab"],
     "focus_prev": ["S-tab"],
     "go_back": ["backspace"],
+    "go_forward": ["S-backspace"],
     "close_popup": ["escape"],
     "quit": ["q", "C-q"],
     # Pages

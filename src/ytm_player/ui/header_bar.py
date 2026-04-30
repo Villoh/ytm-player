@@ -23,6 +23,9 @@ class HeaderBar(Widget):
     class BackRequested(Message):
         """Emitted when the back button is clicked."""
 
+    class ForwardRequested(Message):
+        """Emitted when the forward button is clicked."""
+
     DEFAULT_CSS = """
     HeaderBar {
         dock: top;
@@ -59,6 +62,12 @@ class HeaderBar(Widget):
     HeaderBar #back-btn.visible {
         display: block;
     }
+    HeaderBar #forward-btn {
+        display: none;
+    }
+    HeaderBar #forward-btn.visible {
+        display: block;
+    }
     """
 
     is_playlist_on: reactive[bool] = reactive(False)
@@ -69,6 +78,7 @@ class HeaderBar(Widget):
         with Horizontal(id="header-inner"):
             yield Static("\u2630 Playlists", id="toggle-playlist", classes="hb-toggle")
             yield Static("\u2190 Back", id="back-btn", classes="hb-toggle")
+            yield Static("Forward \u2192", id="forward-btn", classes="hb-toggle")
             yield Static(id="header-spacer")
             yield Static("\u266b Lyrics", id="toggle-lyrics", classes="hb-toggle")
 
@@ -86,6 +96,9 @@ class HeaderBar(Widget):
         elif target.id == "back-btn":
             event.stop()
             self.post_message(self.BackRequested())
+        elif target.id == "forward-btn":
+            event.stop()
+            self.post_message(self.ForwardRequested())
 
     # ── State updates ────────────────────────────────────────────────
 
@@ -123,6 +136,17 @@ class HeaderBar(Widget):
         """Show/hide the back button. Called when the nav stack changes."""
         try:
             btn = self.query_one("#back-btn", Static)
+            if visible:
+                btn.add_class("visible")
+            else:
+                btn.remove_class("visible")
+        except Exception:
+            pass
+
+    def set_forward_visible(self, visible: bool) -> None:
+        """Show/hide the forward button. Called when the forward stack changes."""
+        try:
+            btn = self.query_one("#forward-btn", Static)
             if visible:
                 btn.add_class("visible")
             else:

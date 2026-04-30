@@ -98,6 +98,10 @@ class SidebarMixin(YTMHostBase):
         """Header back-button click → pop the nav stack."""
         await self.navigate_to("back")
 
+    async def on_header_bar_forward_requested(self, message: HeaderBar.ForwardRequested) -> None:
+        """Header forward-button click → pop the forward stack."""
+        await self.navigate_to("forward")
+
     async def on_playlist_sidebar_playlist_selected(
         self, message: PlaylistSidebar.PlaylistSelected
     ) -> None:

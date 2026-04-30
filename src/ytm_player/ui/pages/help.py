@@ -42,6 +42,7 @@ ACTION_DESCRIPTIONS: dict[Action, str] = {
     Action.FOCUS_NEXT: "Focus next panel",
     Action.FOCUS_PREV: "Focus previous panel",
     Action.GO_BACK: "Go back / close page",
+    Action.GO_FORWARD: "Go forward (after going back)",
     Action.CLOSE_POPUP: "Close popup / cancel",
     # Pages
     Action.LIBRARY: "Go to library",
@@ -102,6 +103,7 @@ ACTION_CATEGORIES: dict[str, list[Action]] = {
         Action.FOCUS_NEXT,
         Action.FOCUS_PREV,
         Action.GO_BACK,
+        Action.GO_FORWARD,
         Action.CLOSE_POPUP,
     ],
     "Pages": [

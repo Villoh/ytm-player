@@ -225,6 +225,10 @@ class YTMPlayerApp(
 
         # Navigation stack for back navigation.
         self._nav_stack: list[tuple[str, dict]] = []
+        # Forward stack for browser-style "go forward" after a back.
+        # Pushed when going back, popped when going forward. Cleared on any
+        # new (non-back, non-forward) navigation, matching browser semantics.
+        self._forward_stack: list[tuple[str, dict]] = []
         # Cached page state for forward navigation restoration.
         self._page_state_cache: dict[str, dict] = {}
 

@@ -20,6 +20,7 @@ def _fresh_nav_host() -> NavigationMixin:
     nav._current_page = ""
     nav._current_page_kwargs = {}
     nav._nav_stack = []
+    nav._forward_stack = []
     nav._page_state_cache = {}
     nav._sidebar_per_page = {}
     nav._sidebar_default = True
