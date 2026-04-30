@@ -40,3 +40,6 @@ result
 
 # Temp / scratch
 *.tmp
+
+# Local-only changelog HTML renderings (kept out of the repo)
+v*-changelog.html
