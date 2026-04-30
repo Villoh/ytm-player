@@ -162,9 +162,9 @@ class TestPlayerMpvLogHandler:
 
         from ytm_player.services.player import Player
 
-        captured: dict[str, object] = {}
+        captured: dict[str, dict[str, object]] = {}
 
-        def fake_mpv_ctor(*args: object, **kwargs: object) -> MagicMock:
+        def fake_mpv_ctor(*_args: object, **kwargs: object) -> MagicMock:
             captured["kwargs"] = kwargs
             instance = MagicMock()
             instance.volume = 80
@@ -197,7 +197,7 @@ class TestPlayerMpvLogHandler:
 
         captured_handler: dict[str, object] = {}
 
-        def fake_mpv_ctor(*args: object, **kwargs: object) -> MagicMock:
+        def fake_mpv_ctor(*_args: object, **kwargs: object) -> MagicMock:
             captured_handler["handler"] = kwargs.get("log_handler")
             instance = MagicMock()
             instance.volume = 80
