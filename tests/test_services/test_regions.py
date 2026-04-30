@@ -43,15 +43,62 @@ class TestChartRegions:
         codes = [c for c, _ in CHART_REGIONS]
         assert "US" in codes
 
-    def test_alphabetical_by_name(self):
-        """All regions sorted alphabetically by display name."""
+    def test_global_first_then_alphabetical(self):
+        """Global ("ZZ") sits at position 0 as the default; rest alphabetical."""
         from ytm_player.services.regions import CHART_REGIONS
 
-        names = [name for _, name in CHART_REGIONS]
-        assert names == sorted(names), "regions not alphabetical by name"
+        assert CHART_REGIONS[0] == ("ZZ", "Global")
+        rest = [name for _, name in CHART_REGIONS[1:]]
+        assert rest == sorted(rest), "non-global regions not alphabetical by name"
 
     def test_minimum_size(self):
-        """The empirically-verified working set is at least 17 regions."""
+        """YouTube's advertised list is 62 codes (including ZZ = Global);
+        we add 6 historically-supported ones outside that list. Total ≥ 60."""
         from ytm_player.services.regions import CHART_REGIONS
 
-        assert len(CHART_REGIONS) >= 17
+        assert len(CHART_REGIONS) >= 60
+
+    def test_spain_present(self):
+        """Spain was reported missing in issue #73 (user tried locale-style ES-ES)."""
+        from ytm_player.services.regions import CHART_REGIONS
+
+        codes = [c for c, _ in CHART_REGIONS]
+        assert "ES" in codes
+
+
+class TestNormaliseRegion:
+    def test_two_letter_passthrough(self):
+        from ytm_player.services.regions import normalise_region
+
+        assert normalise_region("ES") == "ES"
+        assert normalise_region("US") == "US"
+
+    def test_lowercase_uppercased(self):
+        from ytm_player.services.regions import normalise_region
+
+        assert normalise_region("es") == "ES"
+        assert normalise_region("gb") == "GB"
+
+    def test_locale_dash_stripped(self):
+        """ES-ES, en-GB, es-MX → ES, EN, ES (locale tail discarded)."""
+        from ytm_player.services.regions import normalise_region
+
+        assert normalise_region("ES-ES") == "ES"
+        assert normalise_region("ES-MX") == "ES"
+        assert normalise_region("en-GB") == "EN"
+
+    def test_locale_underscore_stripped(self):
+        """es_ES (POSIX locale) → ES."""
+        from ytm_player.services.regions import normalise_region
+
+        assert normalise_region("es_ES") == "ES"
+
+    def test_whitespace_trimmed(self):
+        from ytm_player.services.regions import normalise_region
+
+        assert normalise_region("  es-ES  ") == "ES"
+
+    def test_empty_returns_empty(self):
+        from ytm_player.services.regions import normalise_region
+
+        assert normalise_region("") == ""

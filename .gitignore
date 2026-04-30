@@ -43,4 +43,6 @@ result
 
 # Local-only changelog HTML renderings (kept out of the repo)
 v*-changelog.html
+pr*-changelog-diff.html
+*-ux-mockup.html
 broad-except-audit.local.md

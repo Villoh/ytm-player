@@ -287,14 +287,19 @@ class YTMusicService:
             logger.exception("get_home failed")
             return []
 
-    async def get_charts(self, country: str = "GB") -> dict[str, Any]:
+    async def get_charts(self, country: str = "ZZ") -> dict[str, Any]:
         """Return chart data for *country* (ISO 3166-1 alpha-2, e.g. ``"GB"``).
 
         ``"ZZ"`` is YouTube's catch-all "no specific region" code which
         returns no chart data. The default of ``"GB"`` matches the
         ``settings.ui.region`` default; production code passes the
-        configured region explicitly.
+        configured region explicitly. Locale-style codes (``ES-ES``,
+        ``en-GB``) are normalised to bare two-letter codes — YouTube's
+        endpoint silently falls back to Global on locale-shaped input.
         """
+        from ytm_player.services.regions import normalise_region
+
+        country = normalise_region(country)
         try:
             return await self._call(self.client.get_charts, country=country)
         except Exception:

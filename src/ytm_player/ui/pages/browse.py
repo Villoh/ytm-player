@@ -57,9 +57,6 @@ def _clean_shelf_title(raw: str) -> str:
     from ytm_player.services.regions import CHART_REGIONS
 
     s = raw.strip()
-    # Strip leading "<brand>:" (e.g. "Coachella 2026: Daily Top 100 Songs")
-    if ":" in s:
-        s = s.split(":", 1)[1].strip()
     # Strip " - <country>" suffix
     if " - " in s:
         head, tail = s.rsplit(" - ", 1)
@@ -78,6 +75,54 @@ def _clean_shelf_title(raw: str) -> str:
     s = re.sub(r"\bDaily Top Music Videos\b", "Daily Top Videos", s)
     s = re.sub(r"\bDaily Top Songs on Shorts\b", "Daily Top Songs (Shorts)", s)
     return s
+
+
+# ---------------------------------------------------------------------------
+# Event vs country-chart classification
+# ---------------------------------------------------------------------------
+
+
+def _is_event_shelf(shelf: dict) -> bool:
+    """A shelf is a global event playlist iff its title carries a brand
+    prefix — YouTube formats events as ``"<Brand>: <Generic Title>"`` (e.g.
+    ``"Coachella 2026: Daily Top 100 Songs"``). Country chart shelves never
+    use the colon-space form.
+    """
+    title = str(shelf.get("title", ""))
+    return ": " in title
+
+
+# Country chart pills sort by this priority — the canonical "what's hot
+# in country X" answer first, then the rest. Lower number = earlier.
+_CHART_PRIORITY: tuple[tuple[str, int], ...] = (
+    ("Top 100 Songs", 0),
+    ("Weekly Top Songs on Shorts", 1),
+    ("Trending 20", 2),
+)
+
+
+def _chart_sort_key(shelf: dict) -> tuple[int, str]:
+    title = str(shelf.get("title", ""))
+    for prefix, rank in _CHART_PRIORITY:
+        if title.startswith(prefix):
+            return (rank, title)
+    return (99, title)
+
+
+def _split_events_and_charts(
+    shelves: list[dict],
+) -> tuple[list[dict], list[dict]]:
+    """Partition shelves into (events, charts), with charts pre-sorted by
+    canonical priority. Events keep their original order — there are
+    rarely more than one, and YouTube's ordering reflects editorial
+    intent.
+    """
+    events = [s for s in shelves if _is_event_shelf(s)]
+    charts = sorted(
+        (s for s in shelves if not _is_event_shelf(s)),
+        key=_chart_sort_key,
+    )
+    return events, charts
 
 
 class BrowseTabBar(Widget):
@@ -346,11 +391,19 @@ class ChartsSection(Widget):
         padding: 0 0 0 1;
     }
 
-    ChartsSection #charts-pills {
-        height: 2;
+    ChartsSection #charts-event-pills {
+        height: 1;
+        width: 1fr;
+        align: left middle;
+        scrollbar-size-horizontal: 0;
+    }
+
+    ChartsSection #charts-chart-pills {
+        height: 1;
         width: 1fr;
         margin: 0 0 1 0;
         align: left middle;
+        scrollbar-size-horizontal: 0;
     }
 
     ChartsSection .shelf-pill {
@@ -372,18 +425,54 @@ class ChartsSection(Widget):
         color: $text;
         text-style: bold;
     }
+
+    /* Event pills — accent colour marks them as YouTube-promoted global
+       events distinct from country charts. */
+    ChartsSection .shelf-pill.event {
+        background: $surface;
+        color: $accent;
+    }
+
+    ChartsSection .shelf-pill.event:hover {
+        background: $border;
+        color: $accent;
+    }
+
+    ChartsSection .shelf-pill.event.active {
+        background: $accent;
+        color: $surface;
+        text-style: bold;
+    }
+
+    /* Static leading label inside the event row that explains why these
+       pills are here. Muted so the eye still goes to the pills. */
+    ChartsSection .event-row-label {
+        width: auto;
+        height: 1;
+        color: $text-muted;
+        padding: 0 1 0 0;
+        margin-right: 1;
+    }
     """
 
     is_loading: reactive[bool] = reactive(True)
+
+    # Below this terminal width (cols), the event pill row is hidden to
+    # reclaim vertical space. Chart pills always render — they're the
+    # primary content.
+    _NARROW_THRESHOLD: int = 80
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._chart_data: dict[str, Any] = {}
         self._country: str = get_settings().ui.region
-        # Daily chart shelves available for the current country. Each entry
-        # is the dict ytmusicapi returns under data["daily"] — keys include
-        # "title", "playlistId", "thumbnails".
+        # Combined shelves list: events first, then country charts (sorted
+        # by priority). Each entry is the dict ytmusicapi returns —
+        # keys include "title", "playlistId", "thumbnails".
         self._dailies: list[dict[str, Any]] = []
+        # Number of leading entries in _dailies that are global event
+        # playlists. Charts begin at _dailies[_event_count].
+        self._event_count: int = 0
         # Index into self._dailies that's currently loaded into the table.
         self._active_daily: int = 0
 
@@ -400,14 +489,18 @@ class ChartsSection(Widget):
                 f"Country: {self._country}    (press 'c' to change)",
                 id="charts-country",
             )
-            # Pill row — HorizontalScroll so it overflows gracefully on
-            # narrow terminals instead of clipping pills off the right edge.
-            # Compose with a single placeholder so the container is never
-            # empty (Textual's layout collapses empty children, which can
-            # break the Vertical's whole flow). _render_pills() swaps this
-            # for real pills once data loads.
-            with HorizontalScroll(id="charts-pills"):
-                yield Static(" ", id="charts-pill-placeholder", classes="shelf-pill")
+            # Two stacked pill rows:
+            #   #charts-event-pills — global event playlists (Coachella et al);
+            #     hidden when no events OR terminal too narrow.
+            #   #charts-chart-pills — country-specific shelves; always shown
+            #     when data is present.
+            # Each row uses HorizontalScroll so pills overflow gracefully on
+            # narrow terminals. Composed with placeholders so the containers
+            # are never empty (Textual collapses empty children).
+            with HorizontalScroll(id="charts-event-pills"):
+                yield Static(" ", id="charts-event-pill-placeholder", classes="shelf-pill event")
+            with HorizontalScroll(id="charts-chart-pills"):
+                yield Static(" ", id="charts-chart-pill-placeholder", classes="shelf-pill")
             yield TrackTable(
                 show_album=True,
                 show_index=True,
@@ -447,12 +540,16 @@ class ChartsSection(Widget):
             return
 
         try:
-            daily_raw = (
-                self._chart_data.get("daily") if isinstance(self._chart_data, dict) else None
-            )
-            self._dailies = (
-                [d for d in daily_raw if isinstance(d, dict)] if isinstance(daily_raw, list) else []
-            )
+            raw: list[dict[str, Any]] = []
+            if isinstance(self._chart_data, dict):
+                for key in ("daily", "weekly", "videos"):
+                    arr = self._chart_data.get(key)
+                    if isinstance(arr, list):
+                        raw.extend(s for s in arr if isinstance(s, dict))
+
+            events, charts = _split_events_and_charts(raw)
+            self._dailies = events + charts
+            self._event_count = len(events)
 
             if not self._dailies:
                 logger.info("No chart data available for country=%r", country)
@@ -462,7 +559,9 @@ class ChartsSection(Widget):
                 )
                 return
 
-            self._active_daily = 0
+            # Default-load the first country chart, not an event. Falls
+            # back to position 0 only if there are no charts at all.
+            self._active_daily = self._event_count if charts else 0
             await self._render_pills()
             await self._load_active_daily()
         except Exception:
@@ -472,23 +571,56 @@ class ChartsSection(Widget):
             self.is_loading = False
 
     async def _render_pills(self) -> None:
-        """Replace the contents of the pill row with one Static per daily shelf."""
+        """Populate the two pill rows from ``_dailies``.
+
+        Indices 0.._event_count-1 land in the event row;
+        _event_count..end land in the chart row. Each pill keeps its
+        absolute index in ``_dailies`` as its id suffix so click
+        handling stays uniform.
+        """
         try:
-            container = self.query_one("#charts-pills", HorizontalScroll)
+            event_row = self.query_one("#charts-event-pills", HorizontalScroll)
+            chart_row = self.query_one("#charts-chart-pills", HorizontalScroll)
         except Exception:
-            logger.debug("charts-pills container not found", exc_info=True)
+            logger.debug("charts pill containers not found", exc_info=True)
             return
-        await container.remove_children()
+        await event_row.remove_children()
+        await chart_row.remove_children()
+        # Leading explainer label inside the event row so users understand
+        # what this strip is. Mounted only if there's at least one event.
+        if self._event_count > 0:
+            await event_row.mount(Static("Featured globally:", classes="event-row-label"))
         for i, shelf in enumerate(self._dailies):
             raw_title = (
                 shelf.get("title") if isinstance(shelf, dict) else None
             ) or f"Shelf {i + 1}"
             title = _clean_shelf_title(str(raw_title))
-            classes = "shelf-pill"
+            is_event = i < self._event_count
+            classes = "shelf-pill event" if is_event else "shelf-pill"
             if i == self._active_daily:
                 classes += " active"
             pill = Static(title, classes=classes, id=f"charts-pill-{i}")
-            await container.mount(pill)
+            await (event_row if is_event else chart_row).mount(pill)
+        # Final visibility pass: hide the event row if no events at all,
+        # or if the terminal is too narrow to spare a row.
+        self._update_event_row_visibility()
+
+    def _update_event_row_visibility(self) -> None:
+        """Show/hide the event pill row based on event count + terminal width."""
+        try:
+            event_row = self.query_one("#charts-event-pills", HorizontalScroll)
+        except Exception:
+            return
+        try:
+            term_width = self.app.size.width
+        except Exception:
+            term_width = 0
+        show = self._event_count > 0 and term_width >= self._NARROW_THRESHOLD
+        event_row.display = show
+
+    def on_resize(self) -> None:
+        """Re-evaluate event row visibility when the terminal resizes."""
+        self._update_event_row_visibility()
 
     def _refresh_pill_active_class(self) -> None:
         """Re-apply the .active class to the current pill (no remount needed)."""
