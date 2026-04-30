@@ -73,7 +73,16 @@ col_artist = 30
 col_album = 25
 col_duration = 8
 bidi_mode = "auto"           # auto, reorder, passthrough — RTL text handling
+region = "GB"                # ISO 3166-1 alpha-2 — default region for Browse → Charts
+home_shelves = 3             # number of recommendation shelves on Browse → For You (1–25)
+show_selection_info = true   # show focused-item full name in the row above the playback bar
+sidebar_overflow = "truncate"  # "truncate" (1-row + ellipsis) or "wrap" (multi-line names)
 ```
+
+Per-playlist Shuffle lock state (set via the `Shuffle lock` toggle in the
+Library page playlist header) is persisted separately to
+`~/.config/ytm-player/shuffle_prefs.json`. There's nothing to configure
+in `config.toml` for it.
 
 ### `[notifications]`
 

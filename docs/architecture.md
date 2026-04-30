@@ -44,7 +44,7 @@ src/ytm_player/
 │   ├── theme.py        # Textual theme integration + app-specific color overrides
 │   ├── sidebars/       # Persistent playlist sidebar (left) and lyrics sidebar (right)
 │   ├── pages/          # Library, Search, Browse, Context, Queue, Liked Songs, Recently Played, Help
-│   ├── popups/         # Actions menu, playlist picker, Spotify import
+│   ├── popups/         # Actions menu, playlist picker, Spotify import, country picker (charts region)
 │   └── widgets/        # TrackTable, PlaybackProgress, AlbumArt
 └── utils/              # Terminal detection, formatting, BiDi text, transliteration
 ```
@@ -70,7 +70,7 @@ src/ytm_player/
 - **Event-driven playback** — `Player` emits `PlayerEvent` enums (`TRACK_END`, `TRACK_CHANGE`, etc.) dispatched to the Textual event loop via `call_soon_threadsafe`. The app registers callbacks to update the UI.
 - **Thread safety** — `Player` and `QueueManager` are singletons with `threading.Lock`. Player events bridge from mpv's callback thread to asyncio.
 - **Track format** — All services use a standardized track dict (`video_id`, `title`, `artist`, `artists`, `album`, `album_id`, `duration`, `thumbnail_url`, `is_video`). The `normalize_tracks()` helper in `utils/formatting.py` converts inconsistent ytmusicapi response shapes into this format.
-- **Session persistence** — Volume, queue, shuffle/repeat, theme, and the last-playing track + position are saved on every exit. When `[playback] resume_on_launch` is true (default), the last-playing track + position are staged into the playback bar at launch and consumed the first time the user presses play.
+- **Session persistence** — Volume, queue, shuffle/repeat, theme, and the last-playing track + position are saved on every exit to `session.json`. When `[playback] resume_on_launch` is true (default), the last-playing track + position are staged into the playback bar at launch and consumed the first time the user presses play. Per-playlist Shuffle lock state is stored separately in `shuffle_prefs.json`.
 - **Playback bar keybindings** — Standard transport keys plus `l` to toggle the like state of the currently playing track.
 - **Prefetching** — Next track's stream URL is resolved in the background for instant skip.
 - **Page navigation** — `app/_navigation.py` manages a nav stack (max 20). Each page implements `handle_action(action, count)` for vim-style keybinding dispatch and `get_nav_state()` for state preservation across navigation.

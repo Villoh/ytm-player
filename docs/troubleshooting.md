@@ -82,7 +82,7 @@ ytm-player writes a rotating log file to:
 - Linux/macOS: `~/.config/ytm-player/logs/ytm.log`
 - Windows: `%APPDATA%\ytm-player\logs\ytm.log`
 
-Crash tracebacks for any unhandled exception (main thread or background thread) are saved to the `crashes/` directory next to the log file.
+Crash tracebacks for any unhandled exception (main thread or background thread) are saved to the `crashes/` directory next to the log file. The same directory holds `faulthandler.log` (created on every TUI startup) which captures Python tracebacks for fatal signals (SIGSEGV / SIGBUS / SIGFPE / SIGILL / SIGABRT) — important for catching libmpv C-side crashes that bypass the normal exception machinery.
 
 For verbose logs, launch with `--debug`:
 
@@ -96,4 +96,4 @@ When reporting a bug, please run:
 ytm doctor
 ```
 
-and paste the output into your GitHub issue. It includes the version, your Python and mpv versions, paths, the last 50 log lines, and the most recent crash trace if any.
+and paste the output into your GitHub issue. It includes eight sections: version + platform info, config/log/crash paths, running-process status, recent ERROR/WARNING log lines, recent mpv warnings, the most recent faulthandler trace, the most recent crash file, and the active-hooks summary. Auth-sensitive substrings (Authorization / Cookie / Bearer / token / SAPISID) are scrubbed automatically before output.

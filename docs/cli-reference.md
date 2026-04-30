@@ -81,7 +81,7 @@ Interactive flow — see [docs/spotify-import.md](spotify-import.md).
 ## Diagnostics
 
 ```bash
-ytm doctor                   # Version, paths, log tail, recent crash trace
+ytm doctor                   # 8-section diagnostic report (version, paths, config, deps, logs, crashes, env, settings — secrets redacted)
 ytm config                   # Open config dir in your editor
 ytm --debug                  # Launch with verbose logging
 ```

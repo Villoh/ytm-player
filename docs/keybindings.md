@@ -31,6 +31,8 @@
 | `s t` / `s a` / `s A` / `s d` | Sort by Title / Artist / Album / Duration |
 | `s r` | Reverse current sort |
 | `backspace` | Go back |
+| `Shift+backspace` | Go forward (after a back) |
+| `c` | Pick chart region (Browse → Charts only) |
 | `q` | Quit |
 
 ## Mouse
@@ -44,6 +46,9 @@
 | Click | Shuffle button | Toggle shuffle on/off |
 | Click | Heart button | Toggle like on currently playing track |
 | Click | Footer buttons | Navigate pages, play/pause, prev/next |
+| Click | Header `← Back` / `Forward →` | Navigate history (auto-show/hide based on stack state) |
+| Click | Playlist header `Shuffle lock: ON/off` | Toggle per-playlist forced-shuffle |
+| Click | Charts shelf pills | Switch between daily chart variants (Top 100 / Trending / etc.) |
 | Right-click | Track row | Open context menu (play, queue, add to playlist, etc.) |
 
 ## Custom keybindings
