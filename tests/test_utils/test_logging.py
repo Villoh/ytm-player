@@ -351,7 +351,7 @@ class TestUnraisableHook:
                 err_msg=None,
                 object="<test object>",
             )
-            sys.unraisablehook(hook_args)
+            sys.unraisablehook(hook_args)  # pyright: ignore[reportArgumentType]
 
         files = list(crash_dir.glob("ytm-crash-*.log"))
         assert len(files) == 1
@@ -382,7 +382,7 @@ class TestUnraisableHook:
                 err_msg=None,
                 object=None,
             )
-            sys.unraisablehook(hook_args)
+            sys.unraisablehook(hook_args)  # pyright: ignore[reportArgumentType]
 
         captured = capsys.readouterr()
         assert "chain unraisable" in captured.err
