@@ -298,9 +298,9 @@ class ChartsSection(Widget):
     }
 
     ChartsSection #charts-pills {
-        height: 1;
+        height: 2;
         width: 1fr;
-        padding: 0 0 1 0;
+        margin: 0 0 1 0;
         align: left middle;
     }
 
