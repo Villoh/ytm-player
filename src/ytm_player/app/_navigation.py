@@ -142,6 +142,15 @@ class NavigationMixin(YTMHostBase):
         except Exception:
             logger.debug("Failed to update footer active page indicator", exc_info=True)
 
+        # Show/hide the header back button based on whether we have history.
+        try:
+            from ytm_player.ui.header_bar import HeaderBar
+
+            header = self.query_one(HeaderBar)
+            header.set_back_visible(bool(self._nav_stack))
+        except Exception:
+            logger.debug("Failed to update header back button visibility", exc_info=True)
+
         # Apply per-page playlist sidebar visibility.
         sidebar_visible = self._sidebar_per_page.get(page_name, self._sidebar_default)
         self._apply_playlist_sidebar(sidebar_visible)

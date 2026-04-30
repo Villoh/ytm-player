@@ -94,6 +94,10 @@ class SidebarMixin(YTMHostBase):
     def on_header_bar_toggle_lyrics_sidebar(self, message: HeaderBar.ToggleLyricsSidebar) -> None:
         self._toggle_lyrics_sidebar()
 
+    async def on_header_bar_back_requested(self, message: HeaderBar.BackRequested) -> None:
+        """Header back-button click → pop the nav stack."""
+        await self.navigate_to("back")
+
     async def on_playlist_sidebar_playlist_selected(
         self, message: PlaylistSidebar.PlaylistSelected
     ) -> None:
