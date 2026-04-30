@@ -78,7 +78,9 @@ class TestInstallExcepthooks:
         try:
             raise RuntimeError("boom")
         except RuntimeError:
-            sys.excepthook(*sys.exc_info())
+            exc_type, exc_value, exc_tb = sys.exc_info()
+            assert exc_type is not None and exc_value is not None and exc_tb is not None
+            sys.excepthook(exc_type, exc_value, exc_tb)
 
         files = sorted(crash_dir.glob("ytm-crash-*.log"))
         assert len(files) == 1
@@ -95,8 +97,11 @@ class TestInstallExcepthooks:
         try:
             raise RuntimeError("thread boom")
         except RuntimeError:
-            ei = sys.exc_info()
-            args = threading.ExceptHookArgs((type(ei[1]), ei[1], ei[2], threading.current_thread()))
+            exc_type, exc_value, exc_tb = sys.exc_info()
+            assert exc_type is not None and exc_value is not None and exc_tb is not None
+            args = threading.ExceptHookArgs(
+                (exc_type, exc_value, exc_tb, threading.current_thread())
+            )
             threading.excepthook(args)
 
         files = sorted(crash_dir.glob("ytm-crash-*.log"))
@@ -119,7 +124,9 @@ class TestInstallExcepthooks:
         try:
             raise ValueError("new")
         except ValueError:
-            sys.excepthook(*sys.exc_info())
+            exc_type, exc_value, exc_tb = sys.exc_info()
+            assert exc_type is not None and exc_value is not None and exc_tb is not None
+            sys.excepthook(exc_type, exc_value, exc_tb)
 
         files = sorted(crash_dir.glob("ytm-crash-*.log"))
         assert len(files) == 3, f"expected 3, got {len(files)}: {files}"
@@ -133,7 +140,9 @@ class TestInstallExcepthooks:
         try:
             raise KeyboardInterrupt()
         except KeyboardInterrupt:
-            sys.excepthook(*sys.exc_info())
+            exc_type, exc_value, exc_tb = sys.exc_info()
+            assert exc_type is not None and exc_value is not None and exc_tb is not None
+            sys.excepthook(exc_type, exc_value, exc_tb)
 
         files = list(crash_dir.glob("ytm-crash-*.log"))
         assert files == []
@@ -147,8 +156,11 @@ class TestInstallExcepthooks:
         try:
             raise RuntimeError("chain me")
         except RuntimeError:
-            ei = sys.exc_info()
-            args = threading.ExceptHookArgs((type(ei[1]), ei[1], ei[2], threading.current_thread()))
+            exc_type, exc_value, exc_tb = sys.exc_info()
+            assert exc_type is not None and exc_value is not None and exc_tb is not None
+            args = threading.ExceptHookArgs(
+                (exc_type, exc_value, exc_tb, threading.current_thread())
+            )
             threading.excepthook(args)
 
         # File written.
