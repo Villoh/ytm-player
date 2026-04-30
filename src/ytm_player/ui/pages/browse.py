@@ -722,16 +722,36 @@ class BrowsePage(Widget):
         match index:
             case 0:
                 section = self.query_one("#section-foryou", ForYouSection)
-                self.run_worker(section.load_data(), name="load-foryou", exclusive=True)
+                self.run_worker(
+                    section.load_data(),
+                    name="load-foryou",
+                    exclusive=True,
+                    exit_on_error=False,
+                )
             case 1:
                 section = self.query_one("#section-moods", MoodsGenresSection)
-                self.run_worker(section.load_data(), name="load-moods", exclusive=True)
+                self.run_worker(
+                    section.load_data(),
+                    name="load-moods",
+                    exclusive=True,
+                    exit_on_error=False,
+                )
             case 2:
                 section = self.query_one("#section-charts", ChartsSection)
-                self.run_worker(section.load_data(), name="load-charts", exclusive=True)
+                self.run_worker(
+                    section.load_data(),
+                    name="load-charts",
+                    exclusive=True,
+                    exit_on_error=False,
+                )
             case 3:
                 section = self.query_one("#section-releases", NewReleasesSection)
-                self.run_worker(section.load_data(), name="load-releases", exclusive=True)
+                self.run_worker(
+                    section.load_data(),
+                    name="load-releases",
+                    exclusive=True,
+                    exit_on_error=False,
+                )
 
     # ------------------------------------------------------------------
     # Item selection handlers
@@ -753,32 +773,28 @@ class BrowsePage(Widget):
                 self._load_mood_playlists(params),
                 name="load-mood-playlists",
                 exclusive=True,
+                exit_on_error=False,
             )
 
     async def _load_mood_playlists(self, category_params: str) -> None:
         """Fetch playlists for a mood/genre and navigate to the first one."""
-        logger.warning("MOOD-TRACE A: enter, params=%r", category_params)
         host = cast("YTMHostBase", self.app)
         try:
-            logger.warning("MOOD-TRACE B: getting ytmusic")
             ytmusic = host.ytmusic
             assert ytmusic is not None
-            logger.warning("MOOD-TRACE C: calling get_mood_playlists")
             playlists = await ytmusic.get_mood_playlists(category_params)
-            logger.warning(
-                "MOOD-TRACE D: returned type=%s len=%s",
-                type(playlists).__name__,
-                len(playlists) if isinstance(playlists, list) else "n/a",
-            )
 
+            # Empty result — service caught a parser error or YouTube returned
+            # nothing. Don't silently no-op; tell the user.
             if not playlists or not isinstance(playlists, list):
-                logger.warning("MOOD-TRACE E: empty, calling notify")
-                host.notify(
-                    "This mood is currently unavailable (YouTube changed its data shape)",
-                    severity="warning",
-                    timeout=4,
-                )
-                logger.warning("MOOD-TRACE F: notify returned, exiting")
+                try:
+                    host.notify(
+                        "This mood is currently unavailable (YouTube changed its data shape)",
+                        severity="warning",
+                        timeout=4,
+                    )
+                except Exception:
+                    logger.exception("notify() failed in _load_mood_playlists empty branch")
                 return
 
             first = playlists[0] if isinstance(playlists[0], dict) else None
@@ -791,15 +807,15 @@ class BrowsePage(Widget):
                 host.notify("No playlists found for this mood", severity="warning", timeout=3)
                 return
 
-            logger.warning("MOOD-TRACE G: navigating to %r", playlist_id)
             await host.navigate_to("context", context_type="playlist", context_id=playlist_id)
-            logger.warning("MOOD-TRACE H: navigation complete")
         except Exception:
-            logger.exception("MOOD-TRACE Z: exception caught")
+            logger.exception("Failed to load mood playlists")
+            # Even the fallback toast can fail under render-race conditions —
+            # never let a notify() exception escape the worker.
             try:
                 host.notify("Failed to load mood playlists", severity="error")
             except Exception:
-                logger.exception("MOOD-TRACE Z2: notify also failed")
+                logger.exception("notify() also failed in _load_mood_playlists fallback")
 
     async def on_new_releases_section_album_selected(
         self, event: NewReleasesSection.AlbumSelected
