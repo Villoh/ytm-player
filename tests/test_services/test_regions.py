@@ -36,13 +36,6 @@ class TestChartRegions:
         codes = [c for c, _ in CHART_REGIONS]
         assert len(codes) == len(set(codes)), "duplicate codes present"
 
-    def test_global_zz_present(self):
-        """ZZ is YouTube Music's global / no-region marker; must be selectable."""
-        from ytm_player.services.regions import CHART_REGIONS
-
-        codes = [c for c, _ in CHART_REGIONS]
-        assert "ZZ" in codes
-
     def test_us_present(self):
         """US is the default region in settings; must always be available."""
         from ytm_player.services.regions import CHART_REGIONS
@@ -51,16 +44,14 @@ class TestChartRegions:
         assert "US" in codes
 
     def test_alphabetical_by_name(self):
-        """ZZ first as special, remaining sorted alphabetically by display name."""
+        """All regions sorted alphabetically by display name."""
         from ytm_player.services.regions import CHART_REGIONS
 
-        assert CHART_REGIONS[0][0] == "ZZ"
-        rest = CHART_REGIONS[1:]
-        names = [name for _, name in rest]
+        names = [name for _, name in CHART_REGIONS]
         assert names == sorted(names), "regions not alphabetical by name"
 
     def test_minimum_size(self):
-        """At least 30 regions covering major markets."""
+        """The empirically-verified working set is at least 17 regions."""
         from ytm_player.services.regions import CHART_REGIONS
 
-        assert len(CHART_REGIONS) >= 30
+        assert len(CHART_REGIONS) >= 17
