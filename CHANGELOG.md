@@ -6,7 +6,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
-### v1.9.0 (UNRELEASED — 2026-04-30)
+### v1.9.0 (2026-04-30)
 
 A community-PR-driven feature release. Six PRs from @wgordon17 (Principal SRE on OpenShift at Red Hat) plus user-reported UX work, an AUR auto-publish pipeline, and a per-collection shuffle memory system. Distribution data milestone — crossed 10,000 lifetime PyPI downloads on the day this release was assembled.
 
@@ -29,12 +29,25 @@ A community-PR-driven feature release. Six PRs from @wgordon17 (Principal SRE on
 - **macOS built-in keyboard media keys (prev/next)** — built-in MacBook keyboards send key codes 19/20 (FAST/REWIND) instead of 17/18 (NEXT/PREVIOUS) that external keyboards use. The Quartz event tap now maps both sets. Verified against Apple's IOKit constants and Rogue Amoeba's canonical reference. Thanks @wgordon17 (#67).
 - **Browse tab bar visibility** — was rendering at `height: 1` with `border-bottom: solid` on the active tab clipping its label. Now uses `height: 4`, `border-bottom: tall`, `width: auto` for content-sized tabs, hover state, `$surface` background, `$border` separator, plus 1-row top padding for breathing room from the page edge. Thanks @wgordon17 (#68).
 - **yt-dlp android client fallback** — madeForKids content (e.g., children's music tracks) was failing with "Video unavailable" on the default web client. yt-dlp now also tries the android client which falls through to a non-PoT legacy format that succeeds. Empirically validated: Baby Shark goes from broken to playing format-18 m4a audio. Normal songs unaffected. The line carries a `# WHY:` comment explaining the rationale so a future audit doesn't strip it as cargo-cult config. Thanks @wgordon17 (#72).
-- **Browse > Moods & Genres** — `get_mood_categories` now normalises ytmusicapi's dict response (keyed by section title — `"For you"`, `"Genres"`, `"Moods & moments"`, `"Decades"`) to the list-of-dicts shape the Browse page expects. Was returning the raw dict, the page iterated dict keys (strings), every `category_group.get(...)` call failed silently, "No categories available" surfaced. Now the actual moods and genres show up.
-- **Browse > Moods click failure** — clicking a mood category now shows a clear toast (`"This mood is currently unavailable"`) instead of silently no-op'ing when ytmusicapi's parser fails on YouTube response shape changes. Service-layer `get_mood_playlists` catches `(KeyError, IndexError, TypeError)` parser-drift exceptions explicitly with a clearer log line.
+- **Moods & Genres sub-tab removed entirely** — clicking a mood was producing a silent process-exit traceable past every Python-level handler in the audit (see `docs/superpowers/specs/2026-04-30-mood-crash-findings.md`). The remaining suspects are sub-Python (libmpv segfault, finaliser raise, etc.) and require runtime data we don't have. Pulled the tab out of v1.9.0 rather than ship a feature that crashes the app on click. Tab order is now (For You, Charts, New Releases). Service methods `get_mood_categories` / `get_mood_playlists` are kept — the Discovery Mix feature still depends on them.
 - **`KeyError` from ytmusicapi parsers no longer counted as "unexpected"** — added `KeyError` to `_EXPECTED_API_EXCEPTIONS` so `_call` treats parser drift as a recoverable API-side failure instead of letting it propagate as a "programming error." This was masking real upstream issues and surfacing crash files for routine YouTube response-shape changes.
 - **Sidebar playlist track count now updates immediately after add** — was reading the cached `count` field from the library payload and never bumping it after `add_playlist_items` succeeded, so the `(N tracks)` suffix stayed stale until the next library reload. New `LibraryPanel.update_item_count(playlist_id, delta)` primitive optimistically updates the cached count and rebuilds the affected row's label text. Wired into both `_do_add` and `_do_create_and_add` in playlist_picker. Tolerates VL-prefix mismatches in either direction. Leaves `count = None` (unknown) untouched rather than fabricating.
 - **Queue right-click now opens the actions popup** — previously did nothing because the Queue page uses a raw `DataTable` (not `TrackTable`), so the `TrackRightClicked` handler never fired. Added `on_mouse_down` on `QueuePage` that forwards button-3 clicks to `_open_actions_for_track` using the cursor row.
 - **Track actions popup conditionally swaps "Add to Queue" ↔ "Remove from Queue"** — when the track being right-clicked is currently in the playback queue, the menu shows "Remove from Queue" (action_id `remove_from_queue`) instead of "Add to Queue". Same menu slot, different label and action based on queue state. Detection happens at popup-open time by scanning `queue.tracks` for the track's `video_id`.
+
+**Diagnostic infrastructure**
+
+- **`faulthandler.enable(all_threads=True)`** — fatal-signal capture wired in `cli.py` after `setup_logging`. SIGSEGV/SIGBUS/SIGFPE/SIGILL/SIGABRT now leave a Python traceback for every thread in `~/.config/ytm-player/crashes/faulthandler.log` before the kernel delivers the signal. Critical for catching libmpv/python-mpv C-side crashes that bypass `sys.excepthook` entirely.
+- **asyncio loop exception handler** — `App.on_mount` installs `_asyncio_exception_handler` via `loop.set_exception_handler`. Funnels "Task exception was never retrieved" warnings and any orphan-task errors into `crashes/ytm-crash-*.log` instead of the invisible-stderr default that Textual's alt-screen swallows.
+- **`sys.unraisablehook`** — `install_excepthooks` now also captures `__del__` / weakref-callback / generator-close errors, labels them `Unraisable in <obj>`, and writes a crash file before chaining to `sys.__unraisablehook__`. Fixes a class of silent finaliser failures that were previously lost.
+- **mpv `log_handler` + `loglevel="warn"`** — Player constructs `mpv.MPV(log_handler=...)` so libmpv's internal warnings/errors hit the Python logger as `mpv[<area>]: <message>`. `ytm doctor` greps these out of `ytm.log` so libmpv issues are surface-level visible.
+- **`ytm doctor` v2 — eight sections** — version, paths, process status, recent ERROR/WARNING (filtered, last 20), recent mpv warnings, latest faulthandler trace, latest crash file, active-hooks summary. All output passes through a redaction layer that scrubs `Authorization`, `Cookie`, `Bearer`, `token`, `x-goog-pageid`, `SAPISID` so issue pastes never leak auth.
+- **App-level `_handle_exception` override** — the YTMPlayerApp overrides Textual's `App._handle_exception` (documented "Always results in the app exiting") to write a crash file via `write_crash_file()`, surface a toast, and **not** call `super()`. Keeps the TUI alive on otherwise-fatal worker / render / event errors so the user doesn't lose their queue position to a transient failure.
+- **`write_crash_file` self-bootstraps** — falls back to `paths.CRASH_DIR` when `install_excepthooks` was never called, and logs `OSError` instead of silently returning `None`. Fixes the "crashes dir empty after a real crash" diagnostic black hole.
+
+**Charts country selector**
+
+- **Press `c` on Browse → Charts** to open a filterable region modal. Type to filter on ISO code or country name; Enter to select; Esc to cancel. Selection persists to `[ui] region` in `config.toml` and triggers a chart refetch. New `Action.PICK_COUNTRY` enum entry, default binding `c`. Region list (53 markets + ZZ-Global) lives in `src/ytm_player/services/regions.py`. Modal at `src/ytm_player/ui/popups/country_picker.py` follows the existing `playlist_picker.py` pattern. Help-page coverage updated.
 
 **UI / theming**
 
@@ -63,10 +76,9 @@ A community-PR-driven feature release. Six PRs from @wgordon17 (Principal SRE on
 
 **Known issues — deferred / outstanding**
 
-- **Charts country selector UI** — picker / predictive search to switch chart country at runtime instead of via config. Spec only.
+- **Moods & Genres tab restoration** — removed for v1.9.0 because clicking a mood produced a silent process-exit no Python-level handler could catch (audit at `docs/superpowers/specs/2026-04-30-mood-crash-findings.md` ruled out every enumerated cause). The diagnostic infrastructure shipped this release should capture the actual exit on the next reproduction; restoring the tab depends on that trace.
 - **UX polish (4-8 from the in-session UX review)** — Library track-count subtitle, Search panel border deduplication + mode-toggle markup cleanup, Browse active-tab visual weight, Queue "Now Playing" header hierarchy.
 - **Phase 8 pre-release QA pass** — manual smoke through every page, exercising the new shuffle memory, sidebar overflow modes, discovery roulette, and Browse sub-tabs with realistic data.
-- **Mood click "crash" investigation** — user reports the app exiting on Mood category click; service-layer parser-error catching is in place and logged, but the exit mechanism (if any) hasn't been pinned down. Open thread.
 
 **Session note — release engineering**
 
