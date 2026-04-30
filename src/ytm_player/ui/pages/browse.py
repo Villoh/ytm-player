@@ -351,7 +351,12 @@ class ChartsSection(Widget):
                 f"Country: {self._country}    (press 'c' to change)",
                 id="charts-country",
             )
-            yield Horizontal(id="charts-pills")
+            # Pill row — compose with a single placeholder Static so the
+            # Horizontal container is never empty (Textual's layout collapses
+            # empty children, which can break the Vertical's whole flow).
+            # _render_pills() swaps this for real pills once data loads.
+            with Horizontal(id="charts-pills"):
+                yield Static(" ", id="charts-pill-placeholder", classes="shelf-pill")
             yield TrackTable(
                 show_album=True,
                 show_index=True,
