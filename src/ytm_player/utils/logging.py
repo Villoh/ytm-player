@@ -182,15 +182,7 @@ def install_excepthooks(*, crash_dir: Path, keep: int = 10) -> None:
         )
         obj_repr = repr(args.object) if args.object is not None else "<unknown>"
         write_crash_file(text, label=f"Unraisable in {obj_repr}")
-        try:
-            sys.__unraisablehook__(args)
-        except TypeError:
-            # In tests, args may be a SimpleNamespace. Fall back to the default
-            # stderr output via a manual format when the real hook rejects it.
-            print(
-                f"Unraisable exception in {obj_repr}:\n{text}",
-                file=sys.stderr,
-            )
+        sys.__unraisablehook__(args)
 
     sys.unraisablehook = _unraisable_hook
 

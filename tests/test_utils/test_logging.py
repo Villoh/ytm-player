@@ -330,11 +330,14 @@ class TestUnraisableHook:
         yield
         sys.unraisablehook = original
 
-    def test_unraisable_hook_writes_crash_file(self, tmp_path: Path):
+    def test_unraisable_hook_writes_crash_file(self, tmp_path: Path, monkeypatch):
         from ytm_player.utils.logging import install_excepthooks
 
         crash_dir = tmp_path / "crashes"
         install_excepthooks(crash_dir=crash_dir, keep=5)
+
+        # Mock __unraisablehook__ to avoid TypeError from SimpleNamespace.
+        monkeypatch.setattr(sys, "__unraisablehook__", lambda args: None)
 
         try:
             raise RuntimeError("unraisable boom")
@@ -360,13 +363,19 @@ class TestUnraisableHook:
         assert "<test object>" in body
         assert "unraisable boom" in body
 
-    def test_unraisable_hook_chains_to_default(self, tmp_path: Path, capsys):
-        """After our hook writes the crash file, the default __unraisablehook__
-        still prints to stderr so anything outside Textual still sees it."""
+    def test_unraisable_hook_chains_to_default(self, tmp_path: Path, monkeypatch):
+        """Our hook chains to sys.__unraisablehook__ after writing the crash file."""
         from ytm_player.utils.logging import install_excepthooks
 
         crash_dir = tmp_path / "crashes"
         install_excepthooks(crash_dir=crash_dir, keep=5)
+
+        chain_calls: list = []
+
+        def mock_default_hook(args):  # type: ignore[no-untyped-def]
+            chain_calls.append(args)
+
+        monkeypatch.setattr(sys, "__unraisablehook__", mock_default_hook)
 
         try:
             raise RuntimeError("chain unraisable")
@@ -384,5 +393,5 @@ class TestUnraisableHook:
             )
             sys.unraisablehook(hook_args)  # pyright: ignore[reportArgumentType]
 
-        captured = capsys.readouterr()
-        assert "chain unraisable" in captured.err
+        assert len(chain_calls) == 1
+        assert chain_calls[0] is hook_args
