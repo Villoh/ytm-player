@@ -6,11 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
-### v1.9.0 (2026-04-30)
+### v1.9.1 (2026-04-30)
 
 This is the third and final wave of major updates in a rapid release cycle — quieter cadence ahead.
 
 A community-PR-driven feature release. Six PRs from @wgordon17 plus user-reported UX work, an AUR auto-publish pipeline, and a per-collection shuffle memory system. Distribution data milestone — crossed 10,000 lifetime PyPI downloads on the day this release was assembled.
+
+> Supersedes the same-day v1.9.0 tag, which shipped two small regressions: the browser forward-stack got clobbered when clicking the current page's footer entry a second time, and the playback-bar Shuffle-lock dimming didn't refresh when starting a radio from the sidebar. Both are fixed in this release — install v1.9.1 directly.
 
 **New features**
 
@@ -31,11 +33,13 @@ A community-PR-driven feature release. Six PRs from @wgordon17 plus user-reporte
 - **macOS built-in keyboard media keys (prev/next)** — built-in MacBook keyboards send key codes 19/20 (FAST/REWIND) instead of 17/18 (NEXT/PREVIOUS) that external keyboards use. The Quartz event tap now maps both sets. Verified against Apple's IOKit constants and Rogue Amoeba's canonical reference. Thanks @wgordon17 (#67).
 - **Browse tab bar visibility** — was rendering at `height: 1` with `border-bottom: solid` on the active tab clipping its label. Now uses `height: 4`, `border-bottom: tall`, `width: auto` for content-sized tabs, hover state, `$surface` background, `$border` separator, plus 1-row top padding for breathing room from the page edge. Thanks @wgordon17 (#68).
 - **yt-dlp android client fallback** — madeForKids content (e.g., children's music tracks) was failing with "Video unavailable" on the default web client. yt-dlp now also tries the android client which falls through to a non-PoT legacy format that succeeds. Empirically validated: Baby Shark goes from broken to playing format-18 m4a audio. Normal songs unaffected. The line carries a `# WHY:` comment explaining the rationale so a future audit doesn't strip it as cargo-cult config. Thanks @wgordon17 (#72).
-- **Moods & Genres sub-tab removed entirely** — clicking a mood was producing a silent process-exit traceable past every Python-level handler in the audit (see `docs/superpowers/specs/2026-04-30-mood-crash-findings.md`). The remaining suspects are sub-Python (libmpv segfault, finaliser raise, etc.) and require runtime data we don't have. Pulled the tab out of v1.9.0 rather than ship a feature that crashes the app on click. Tab order is now (For You, Charts, New Releases). Service methods `get_mood_categories` / `get_mood_playlists` are kept — the Discovery Mix feature still depends on them.
+- **Moods & Genres sub-tab removed entirely** — clicking a mood was producing a silent process-exit traceable past every Python-level handler in the audit (see `docs/superpowers/specs/2026-04-30-mood-crash-findings.md`). The remaining suspects are sub-Python (libmpv segfault, finaliser raise, etc.) and require runtime data we don't have. Pulled the tab rather than ship a feature that crashes the app on click. Tab order is now (For You, Charts, New Releases). The unused `YTMusicService.get_mood_categories` / `get_mood_playlists` wrappers were dropped at the same time — Discovery Mix calls the underlying ytmusicapi client directly, so the wrappers had no remaining callers.
 - **`KeyError` from ytmusicapi parsers no longer counted as "unexpected"** — added `KeyError` to `_EXPECTED_API_EXCEPTIONS` so `_call` treats parser drift as a recoverable API-side failure instead of letting it propagate as a "programming error." This was masking real upstream issues and surfacing crash files for routine YouTube response-shape changes.
 - **Sidebar playlist track count now updates immediately after add** — was reading the cached `count` field from the library payload and never bumping it after `add_playlist_items` succeeded, so the `(N tracks)` suffix stayed stale until the next library reload. New `LibraryPanel.update_item_count(playlist_id, delta)` primitive optimistically updates the cached count and rebuilds the affected row's label text. Wired into both `_do_add` and `_do_create_and_add` in playlist_picker. Tolerates VL-prefix mismatches in either direction. Leaves `count = None` (unknown) untouched rather than fabricating.
 - **Queue right-click now opens the actions popup** — previously did nothing because the Queue page uses a raw `DataTable` (not `TrackTable`), so the `TrackRightClicked` handler never fired. Added `on_mouse_down` on `QueuePage` that forwards button-3 clicks to `_open_actions_for_track` using the cursor row.
 - **Track actions popup conditionally swaps "Add to Queue" ↔ "Remove from Queue"** — when the track being right-clicked is currently in the playback queue, the menu shows "Remove from Queue" (action_id `remove_from_queue`) instead of "Add to Queue". Same menu slot, different label and action based on queue state. Detection happens at popup-open time by scanning `queue.tracks` for the track's `video_id`.
+- **Forward stack no longer clobbered by same-page footer clicks** (post-v1.9.0) — clicking the current page's footer entry a second time intentionally pops the previous page off the back stack, but the navigation path was treating it as a fresh forward navigation and clearing the forward stack along with it. Added a `same_page_back` flag so the forward stack survives the round-trip.
+- **Sidebar Start Radio refreshes the Shuffle-lock visual state** (post-v1.9.0) — starting a radio from the sidebar correctly applied the Shuffle-lock force-shuffle behaviour, but the playback-bar shuffle button's dim/non-dim state wasn't repainted to match. Added an explicit `refresh_shuffle_lock_state()` call on the playback bar from the sidebar Start-Radio path.
 
 **Diagnostic infrastructure**
 
