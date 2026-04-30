@@ -301,9 +301,11 @@ class ChartsSection(Widget):
         height: 1;
         width: 1fr;
         padding: 0 0 1 0;
+        align: left middle;
     }
 
     ChartsSection .shelf-pill {
+        width: auto;
         height: 1;
         background: $surface;
         color: $text-muted;
