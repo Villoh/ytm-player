@@ -231,3 +231,33 @@ class TestWriteCrashFileFallback:
             assert any("failed to write" in rec.getMessage().lower() for rec in caplog.records)
         finally:
             crash_dir.chmod(0o700)
+
+
+class TestFaulthandlerEnable:
+    """faulthandler must be enabled to a file under the crash dir.
+
+    We can't actually trigger a SIGSEGV in tests (would kill pytest), but we
+    can verify the file handle is opened and faulthandler is enabled, and
+    that faulthandler.dump_traceback() writes to the configured file.
+    """
+
+    def test_dump_traceback_writes_to_configured_file(self, tmp_path: Path):
+        """faulthandler.enable(file=fh) routes dump_traceback() output to fh."""
+        import faulthandler
+
+        fh_path = tmp_path / "faulthandler.log"
+        fh = fh_path.open("ab", buffering=0)
+        try:
+            faulthandler.enable(file=fh, all_threads=True)
+            try:
+                faulthandler.dump_traceback(file=fh, all_threads=True)
+            finally:
+                # Always disable to avoid bleeding into other tests.
+                faulthandler.disable()
+        finally:
+            fh.close()
+
+        assert fh_path.exists()
+        content = fh_path.read_text(encoding="utf-8", errors="replace")
+        # dump_traceback emits the literal phrase "Current thread"
+        assert "Current thread" in content

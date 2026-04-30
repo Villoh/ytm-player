@@ -132,6 +132,17 @@ def main(ctx: click.Context, compact_json: bool, debug: bool) -> None:
         )
         install_excepthooks(crash_dir=CRASH_DIR, keep=settings.logging.keep_crashes)
 
+        # Enable faulthandler so a SIGSEGV / SIGBUS / SIGFPE / SIGILL /
+        # SIGABRT from a C extension (e.g. python-mpv via libmpv) leaves
+        # a Python traceback for *every* thread under crashes/. Without
+        # this, fatal-signal exits are completely invisible to
+        # sys.excepthook and ytm doctor.
+        import faulthandler
+
+        CRASH_DIR.mkdir(parents=True, exist_ok=True)
+        _faulthandler_log = (CRASH_DIR / "faulthandler.log").open("ab", buffering=0)
+        faulthandler.enable(file=_faulthandler_log, all_threads=True)
+
         from ytm_player.app import YTMPlayerApp
 
         app = YTMPlayerApp()
