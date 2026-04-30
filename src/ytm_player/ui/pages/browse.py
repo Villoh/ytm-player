@@ -260,7 +260,13 @@ class ForYouSection(Widget):
 
 
 class ChartsSection(Widget):
-    """Top charts from get_charts() displayed as a track table."""
+    """Top charts from get_charts() displayed as a track table.
+
+    YouTube Music returns multiple daily chart shelves per country (typically
+    "Top songs / Top hits / Top videos / New & hot" — varies by region). We
+    show all of them as a clickable pill row above the track table; clicking
+    a pill switches the table to that shelf's playlist.
+    """
 
     DEFAULT_CSS = """
     ChartsSection {
@@ -290,6 +296,31 @@ class ChartsSection(Widget):
         color: $text-muted;
         padding: 0 0 0 1;
     }
+
+    ChartsSection #charts-pills {
+        height: 1;
+        width: 1fr;
+        padding: 0 0 1 0;
+    }
+
+    ChartsSection .shelf-pill {
+        height: 1;
+        background: $surface;
+        color: $text-muted;
+        padding: 0 1;
+        margin-right: 1;
+    }
+
+    ChartsSection .shelf-pill:hover {
+        background: $border;
+        color: $text;
+    }
+
+    ChartsSection .shelf-pill.active {
+        background: $primary;
+        color: $text;
+        text-style: bold;
+    }
     """
 
     is_loading: reactive[bool] = reactive(True)
@@ -298,10 +329,17 @@ class ChartsSection(Widget):
         super().__init__(**kwargs)
         self._chart_data: dict[str, Any] = {}
         self._country: str = get_settings().ui.region
+        # Daily chart shelves available for the current country. Each entry
+        # is the dict ytmusicapi returns under data["daily"] — keys include
+        # "title", "playlistId", "thumbnails".
+        self._dailies: list[dict[str, Any]] = []
+        # Index into self._dailies that's currently loaded into the table.
+        self._active_daily: int = 0
 
     def on_unmount(self) -> None:
         """Release chart data to prevent memory retention."""
         self._chart_data.clear()
+        self._dailies.clear()
 
     def compose(self) -> ComposeResult:
         yield Static("Loading charts...", id="charts-loading", classes="loading")
@@ -311,6 +349,7 @@ class ChartsSection(Widget):
                 f"Country: {self._country}    (press 'c' to change)",
                 id="charts-country",
             )
+            yield Horizontal(id="charts-pills")
             yield TrackTable(
                 show_album=True,
                 show_index=True,
@@ -325,12 +364,15 @@ class ChartsSection(Widget):
             logger.debug("Failed to hide charts content on mount", exc_info=True)
 
     async def load_data(self, country: str | None = None) -> None:
-        """Fetch and display chart data for *country* (defaults to ``settings.ui.region``).
+        """Fetch chart data for *country* and display the first daily shelf.
 
-        ytmusicapi's ``get_charts`` returns chart *playlists* — daily/weekly/genres
-        plus a list of trending artists. There's no flat "top songs" list anymore.
-        We load the first daily chart playlist (typically "Top Songs - <country>")
-        so users see actual tracks in the table they expect.
+        ytmusicapi's ``get_charts`` returns chart *playlists* under several
+        shelves (daily / weekly / genres / artists). We show all daily shelves
+        as clickable pills; selecting one loads its playlist into the table.
+
+        YouTube Music has uneven regional coverage: some country codes return
+        no daily chart at all. Distinguish that case from a real network/API
+        error so the user knows whether to retry or pick a different region.
         """
         self.is_loading = True
         if country is None:
@@ -340,23 +382,105 @@ class ChartsSection(Widget):
             ytmusic = cast("YTMHostBase", self.app).ytmusic
             assert ytmusic is not None
             self._chart_data = await ytmusic.get_charts(country=country)
-
-            # Resolve the top daily chart playlist into a track list.
-            tracks: list[dict[str, Any]] = []
-            daily = self._chart_data.get("daily") if isinstance(self._chart_data, dict) else None
-            if isinstance(daily, list) and daily:
-                playlist_id = daily[0].get("playlistId") if isinstance(daily[0], dict) else None
-                if playlist_id:
-                    playlist = await ytmusic.get_playlist(playlist_id)
-                    if isinstance(playlist, dict):
-                        tracks = playlist.get("tracks", []) or []
-
-            self._populate_charts(tracks)
         except Exception:
             logger.exception("Failed to load charts for country=%r", country)
-            self._show_error("Failed to load charts.")
+            self._show_error(f"Failed to load charts for {country} — try again later.")
+            self.is_loading = False
+            return
+
+        try:
+            daily_raw = (
+                self._chart_data.get("daily") if isinstance(self._chart_data, dict) else None
+            )
+            self._dailies = (
+                [d for d in daily_raw if isinstance(d, dict)] if isinstance(daily_raw, list) else []
+            )
+
+            if not self._dailies:
+                logger.info("No chart data available for country=%r", country)
+                self._show_error(
+                    f"No chart data available for {country}. "
+                    "YouTube Music coverage varies by region — press 'c' to pick a different one."
+                )
+                return
+
+            self._active_daily = 0
+            await self._render_pills()
+            await self._load_active_daily()
+        except Exception:
+            logger.exception("Failed to populate charts for country=%r", country)
+            self._show_error(f"Failed to load charts for {country} — try again later.")
         finally:
             self.is_loading = False
+
+    async def _render_pills(self) -> None:
+        """Replace the contents of the pill row with one Static per daily shelf."""
+        try:
+            container = self.query_one("#charts-pills", Horizontal)
+        except Exception:
+            logger.debug("charts-pills container not found", exc_info=True)
+            return
+        await container.remove_children()
+        for i, shelf in enumerate(self._dailies):
+            title = (shelf.get("title") if isinstance(shelf, dict) else None) or f"Shelf {i + 1}"
+            classes = "shelf-pill"
+            if i == self._active_daily:
+                classes += " active"
+            pill = Static(str(title), classes=classes, id=f"charts-pill-{i}")
+            await container.mount(pill)
+
+    def _refresh_pill_active_class(self) -> None:
+        """Re-apply the .active class to the current pill (no remount needed)."""
+        for i in range(len(self._dailies)):
+            try:
+                pill = self.query_one(f"#charts-pill-{i}", Static)
+            except Exception:
+                continue
+            if i == self._active_daily:
+                pill.add_class("active")
+            else:
+                pill.remove_class("active")
+
+    async def _load_active_daily(self) -> None:
+        """Fetch and render the playlist for ``self._active_daily``."""
+        if not (0 <= self._active_daily < len(self._dailies)):
+            return
+        shelf = self._dailies[self._active_daily]
+        playlist_id = shelf.get("playlistId") if isinstance(shelf, dict) else None
+        if not playlist_id:
+            self._show_error("Selected chart has no playlist id.")
+            return
+        try:
+            ytmusic = cast("YTMHostBase", self.app).ytmusic
+            assert ytmusic is not None
+            playlist = await ytmusic.get_playlist(playlist_id)
+        except Exception:
+            logger.exception("Failed to load playlist for chart shelf %r", playlist_id)
+            self._show_error("Failed to load chart playlist — try again later.")
+            return
+        tracks = playlist.get("tracks", []) or [] if isinstance(playlist, dict) else []
+        self._populate_charts(tracks if isinstance(tracks, list) else [])
+
+    def on_click(self, event: Click) -> None:
+        """Pill click → switch active daily shelf."""
+        widget = getattr(event, "widget", None)
+        wid = getattr(widget, "id", None) if widget is not None else None
+        if not isinstance(wid, str) or not wid.startswith("charts-pill-"):
+            return
+        try:
+            new_index = int(wid.removeprefix("charts-pill-"))
+        except ValueError:
+            return
+        if new_index == self._active_daily or not (0 <= new_index < len(self._dailies)):
+            return
+        self._active_daily = new_index
+        self._refresh_pill_active_class()
+        self.run_worker(
+            self._load_active_daily(),
+            name="charts-switch-shelf",
+            exclusive=True,
+            exit_on_error=False,
+        )
 
     def _populate_charts(self, tracks: list[dict[str, Any]]) -> None:
         loading = self.query_one("#charts-loading", Static)
