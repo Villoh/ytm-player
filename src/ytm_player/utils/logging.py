@@ -70,6 +70,53 @@ def setup_logging(
     _file_handler = handler
 
 
+_crash_dir: Path | None = None
+_crash_keep: int = 10
+
+
+def write_crash_file(traceback_text: str, *, label: str = "Crash") -> Path | None:
+    """Write *traceback_text* to a fresh crash file in the configured crash dir.
+
+    Module-level so any code path that catches an exception that would
+    otherwise be silently swallowed (notably ``App._handle_exception`` —
+    Textual's worker/render error path which bypasses ``sys.excepthook``)
+    can persist it for later inspection via ``ytm doctor``.
+
+    Returns the written path, or None if writing failed or no crash dir
+    has been configured (i.e., ``install_excepthooks`` was never called).
+    """
+    if _crash_dir is None:
+        return None
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    path = _crash_dir / f"ytm-crash-{ts}.log"
+    flags = os.O_CREAT | os.O_WRONLY | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(str(path), flags, 0o600)
+        try:
+            os.write(fd, f"=== {label} ===\n{traceback_text}".encode("utf-8"))
+        finally:
+            os.close(fd)
+    except OSError:
+        return None
+    _prune_crash_dir()
+    return path
+
+
+def _prune_crash_dir() -> None:
+    if _crash_dir is None:
+        return
+    try:
+        files = sorted(_crash_dir.glob("ytm-crash-*.log"))
+        excess = len(files) - _crash_keep
+        for old in files[:excess] if excess > 0 else []:
+            try:
+                old.unlink()
+            except OSError:
+                pass
+    except Exception:
+        pass
+
+
 def install_excepthooks(*, crash_dir: Path, keep: int = 10) -> None:
     """Install sys.excepthook and threading.excepthook to persist crashes.
 
@@ -79,43 +126,22 @@ def install_excepthooks(*, crash_dir: Path, keep: int = 10) -> None:
     should be in CONFIG_DIR with mode 0700).
 
     Old crash files beyond *keep* are pruned (oldest first).
+
+    Note: this hooks Python-level uncaught exceptions only. Textual's
+    ``App._handle_exception`` path (worker / render / event errors)
+    bypasses ``sys.excepthook`` — see ``write_crash_file`` for the
+    module-level writer used by the App's ``_handle_exception`` override.
     """
+    global _crash_dir, _crash_keep
     crash_dir.mkdir(parents=True, exist_ok=True)
-
-    def _write(traceback_text: str) -> Path | None:
-        ts = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-        path = crash_dir / f"ytm-crash-{ts}.log"
-        # O_NOFOLLOW defends against symlink redirection on POSIX; not
-        # exposed by Windows' os module. Fall back to no-op there.
-        flags = os.O_CREAT | os.O_WRONLY | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-        try:
-            fd = os.open(str(path), flags, 0o600)
-            try:
-                os.write(fd, traceback_text.encode("utf-8"))
-            finally:
-                os.close(fd)
-        except OSError:
-            return None
-        return path
-
-    def _prune() -> None:
-        try:
-            files = sorted(crash_dir.glob("ytm-crash-*.log"))
-            excess = len(files) - keep
-            for old in files[:excess] if excess > 0 else []:
-                try:
-                    old.unlink()
-                except OSError:
-                    pass
-        except Exception:
-            pass
+    _crash_dir = crash_dir
+    _crash_keep = keep
 
     def _sys_hook(exc_type, exc_value, exc_tb) -> None:
         # Don't pollute crash_dir with Ctrl-C exits.
         if not issubclass(exc_type, KeyboardInterrupt):
             text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
-            _write(f"=== Main thread crash ===\n{text}")
-            _prune()
+            write_crash_file(text, label="Main thread crash")
         sys.__excepthook__(exc_type, exc_value, exc_tb)
 
     def _thread_hook(args: threading.ExceptHookArgs) -> None:
@@ -123,8 +149,7 @@ def install_excepthooks(*, crash_dir: Path, keep: int = 10) -> None:
             traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)
         )
         thread_name = args.thread.name if args.thread is not None else "<unknown>"
-        _write(f"=== Thread crash ({thread_name}) ===\n{text}")
-        _prune()
+        write_crash_file(text, label=f"Thread crash ({thread_name})")
         threading.__excepthook__(args)
 
     sys.excepthook = _sys_hook

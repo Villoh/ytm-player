@@ -365,6 +365,35 @@ class YTMPlayerApp(
         except Exception:
             pass
 
+    # ── Crash diagnostics ────────────────────────────────────────────
+
+    def _handle_exception(self, error: Exception) -> None:
+        """Override Textual's unhandled-exception path to persist a crash file.
+
+        Textual's worker / render / event error handling bypasses
+        ``sys.excepthook``, which is why our ``install_excepthooks``
+        machinery wasn't catching app-level crashes. Capture the
+        traceback here, write it to the crash dir for ``ytm doctor``,
+        log it, then defer to the base class so Textual still exits
+        the app the way it normally would.
+        """
+        import traceback as _traceback
+
+        from ytm_player.utils.logging import write_crash_file
+
+        try:
+            text = "".join(_traceback.format_exception(type(error), error, error.__traceback__))
+            crash_path = write_crash_file(text, label="Textual crash (App._handle_exception)")
+            logger.exception(
+                "Textual unhandled exception (crash file: %s)",
+                crash_path or "<not written>",
+                exc_info=(type(error), error, error.__traceback__),
+            )
+        except Exception:
+            # Never let crash-capture itself crash the app any harder.
+            pass
+        super()._handle_exception(error)
+
     # ── Compose ──────────────────────────────────────────────────────
 
     def compose(self) -> ComposeResult:
