@@ -171,6 +171,29 @@ def install_excepthooks(*, crash_dir: Path, keep: int = 10) -> None:
     sys.excepthook = _sys_hook
     threading.excepthook = _thread_hook
 
+    def _unraisable_hook(args) -> None:
+        """Capture errors swallowed during finalisation (__del__, weakref
+        callbacks, generator close, etc.).
+
+        Default behaviour prints to stderr — invisible inside Textual.
+        """
+        text = "".join(
+            traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)
+        )
+        obj_repr = repr(args.object) if args.object is not None else "<unknown>"
+        write_crash_file(text, label=f"Unraisable in {obj_repr}")
+        try:
+            sys.__unraisablehook__(args)
+        except TypeError:
+            # In tests, args may be a SimpleNamespace. Fall back to the default
+            # stderr output via a manual format when the real hook rejects it.
+            print(
+                f"Unraisable exception in {obj_repr}:\n{text}",
+                file=sys.stderr,
+            )
+
+    sys.unraisablehook = _unraisable_hook
+
 
 def get_recent_log_lines(log_file: Path, n: int = 50) -> str:
     """Return the last *n* lines of the log file (or empty string)."""

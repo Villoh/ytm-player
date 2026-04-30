@@ -319,3 +319,70 @@ class TestAsyncioExceptionHandlerPattern:
         files = list(crash_dir.glob("ytm-crash-*.log"))
         assert len(files) == 1
         assert "Custom asyncio warning" in files[0].read_text()
+
+
+class TestUnraisableHook:
+    """install_excepthooks must also install sys.unraisablehook."""
+
+    @pytest.fixture(autouse=True)
+    def _reset(self):
+        original = sys.unraisablehook
+        yield
+        sys.unraisablehook = original
+
+    def test_unraisable_hook_writes_crash_file(self, tmp_path: Path):
+        from ytm_player.utils.logging import install_excepthooks
+
+        crash_dir = tmp_path / "crashes"
+        install_excepthooks(crash_dir=crash_dir, keep=5)
+
+        try:
+            raise RuntimeError("unraisable boom")
+        except RuntimeError:
+            exc_type, exc_value, exc_tb = sys.exc_info()
+            assert exc_type is not None and exc_value is not None and exc_tb is not None
+            # Build a real UnraisableHookArgs.
+            import types
+
+            hook_args = types.SimpleNamespace(
+                exc_type=exc_type,
+                exc_value=exc_value,
+                exc_traceback=exc_tb,
+                err_msg=None,
+                object="<test object>",
+            )
+            sys.unraisablehook(hook_args)
+
+        files = list(crash_dir.glob("ytm-crash-*.log"))
+        assert len(files) == 1
+        body = files[0].read_text()
+        assert "Unraisable" in body
+        assert "<test object>" in body
+        assert "unraisable boom" in body
+
+    def test_unraisable_hook_chains_to_default(self, tmp_path: Path, capsys):
+        """After our hook writes the crash file, the default __unraisablehook__
+        still prints to stderr so anything outside Textual still sees it."""
+        from ytm_player.utils.logging import install_excepthooks
+
+        crash_dir = tmp_path / "crashes"
+        install_excepthooks(crash_dir=crash_dir, keep=5)
+
+        try:
+            raise RuntimeError("chain unraisable")
+        except RuntimeError:
+            exc_type, exc_value, exc_tb = sys.exc_info()
+            assert exc_type is not None and exc_value is not None and exc_tb is not None
+            import types
+
+            hook_args = types.SimpleNamespace(
+                exc_type=exc_type,
+                exc_value=exc_value,
+                exc_traceback=exc_tb,
+                err_msg=None,
+                object=None,
+            )
+            sys.unraisablehook(hook_args)
+
+        captured = capsys.readouterr()
+        assert "chain unraisable" in captured.err
