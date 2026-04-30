@@ -269,6 +269,7 @@ class KeyHandlingMixin(YTMHostBase):
                 | Action.REVERSE_SORT
                 | Action.JUMP_TO_CURRENT
                 | Action.TOGGLE_SEARCH_MODE
+                | Action.PICK_COUNTRY
             ):
                 page = self._get_current_page()
                 if page and hasattr(page, "handle_action"):

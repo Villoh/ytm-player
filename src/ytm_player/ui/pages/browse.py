@@ -307,7 +307,11 @@ class ChartsSection(Widget):
         yield Static("Loading charts...", id="charts-loading", classes="loading")
         with Vertical(id="charts-content"):
             yield Static("Global Charts", classes="section-title")
-            yield Static(f"Country: {self._country}", id="charts-country")
+            yield Static(
+                f"Country: {self._country}    [press [b]c[/] to change]",
+                id="charts-country",
+                markup=True,
+            )
             yield TrackTable(
                 show_album=True,
                 show_index=True,
@@ -364,7 +368,7 @@ class ChartsSection(Widget):
 
         # Update country label.
         country_label = self.query_one("#charts-country", Static)
-        country_label.update(f"Country: {self._country}")
+        country_label.update(f"Country: {self._country}    [press [b]c[/] to change]")
 
         table = self.query_one("#charts-table", TrackTable)
         table.load_tracks(normalize_tracks(tracks))
