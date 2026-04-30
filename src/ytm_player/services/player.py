@@ -175,12 +175,29 @@ class Player:
 
         settings = get_settings()
 
+        def _on_mpv_log(level: str, prefix: str, message: str) -> None:
+            """Route mpv's internal log messages into our Python logger.
+
+            python-mpv level strings: fatal / error / warn / info / v / debug / trace.
+            We construct with loglevel='warn' so info/debug/trace are filtered
+            out at the C side; this map handles the levels we actually receive.
+            """
+            py_level = {
+                "fatal": logging.CRITICAL,
+                "error": logging.ERROR,
+                "warn": logging.WARNING,
+                "info": logging.INFO,
+            }.get(level, logging.DEBUG)
+            logger.log(py_level, "mpv[%s]: %s", prefix, message.rstrip())
+
         instance = mpv.MPV(
             ytdl=False,
             video=False,
             terminal=False,
             input_default_bindings=False,
             input_vo_keyboard=False,
+            log_handler=_on_mpv_log,
+            loglevel="warn",
         )
 
         # Enable gapless playback if configured.

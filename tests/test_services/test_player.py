@@ -145,3 +145,90 @@ class TestTryRecoverState:
         assert player._current_track == track, (
             "After successful recovery, _current_track must reflect the new track"
         )
+
+
+class TestPlayerMpvLogHandler:
+    """The Player must construct mpv.MPV with log_handler + loglevel='warn'.
+
+    Without these kwargs, libmpv's internal warnings and errors vanish
+    silently. Routing them through our Python logger puts them in
+    ytm.log so ytm doctor's 'Recent mpv warnings/errors' section can
+    surface them.
+    """
+
+    def test_mpv_constructed_with_log_handler_and_warn_loglevel(self, monkeypatch):
+        """Verify _init_mpv passes log_handler=callable + loglevel='warn'."""
+        from unittest.mock import MagicMock
+
+        from ytm_player.services.player import Player
+
+        captured: dict[str, object] = {}
+
+        def fake_mpv_ctor(*args: object, **kwargs: object) -> MagicMock:
+            captured["kwargs"] = kwargs
+            instance = MagicMock()
+            instance.volume = 80
+            instance.pause = False
+            return instance
+
+        monkeypatch.setattr("ytm_player.services.player.mpv.MPV", fake_mpv_ctor)
+
+        Player._instance = None
+        try:
+            Player()
+        finally:
+            Player._instance = None
+
+        kwargs = captured.get("kwargs") or {}
+        assert "log_handler" in kwargs, (
+            f"log_handler kwarg missing from mpv.MPV(...): got {sorted(kwargs)!r}"
+        )
+        assert callable(kwargs["log_handler"]), "log_handler must be callable"
+        assert kwargs.get("loglevel") == "warn", (
+            f"expected loglevel='warn', got {kwargs.get('loglevel')!r}"
+        )
+
+    def test_mpv_log_handler_routes_to_python_logger(self, monkeypatch, caplog):
+        """The log_handler callback must emit through Python logging at the
+        right level for each mpv level string."""
+        from unittest.mock import MagicMock
+
+        from ytm_player.services.player import Player
+
+        captured_handler: dict[str, object] = {}
+
+        def fake_mpv_ctor(*args: object, **kwargs: object) -> MagicMock:
+            captured_handler["handler"] = kwargs.get("log_handler")
+            instance = MagicMock()
+            instance.volume = 80
+            instance.pause = False
+            return instance
+
+        monkeypatch.setattr("ytm_player.services.player.mpv.MPV", fake_mpv_ctor)
+
+        Player._instance = None
+        try:
+            Player()
+        finally:
+            Player._instance = None
+
+        handler = captured_handler.get("handler")
+        assert callable(handler)
+
+        with caplog.at_level("DEBUG", logger="ytm_player.services.player"):
+            handler("warn", "ao", "format mismatch detected")
+            handler("error", "file", "cannot open")
+            handler("info", "demuxer", "stream opened")
+
+        # Each mpv level should appear with the mpv[prefix] format.
+        records = [r for r in caplog.records if r.name == "ytm_player.services.player"]
+        messages = [r.getMessage() for r in records]
+        assert any("mpv[ao]:" in m and "format mismatch" in m for m in messages), (
+            f"warn message not routed: {messages!r}"
+        )
+        assert any("mpv[file]:" in m and "cannot open" in m for m in messages), (
+            f"error message not routed: {messages!r}"
+        )
+        assert any("mpv[demuxer]:" in m and "stream opened" in m for m in messages), (
+            f"info message not routed: {messages!r}"
+        )
