@@ -489,20 +489,31 @@ class YTMusicService:
 
     async def get_watch_playlist(
         self,
-        video_id: str,
+        video_id: str | None = None,
         playlist_id: str | None = None,
+        limit: int = 25,
     ) -> list[dict[str, Any]]:
-        """Return the "Up Next" queue for a song.
+        """Return the "Up Next" queue for a song or the tracks of a playlist.
 
-        Args:
-            video_id: The currently-playing video ID.
-            playlist_id: Optional playlist context for queue generation.
+        Two call shapes are supported:
+        - ``video_id`` + optional ``playlist_id``: original "what plays next
+          after this video" use, optionally seeded with playlist context.
+        - ``playlist_id`` only: fetch a playlist's tracks via the watch
+          endpoint. Used as a fallback for OLAK5-prefixed auto-generated
+          playlists (e.g. YouTube Music's Trending charts) where
+          ``get_playlist`` hits an upstream parser bug in ytmusicapi
+          (``parse_audio_playlist`` dereferences ``tracks[0]["album"]``
+          which is None, raising TypeError).
 
         Returns:
             List of track dicts.
         """
+        if video_id is None and playlist_id is None:
+            return []
         try:
-            kwargs: dict[str, Any] = {"videoId": video_id}
+            kwargs: dict[str, Any] = {"limit": limit}
+            if video_id is not None:
+                kwargs["videoId"] = video_id
             if playlist_id is not None:
                 kwargs["playlistId"] = playlist_id
             result = await self._call(self.client.get_watch_playlist, **kwargs)

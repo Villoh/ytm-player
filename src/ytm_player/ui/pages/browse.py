@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING, Any, cast
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Horizontal, HorizontalScroll, Vertical, VerticalScroll
 from textual.events import Click
 from textual.message import Message
 from textual.reactive import reactive
@@ -29,6 +29,48 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _TABS = ("For You", "Charts", "New Releases")
+
+
+# ---------------------------------------------------------------------------
+# Chart shelf title normalisation
+# ---------------------------------------------------------------------------
+
+
+def _clean_shelf_title(raw: str) -> str:
+    """Normalise a YouTube chart shelf title for compact pill display.
+
+    YouTube returns titles like:
+      "Coachella 2026: Daily Top 100 Songs"
+      "Trending 20 United Kingdom"
+      "Daily Top Music Videos - United Kingdom"
+      "Daily Top Songs on Shorts - United Kingdom"
+
+    We strip brand prefixes, country suffixes, and apply Peter's preferred
+    short labels: "Daily Top 100", "Trending 20", "Daily Top Videos",
+    "Daily Top Songs (Shorts)".
+    """
+    from ytm_player.services.regions import CHART_REGIONS
+
+    s = raw.strip()
+    # Strip leading "<brand>:" (e.g. "Coachella 2026: Daily Top 100 Songs")
+    if ":" in s:
+        s = s.split(":", 1)[1].strip()
+    # Strip " - <country>" suffix
+    if " - " in s:
+        head, tail = s.rsplit(" - ", 1)
+        if any(tail.strip() == name for _, name in CHART_REGIONS):
+            s = head.strip()
+    # Strip trailing " <country>" without hyphen (e.g. "Trending 20 United Kingdom")
+    for _, name in CHART_REGIONS:
+        suffix = " " + name
+        if s.endswith(suffix):
+            s = s[: -len(suffix)].strip()
+            break
+    # Apply Peter's canonical labels.
+    s = s.replace("Daily Top 100 Songs", "Daily Top 100")
+    s = s.replace("Daily Top Music Videos", "Daily Top Videos")
+    s = s.replace("Daily Top Songs on Shorts", "Daily Top Songs (Shorts)")
+    return s
 
 
 class BrowseTabBar(Widget):
@@ -351,11 +393,13 @@ class ChartsSection(Widget):
                 f"Country: {self._country}    (press 'c' to change)",
                 id="charts-country",
             )
-            # Pill row — compose with a single placeholder Static so the
-            # Horizontal container is never empty (Textual's layout collapses
-            # empty children, which can break the Vertical's whole flow).
-            # _render_pills() swaps this for real pills once data loads.
-            with Horizontal(id="charts-pills"):
+            # Pill row — HorizontalScroll so it overflows gracefully on
+            # narrow terminals instead of clipping pills off the right edge.
+            # Compose with a single placeholder so the container is never
+            # empty (Textual's layout collapses empty children, which can
+            # break the Vertical's whole flow). _render_pills() swaps this
+            # for real pills once data loads.
+            with HorizontalScroll(id="charts-pills"):
                 yield Static(" ", id="charts-pill-placeholder", classes="shelf-pill")
             yield TrackTable(
                 show_album=True,
@@ -423,17 +467,20 @@ class ChartsSection(Widget):
     async def _render_pills(self) -> None:
         """Replace the contents of the pill row with one Static per daily shelf."""
         try:
-            container = self.query_one("#charts-pills", Horizontal)
+            container = self.query_one("#charts-pills", HorizontalScroll)
         except Exception:
             logger.debug("charts-pills container not found", exc_info=True)
             return
         await container.remove_children()
         for i, shelf in enumerate(self._dailies):
-            title = (shelf.get("title") if isinstance(shelf, dict) else None) or f"Shelf {i + 1}"
+            raw_title = (
+                shelf.get("title") if isinstance(shelf, dict) else None
+            ) or f"Shelf {i + 1}"
+            title = _clean_shelf_title(str(raw_title))
             classes = "shelf-pill"
             if i == self._active_daily:
                 classes += " active"
-            pill = Static(str(title), classes=classes, id=f"charts-pill-{i}")
+            pill = Static(title, classes=classes, id=f"charts-pill-{i}")
             await container.mount(pill)
 
     def _refresh_pill_active_class(self) -> None:
@@ -449,7 +496,15 @@ class ChartsSection(Widget):
                 pill.remove_class("active")
 
     async def _load_active_daily(self) -> None:
-        """Fetch and render the playlist for ``self._active_daily``."""
+        """Fetch and render the playlist for ``self._active_daily``.
+
+        OLAK5-prefixed playlistIds (e.g. YouTube's "Trending 20" auto-
+        generated playlist) hit a parser bug in ytmusicapi's
+        ``parse_audio_playlist`` — ``tracks[0]['album']`` is None and the
+        function raises TypeError. ``get_watch_playlist`` calls a different
+        endpoint and works for these IDs, so we use it as the fallback for
+        any OLAK5-prefixed shelf.
+        """
         if not (0 <= self._active_daily < len(self._dailies)):
             return
         shelf = self._dailies[self._active_daily]
@@ -460,13 +515,19 @@ class ChartsSection(Widget):
         try:
             ytmusic = cast("YTMHostBase", self.app).ytmusic
             assert ytmusic is not None
-            playlist = await ytmusic.get_playlist(playlist_id)
+            tracks: list[dict[str, Any]] = []
+            if playlist_id.startswith("OLAK5"):
+                tracks = await ytmusic.get_watch_playlist(playlist_id=playlist_id, limit=100)
+            else:
+                playlist = await ytmusic.get_playlist(playlist_id)
+                if isinstance(playlist, dict):
+                    raw = playlist.get("tracks", []) or []
+                    tracks = raw if isinstance(raw, list) else []
         except Exception:
             logger.exception("Failed to load playlist for chart shelf %r", playlist_id)
             self._show_error("Failed to load chart playlist — try again later.")
             return
-        tracks = playlist.get("tracks", []) or [] if isinstance(playlist, dict) else []
-        self._populate_charts(tracks if isinstance(tracks, list) else [])
+        self._populate_charts(tracks)
 
     def on_click(self, event: Click) -> None:
         """Pill click → switch active daily shelf."""
