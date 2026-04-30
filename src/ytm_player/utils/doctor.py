@@ -195,5 +195,16 @@ def gather_diagnostics() -> str:
     sections.append("")
     sections.append("=== Active hooks ===")
     sections.append(list_active_hooks())
+    # `ytm doctor` is a short-lived subcommand running in its own Python
+    # process — it doesn't go through the TUI startup path in cli.py, so
+    # the hooks above always read as default/disabled here. The TUI process
+    # has them installed; the proof is the artifacts above (faulthandler.log
+    # gets created on TUI startup, crashes/ contains files when hooks fired).
+    sections.append("")
+    sections.append(
+        "Note: this section reflects the doctor subcommand's own process. "
+        "Hooks are installed inside the long-running ytm TUI process — "
+        "their effect is visible above (crashes/, faulthandler.log)."
+    )
 
     return _redact("\n".join(sections))
