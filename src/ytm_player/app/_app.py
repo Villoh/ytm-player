@@ -416,6 +416,39 @@ class YTMPlayerApp(
         # unusable will still be obvious to the user via stale UI; a soft
         # error shouldn't cost them their queue position.
 
+    def _asyncio_exception_handler(
+        self, loop: asyncio.AbstractEventLoop, context: dict[str, Any]
+    ) -> None:
+        """Capture asyncio loop exceptions that bypass _handle_exception.
+
+        Default behaviour prints to stderr (invisible inside Textual's
+        alt-screen). We funnel into write_crash_file so background-task
+        failures are visible in crashes/ and ytm doctor. Loop is not
+        terminated — the handler is informational only.
+        """
+        import traceback as _traceback
+
+        from ytm_player.utils.logging import write_crash_file
+
+        exc = context.get("exception")
+        try:
+            if exc is not None:
+                text = "".join(_traceback.format_exception(type(exc), exc, exc.__traceback__))
+            else:
+                text = (
+                    "asyncio loop exception (no traceback available)\n"
+                    f"Message: {context.get('message', '<none>')}\n"
+                    f"Context: {context!r}"
+                )
+            crash_path = write_crash_file(text, label="Asyncio loop exception")
+            logger.warning(
+                "Asyncio loop exception captured (crash file: %s)",
+                crash_path or "<not written>",
+            )
+        except Exception:
+            # Never let crash-capture itself crash the loop.
+            pass
+
     # ── Compose ──────────────────────────────────────────────────────
 
     def compose(self) -> ComposeResult:
@@ -433,6 +466,16 @@ class YTMPlayerApp(
 
     async def on_mount(self) -> None:
         """Initialize services and navigate to the startup page."""
+        # Wire the asyncio loop exception handler so background-task
+        # failures and 'Task exception was never retrieved' warnings end
+        # up in crashes/ instead of invisible stderr.
+        try:
+            loop = asyncio.get_running_loop()
+            loop.set_exception_handler(self._asyncio_exception_handler)
+        except RuntimeError:
+            # No running loop somehow — extreme edge case; default handler stays.
+            logger.debug("No running asyncio loop in on_mount — skipping handler install")
+
         from ytm_player.config.paths import ensure_dirs
 
         ensure_dirs()

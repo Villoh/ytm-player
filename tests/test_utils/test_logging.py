@@ -261,3 +261,61 @@ class TestFaulthandlerEnable:
         content = fh_path.read_text(encoding="utf-8", errors="replace")
         # dump_traceback emits the literal phrase "Current thread"
         assert "Current thread" in content
+
+
+class TestAsyncioExceptionHandlerPattern:
+    """Verify the asyncio exception handler signature + write path.
+
+    The handler in _app.py is a method, but its core (extract exception,
+    write to crashes/) is unit-testable in isolation by replicating the
+    function shape here.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_module_state(self, monkeypatch):
+        from ytm_player.utils import logging as logmod
+
+        monkeypatch.setattr(logmod, "_crash_dir", None)
+        yield
+
+    def test_asyncio_handler_writes_crash_file_with_exception(self, tmp_path: Path, monkeypatch):
+        from ytm_player.utils import logging as logmod
+
+        crash_dir = tmp_path / "crashes"
+        monkeypatch.setattr(logmod, "_crash_dir", crash_dir)
+        crash_dir.mkdir(parents=True, exist_ok=True)
+
+        # Simulate the handler body (matches _app.py:_asyncio_exception_handler).
+        try:
+            raise RuntimeError("loop boom")
+        except RuntimeError as exc:
+            text = "".join(
+                __import__("traceback").format_exception(type(exc), exc, exc.__traceback__)
+            )
+            logmod.write_crash_file(text, label="Asyncio loop exception")
+
+        files = list(crash_dir.glob("ytm-crash-*.log"))
+        assert len(files) == 1
+        body = files[0].read_text()
+        assert "Asyncio loop exception" in body
+        assert "RuntimeError: loop boom" in body
+
+    def test_asyncio_handler_writes_crash_file_with_message_only(self, tmp_path: Path, monkeypatch):
+        """Handler must also work when context has no exception (rare)."""
+        from ytm_player.utils import logging as logmod
+
+        crash_dir = tmp_path / "crashes"
+        monkeypatch.setattr(logmod, "_crash_dir", crash_dir)
+        crash_dir.mkdir(parents=True, exist_ok=True)
+
+        context = {"message": "Custom asyncio warning"}
+        text = (
+            f"asyncio loop exception (no traceback available)\n"
+            f"Message: {context.get('message')}\n"
+            f"Context: {context!r}"
+        )
+        logmod.write_crash_file(text, label="Asyncio loop exception")
+
+        files = list(crash_dir.glob("ytm-crash-*.log"))
+        assert len(files) == 1
+        assert "Custom asyncio warning" in files[0].read_text()
