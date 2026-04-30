@@ -64,6 +64,7 @@ ACTION_DESCRIPTIONS: dict[Action, str] = {
     Action.ADD_TO_PLAYLIST: "Add track to a playlist",
     Action.DISCOVERY_MIX: "Start discovery roulette — random mix from a rotating source",
     Action.FILTER: "Filter / search within list",
+    Action.PICK_COUNTRY: "Pick chart region (Browse → Charts only)",
     # Sorting
     Action.SORT_TITLE: "Sort by title",
     Action.SORT_ARTIST: "Sort by artist",
@@ -125,6 +126,7 @@ ACTION_CATEGORIES: dict[str, list[Action]] = {
         Action.ADD_TO_PLAYLIST,
         Action.DISCOVERY_MIX,
         Action.FILTER,
+        Action.PICK_COUNTRY,
     ],
     "Sorting": [
         Action.SORT_TITLE,

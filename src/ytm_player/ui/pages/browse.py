@@ -768,3 +768,37 @@ class BrowsePage(Widget):
                 tab_bar = self.query_one("#browse-tabs", BrowseTabBar)
                 prev_idx = (tab_bar.active_tab - 1) % len(_TABS)
                 tab_bar.switch_to(prev_idx)
+
+            case Action.PICK_COUNTRY:
+                # Charts sub-tab only — index 1 in the (For You, Charts, New
+                # Releases) tab order. No-op on other sub-tabs.
+                if self.active_tab != 1:
+                    return
+                from ytm_player.ui.popups.country_picker import CountryPickerModal
+
+                current = getattr(get_settings().ui, "region", "ZZ") or "ZZ"
+                self.app.push_screen(
+                    CountryPickerModal(current_code=current),
+                    self._on_country_picked,
+                )
+
+    async def _on_country_picked(self, code: str | None) -> None:
+        """Callback for the CountryPickerModal — refresh charts on success."""
+        if not code:
+            return
+        settings = get_settings()
+        try:
+            settings.ui.region = code
+            settings.save()
+        except Exception:
+            logger.exception("Failed to persist new region setting")
+        try:
+            section = self.query_one("#section-charts", ChartsSection)
+            self.run_worker(
+                section.load_data(country=code),
+                name="reload-charts",
+                exclusive=True,
+                exit_on_error=False,
+            )
+        except Exception:
+            logger.exception("Failed to reload charts after region change")

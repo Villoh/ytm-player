@@ -78,6 +78,7 @@ class Action(str, Enum):
     ADD_TO_PLAYLIST = "add_to_playlist"
     DISCOVERY_MIX = "discovery_mix"
     FILTER = "filter"
+    PICK_COUNTRY = "pick_country"
 
     # Sorting
     SORT_TITLE = "sort_title"
@@ -149,6 +150,7 @@ DEFAULT_BINDINGS: dict[str, list[str]] = {
     "add_to_playlist": ["A"],
     "discovery_mix": ["D"],
     "filter": ["/"],
+    "pick_country": ["c"],
     # Sorting
     "sort_title": ["s t"],
     "sort_artist": ["s a"],
