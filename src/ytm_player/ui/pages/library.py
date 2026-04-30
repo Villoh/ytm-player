@@ -67,6 +67,25 @@ class LibraryPage(Widget):
         background: $primary 30%;
     }
 
+    .content-title-spacer {
+        width: 1fr;
+        height: 1;
+    }
+
+    #shuffle-lock-btn {
+        width: auto;
+        height: 1;
+        padding: 0 1;
+        color: $text-muted;
+    }
+    #shuffle-lock-btn.locked {
+        color: $primary;
+        text-style: bold;
+    }
+    #shuffle-lock-btn:hover {
+        background: $accent 30%;
+    }
+
     #empty-state {
         width: 1fr;
         height: 1fr;
@@ -208,6 +227,12 @@ class LibraryPage(Widget):
             await header.mount(title_row)
             await title_row.mount(Label(title, classes="content-title"))
             await title_row.mount(Static("[▶ Start Radio]", id="start-radio-btn", markup=True))
+            await title_row.mount(Static(classes="content-title-spacer"))
+            host = cast("YTMHostBase", self.app)
+            locked = bool(host.shuffle_prefs.get(playlist_id))
+            lock_label = "Shuffle lock: ON" if locked else "Shuffle lock: off"
+            lock_classes = "locked" if locked else ""
+            await title_row.mount(Static(lock_label, id="shuffle-lock-btn", classes=lock_classes))
             subtitle = f"{owner} \u00b7 {track_count} track{'s' if track_count != 1 else ''}"
             if total_count > track_count:
                 subtitle += f" (loading {total_count} total\u2026)"
@@ -349,7 +374,10 @@ class LibraryPage(Widget):
 
     def on_click(self, event: Click) -> None:
         """Handle clicks on header action buttons."""
-        if event.widget is not None and event.widget.id == "start-radio-btn":
+        widget = event.widget
+        if widget is None:
+            return
+        if widget.id == "start-radio-btn":
             event.stop()
             data = getattr(self, "_playlist_data", None)
             if data:
@@ -358,6 +386,46 @@ class LibraryPage(Widget):
                     name="start_radio",
                     exclusive=True,
                 )
+        elif widget.id == "shuffle-lock-btn":
+            event.stop()
+            self._toggle_shuffle_lock()
+
+    def _toggle_shuffle_lock(self) -> None:
+        """Flip the per-playlist Shuffle lock and update the button label."""
+        playlist_id = self._active_playlist_id
+        if not playlist_id:
+            return
+        host = cast("YTMHostBase", self.app)
+        currently_locked = bool(host.shuffle_prefs.get(playlist_id))
+        new_locked = not currently_locked
+        host.shuffle_prefs.set(playlist_id, new_locked)
+        # Update button visuals.
+        try:
+            btn = self.query_one("#shuffle-lock-btn", Static)
+            btn.update("Shuffle lock: ON" if new_locked else "Shuffle lock: off")
+            if new_locked:
+                btn.add_class("locked")
+            else:
+                btn.remove_class("locked")
+        except Exception:
+            logger.debug("Failed to update shuffle-lock-btn label", exc_info=True)
+        # If we just locked AND the queue is currently this playlist, force
+        # shuffle on; if we unlocked, leave shuffle as-is (lock is one-way
+        # enforcement on entry, not a toggle of current state).
+        if new_locked and host.queue.current_context_id == playlist_id:
+            if not host.queue.shuffle_enabled:
+                host.queue.toggle_shuffle()
+                try:
+                    bar = host.query_one("#playback-bar")
+                    bar.update_shuffle(host.queue.shuffle_enabled)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+        # Refresh the playback-bar shuffle button enabled/disabled state.
+        try:
+            bar = host.query_one("#playback-bar")
+            bar.refresh_shuffle_lock_state()  # type: ignore[attr-defined]
+        except Exception:
+            logger.debug("Failed to refresh playback-bar lock state", exc_info=True)
 
     # ------------------------------------------------------------------
     # Track selection → play
@@ -374,13 +442,19 @@ class LibraryPage(Widget):
         host.queue.clear()
         host.queue.add_multiple(tracks)
         host.queue.jump_to_real(idx)
-        # Per-collection shuffle memory (TP-7).
+        # Shuffle lock (per-playlist, replaces TP-7 implicit memory).
         host.queue.set_context(self._active_playlist_id)
         if self._active_playlist_id:
-            saved = host.shuffle_prefs.get(self._active_playlist_id)
-            if saved is not None and host.queue.shuffle_enabled != saved:
+            locked = bool(host.shuffle_prefs.get(self._active_playlist_id))
+            if locked and not host.queue.shuffle_enabled:
                 host.queue.toggle_shuffle()
             host._active_library_playlist_id = self._active_playlist_id
+        # Sync the playback bar's shuffle button enabled/disabled state.
+        try:
+            bar = host.query_one("#playback-bar")
+            bar.refresh_shuffle_lock_state()  # type: ignore[attr-defined]
+        except Exception:
+            pass
         await host.play_track(event.track)
 
     # ------------------------------------------------------------------

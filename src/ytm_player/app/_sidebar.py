@@ -136,12 +136,17 @@ class SidebarMixin(YTMHostBase):
             self.queue.clear()
             self.queue.add_multiple(tracks)
             self.queue.jump_to(0)
-            # Per-collection shuffle memory (TP-7).
+            # Shuffle lock — force shuffle ON if the playlist is locked.
             self.queue.set_context(playlist_id)
-            saved = self.shuffle_prefs.get(playlist_id)
-            if saved is not None and self.queue.shuffle_enabled != saved:
+            if self.shuffle_prefs.get(playlist_id) and not self.queue.shuffle_enabled:
                 self.queue.toggle_shuffle()
             self._active_library_playlist_id = playlist_id
+            try:
+                bar = self.query_one("#playback-bar")
+                bar.update_shuffle(self.queue.shuffle_enabled)  # type: ignore[attr-defined]
+                bar.refresh_shuffle_lock_state()  # type: ignore[attr-defined]
+            except Exception:
+                pass
             await self.play_track(self.queue.current_track)
 
             # Background-fetch remaining tracks and append to queue.
@@ -301,11 +306,10 @@ class SidebarMixin(YTMHostBase):
         if radio_tracks:
             self.queue.clear()
             self.queue.set_radio_tracks(radio_tracks)
-            # Per-collection shuffle memory (TP-7) — radio of a playlist
-            # still belongs to that playlist's identity.
+            # Shuffle lock — radio off a playlist still inherits that
+            # playlist's identity, so honor its lock.
             self.queue.set_context(playlist_id)
-            saved = self.shuffle_prefs.get(playlist_id)
-            if saved is not None and self.queue.shuffle_enabled != saved:
+            if self.shuffle_prefs.get(playlist_id) and not self.queue.shuffle_enabled:
                 self.queue.toggle_shuffle()
             first = self.queue.next_track()
             if first:

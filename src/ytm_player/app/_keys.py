@@ -166,16 +166,22 @@ class KeyHandlingMixin(YTMHostBase):
                 self.notify(f"Repeat: {mode.value}", timeout=2)
 
             case Action.TOGGLE_SHUFFLE:
+                # If the current playlist has Shuffle lock on, the keyboard
+                # shortcut is also a no-op — direct the user to the lock toggle.
+                ctx = self.queue.current_context_id
+                if ctx and self.shuffle_prefs.get(ctx):
+                    self.notify(
+                        "Shuffle is locked for this playlist — "
+                        "toggle Shuffle lock in the playlist header.",
+                        severity="warning",
+                        timeout=4,
+                    )
+                    return
                 self.queue.toggle_shuffle()
                 bar = self.query_one("#playback-bar", PlaybackBar)
                 bar.update_shuffle(self.queue.shuffle_enabled)
                 state = "on" if self.queue.shuffle_enabled else "off"
                 self.notify(f"Shuffle: {state}", timeout=2)
-                # Persist preference for the active collection (no-op if
-                # the queue is ephemeral / has no context).
-                ctx = self.queue.current_context_id
-                if ctx:
-                    self.shuffle_prefs.set(ctx, self.queue.shuffle_enabled)
 
             # -- Page navigation --
             case Action.LIBRARY:

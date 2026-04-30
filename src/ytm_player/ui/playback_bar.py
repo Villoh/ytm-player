@@ -173,7 +173,12 @@ class _RepeatButton(Widget):
 
 
 class _ShuffleButton(Widget):
-    """Clickable shuffle indicator."""
+    """Clickable shuffle indicator.
+
+    Disabled when the current playback context has Shuffle lock on (set
+    from the Library page playlist header). Visually dimmed and ignores
+    clicks; toggle the lock off in the playlist header to re-enable.
+    """
 
     DEFAULT_CSS = """
     _ShuffleButton {
@@ -185,9 +190,16 @@ class _ShuffleButton(Widget):
     _ShuffleButton:hover {
         background: $accent 30%;
     }
+    _ShuffleButton.locked {
+        text-style: dim;
+    }
+    _ShuffleButton.locked:hover {
+        background: transparent;
+    }
     """
 
     shuffle_on: reactive[bool] = reactive(False)
+    locked: reactive[bool] = reactive(False)
 
     def render(self) -> Text:
         theme = get_theme()
@@ -195,17 +207,30 @@ class _ShuffleButton(Widget):
             return Text(f"{_ICON_SHUFFLE_ON} on ", style=f"bold {theme.primary}")
         return Text(f"{_ICON_SHUFFLE_OFF} off", style=theme.muted_text)
 
+    def watch_locked(self, locked: bool) -> None:
+        """Apply / remove the .locked class so CSS can dim the widget."""
+        if locked:
+            self.add_class("locked")
+        else:
+            self.remove_class("locked")
+
     async def on_click(self, event: Click) -> None:
         event.stop()
+        if self.locked:
+            # Shuffle is locked on for this playlist — point the user at the
+            # toggle in the playlist header instead of silently no-oping.
+            try:
+                self.app.notify(
+                    "Shuffle is locked for this playlist — toggle Shuffle lock in the playlist header.",
+                    severity="warning",
+                    timeout=4,
+                )
+            except Exception:
+                pass
+            return
         app = cast("YTMHostBase", self.app)
         app.queue.toggle_shuffle()
         enabled = app.queue.shuffle_enabled
-        # Persist per-collection preference so future visits to this
-        # collection restore the toggle (TP-7 shuffle memory). Mirrors
-        # the keymap path in app/_keys.py:Action.TOGGLE_SHUFFLE.
-        ctx = app.queue.current_context_id
-        if ctx:
-            app.shuffle_prefs.set(ctx, enabled)
         try:
             bar = app.query_one("#playback-bar", PlaybackBar)
             bar.update_shuffle(enabled)
@@ -386,6 +411,19 @@ class PlaybackBar(Widget):
         """Update the shuffle state display."""
         shuf = self.query_one("#pb-shuffle", _ShuffleButton)
         shuf.shuffle_on = enabled
+
+    def refresh_shuffle_lock_state(self) -> None:
+        """Re-read shuffle_prefs for the current queue context and dim/un-dim
+        the shuffle button accordingly. Called from the Library page when the
+        user toggles Shuffle lock or enters a different playlist."""
+        try:
+            app = cast("YTMHostBase", self.app)
+            ctx = app.queue.current_context_id
+            locked = bool(app.shuffle_prefs.get(ctx)) if ctx else False
+            shuf = self.query_one("#pb-shuffle", _ShuffleButton)
+            shuf.locked = locked
+        except Exception:
+            logger.debug("Failed to refresh shuffle lock state", exc_info=True)
 
     def update_like_status(self, status: str | None) -> None:
         """Update the heart icon based on the track's likeStatus.

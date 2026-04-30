@@ -341,13 +341,20 @@ class QueuePage(Widget):
                 self._update_footer()
 
             case Action.TOGGLE_SHUFFLE:
+                # Honor Shuffle lock — if the playback context's playlist is
+                # locked, the toggle is a no-op (lock is the only way to
+                # change shuffle state for locked playlists).
+                ctx = queue.current_context_id
+                if ctx and self.app.shuffle_prefs.get(ctx):  # type: ignore[attr-defined]
+                    self.app.notify(  # type: ignore[attr-defined]
+                        "Shuffle is locked for this playlist — "
+                        "toggle Shuffle lock in the playlist header.",
+                        severity="warning",
+                        timeout=4,
+                    )
+                    return
                 queue.toggle_shuffle()
                 self._refresh_queue()
-                # Persist preference for the active collection (no-op if
-                # the queue is ephemeral / has no context).
-                ctx = queue.current_context_id
-                if ctx:
-                    self.app.shuffle_prefs.set(ctx, queue.shuffle_enabled)  # type: ignore[attr-defined]
 
     def _is_reorder_context(self) -> bool:
         """Always allow reorder in the queue page."""

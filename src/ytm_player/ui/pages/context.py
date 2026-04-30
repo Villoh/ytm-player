@@ -593,13 +593,18 @@ class ContextPage(Widget):
         host.queue.add_multiple(tracks)
         host.queue.jump_to_real(idx)
 
-        # Per-collection shuffle memory (TP-7) — context_id is the album/
-        # artist/playlist ID this page is showing.
+        # Shuffle lock — force shuffle ON if the context (album/artist/
+        # playlist) has the lock set. Lock is one-way enforcement on entry.
         host.queue.set_context(self.context_id)
-        if self.context_id:
-            saved = host.shuffle_prefs.get(self.context_id)
-            if saved is not None and host.queue.shuffle_enabled != saved:
+        if self.context_id and host.shuffle_prefs.get(self.context_id):
+            if not host.queue.shuffle_enabled:
                 host.queue.toggle_shuffle()
+        try:
+            bar = host.query_one("#playback-bar")
+            bar.update_shuffle(host.queue.shuffle_enabled)  # type: ignore[attr-defined]
+            bar.refresh_shuffle_lock_state()  # type: ignore[attr-defined]
+        except Exception:
+            pass
 
         # Play selected track.
         await host.play_track(event.track)
