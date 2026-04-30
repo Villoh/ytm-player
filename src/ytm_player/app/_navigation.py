@@ -146,10 +146,10 @@ class NavigationMixin(YTMHostBase):
         try:
             from ytm_player.ui.header_bar import HeaderBar
 
-            header = self.query_one(HeaderBar)
+            header = self.query_one("#app-header", HeaderBar)
             header.set_back_visible(bool(self._nav_stack))
         except Exception:
-            logger.debug("Failed to update header back button visibility", exc_info=True)
+            logger.exception("Failed to update header back button visibility")
 
         # Apply per-page playlist sidebar visibility.
         sidebar_visible = self._sidebar_per_page.get(page_name, self._sidebar_default)
