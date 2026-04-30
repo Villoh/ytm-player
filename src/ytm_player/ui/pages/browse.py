@@ -249,11 +249,14 @@ class ForYouSection(Widget):
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         """Handle item selection within a shelf."""
-        list_view = event.list_view
-        items = getattr(list_view, "_shelf_items", [])
-        idx = list_view.index
-        if idx is not None and 0 <= idx < len(items):
-            self.post_message(self.ItemSelected(items[idx]))
+        try:
+            list_view = event.list_view
+            items = getattr(list_view, "_shelf_items", [])
+            idx = list_view.index
+            if idx is not None and 0 <= idx < len(items):
+                self.post_message(self.ItemSelected(items[idx]))
+        except Exception:
+            logger.exception("ForYouSection.on_list_view_selected failed")
 
 
 class MoodsGenresSection(Widget):
@@ -362,12 +365,21 @@ class MoodsGenresSection(Widget):
         loading.display = True
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
-        """Handle category selection."""
-        list_view = event.list_view
-        items = getattr(list_view, "_category_items", [])
-        idx = list_view.index
-        if idx is not None and 0 <= idx < len(items):
-            self.post_message(self.CategorySelected(items[idx]))
+        """Handle category selection.
+
+        Sync handler — any exception here propagates to Textual's message
+        dispatch and through ``App._handle_exception``. Belt-and-braces:
+        even with the App-level exit-suppression in place, log instead of
+        triggering the crash-file write path for trivial off-by-one bugs.
+        """
+        try:
+            list_view = event.list_view
+            items = getattr(list_view, "_category_items", [])
+            idx = list_view.index
+            if idx is not None and 0 <= idx < len(items):
+                self.post_message(self.CategorySelected(items[idx]))
+        except Exception:
+            logger.exception("MoodsGenresSection.on_list_view_selected failed")
 
 
 class ChartsSection(Widget):
@@ -603,9 +615,12 @@ class NewReleasesSection(Widget):
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         """Handle album selection."""
-        idx = event.list_view.index
-        if idx is not None and 0 <= idx < len(self._albums):
-            self.post_message(self.AlbumSelected(self._albums[idx]))
+        try:
+            idx = event.list_view.index
+            if idx is not None and 0 <= idx < len(self._albums):
+                self.post_message(self.AlbumSelected(self._albums[idx]))
+        except Exception:
+            logger.exception("NewReleasesSection.on_list_view_selected failed")
 
 
 # ---------------------------------------------------------------------------
@@ -765,16 +780,27 @@ class BrowsePage(Widget):
     def on_moods_genres_section_category_selected(
         self, event: MoodsGenresSection.CategorySelected
     ) -> None:
-        """Navigate to mood/genre playlist listing."""
-        category = event.category
-        params = category.get("params")
-        if params:
+        """Navigate to mood/genre playlist listing.
+
+        Sync handler — wrap defensively so a malformed category dict
+        (ytmusicapi parser drift produces shapes we don't expect) can't
+        bubble out into Textual's message dispatch and tear the app down.
+        """
+        try:
+            category = event.category
+            if not isinstance(category, dict):
+                return
+            params = category.get("params")
+            if not params or not isinstance(params, str):
+                return
             self.run_worker(
                 self._load_mood_playlists(params),
                 name="load-mood-playlists",
                 exclusive=True,
                 exit_on_error=False,
             )
+        except Exception:
+            logger.exception("on_moods_genres_section_category_selected failed")
 
     async def _load_mood_playlists(self, category_params: str) -> None:
         """Fetch playlists for a mood/genre and navigate to the first one."""

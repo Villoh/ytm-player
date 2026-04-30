@@ -165,3 +165,57 @@ class TestInstallExcepthooks:
         yield
         sys.excepthook = original_sys
         threading.excepthook = original_thread
+
+
+class TestWriteCrashFileFallback:
+    """write_crash_file must self-bootstrap when install_excepthooks was skipped.
+
+    Regression for the ``crashes/ dir empty after a crash`` bug — silent
+    None-return masked the real failure mode and made diagnostics useless.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_module_state(self, monkeypatch):
+        from ytm_player.utils import logging as logmod
+
+        monkeypatch.setattr(logmod, "_crash_dir", None)
+        yield
+
+    def test_falls_back_to_paths_crash_dir_when_unconfigured(self, tmp_path: Path, monkeypatch):
+        """If install_excepthooks was never called, write_crash_file should
+        still produce a file using config.paths.CRASH_DIR rather than silently
+        returning None.
+        """
+        from ytm_player.config import paths
+        from ytm_player.utils.logging import write_crash_file
+
+        crash_dir = tmp_path / "crashes"
+        monkeypatch.setattr(paths, "CRASH_DIR", crash_dir)
+
+        result = write_crash_file("traceback body", label="Test crash")
+
+        assert result is not None
+        assert result.exists()
+        assert "Test crash" in result.read_text()
+        assert "traceback body" in result.read_text()
+
+    def test_logs_oserror_instead_of_silent_none(self, tmp_path: Path, monkeypatch, caplog):
+        """When the write fails, we must log the reason — silent failure
+        is what hid the original ``crashes dir empty`` symptom for hours.
+        """
+        from ytm_player.utils import logging as logmod
+
+        # Point at a non-writable path so os.open raises OSError.
+        crash_dir = tmp_path / "ro-crashes"
+        crash_dir.mkdir()
+        crash_dir.chmod(0o500)
+        monkeypatch.setattr(logmod, "_crash_dir", crash_dir)
+
+        try:
+            with caplog.at_level("ERROR", logger="ytm_player.utils.logging"):
+                result = logmod.write_crash_file("body", label="ReadOnly")
+
+            assert result is None
+            assert any("failed to write" in rec.getMessage().lower() for rec in caplog.records)
+        finally:
+            crash_dir.chmod(0o700)

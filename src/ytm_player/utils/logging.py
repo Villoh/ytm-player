@@ -82,11 +82,25 @@ def write_crash_file(traceback_text: str, *, label: str = "Crash") -> Path | Non
     Textual's worker/render error path which bypasses ``sys.excepthook``)
     can persist it for later inspection via ``ytm doctor``.
 
-    Returns the written path, or None if writing failed or no crash dir
-    has been configured (i.e., ``install_excepthooks`` was never called).
+    Returns the written path, or None if writing failed.
+
+    Self-bootstraps: if ``install_excepthooks`` was never called (e.g.
+    a unit-test harness imports the App directly without going through
+    ``cli.py``), falls back to ``paths.CRASH_DIR`` so we never silently
+    swallow a crash trace.
     """
+    global _crash_dir
     if _crash_dir is None:
-        return None
+        try:
+            from ytm_player.config.paths import CRASH_DIR
+
+            CRASH_DIR.mkdir(parents=True, exist_ok=True)
+            _crash_dir = CRASH_DIR
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "write_crash_file: no _crash_dir configured and fallback failed"
+            )
+            return None
     ts = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     path = _crash_dir / f"ytm-crash-{ts}.log"
     flags = os.O_CREAT | os.O_WRONLY | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
@@ -97,6 +111,8 @@ def write_crash_file(traceback_text: str, *, label: str = "Crash") -> Path | Non
         finally:
             os.close(fd)
     except OSError:
+        # Surface the *reason* — silent-None made the previous bug invisible.
+        logging.getLogger(__name__).exception("write_crash_file: failed to write %s", path)
         return None
     _prune_crash_dir()
     return path
