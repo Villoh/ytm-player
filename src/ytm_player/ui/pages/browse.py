@@ -1,4 +1,4 @@
-"""Browse page — moods, genres, charts, recommendations, and new releases."""
+"""Browse page — recommendations, charts, and new releases."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # Tab bar
 # ---------------------------------------------------------------------------
 
-_TABS = ("For You", "Moods & Genres", "Charts", "New Releases")
+_TABS = ("For You", "Charts", "New Releases")
 
 
 class BrowseTabBar(Widget):
@@ -257,129 +257,6 @@ class ForYouSection(Widget):
                 self.post_message(self.ItemSelected(items[idx]))
         except Exception:
             logger.exception("ForYouSection.on_list_view_selected failed")
-
-
-class MoodsGenresSection(Widget):
-    """Grid of mood/genre categories from get_mood_categories()."""
-
-    DEFAULT_CSS = """
-    MoodsGenresSection {
-        height: 1fr;
-        width: 1fr;
-        padding: 0 1;
-    }
-
-    MoodsGenresSection .loading {
-        height: 1fr;
-        width: 1fr;
-        content-align: center middle;
-        color: $text-muted;
-    }
-
-    MoodsGenresSection .category-title {
-        text-style: bold;
-        color: $text;
-        padding: 1 0 0 0;
-    }
-
-    MoodsGenresSection ListView {
-        height: auto;
-        max-height: 8;
-    }
-    """
-
-    is_loading: reactive[bool] = reactive(True)
-
-    class CategorySelected(Message):
-        def __init__(self, category: dict[str, Any]) -> None:
-            super().__init__()
-            self.category = category
-
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self._categories: list[dict[str, Any]] = []
-        self._all_items: list[dict[str, Any]] = []
-
-    def compose(self) -> ComposeResult:
-        yield Static("Loading moods & genres...", id="moods-loading", classes="loading")
-        yield Vertical(id="moods-container")
-
-    def on_unmount(self) -> None:
-        """Release category data to prevent memory retention."""
-        self._categories.clear()
-        self._all_items.clear()
-
-    async def load_data(self) -> None:
-        """Fetch and display mood/genre categories."""
-        self.is_loading = True
-        try:
-            ytmusic = cast("YTMHostBase", self.app).ytmusic
-            assert ytmusic is not None
-            self._categories = await ytmusic.get_mood_categories()
-            await self._populate_categories()
-        except Exception:
-            logger.exception("Failed to load mood categories")
-            self._show_error("Failed to load moods & genres.")
-        finally:
-            self.is_loading = False
-
-    async def _populate_categories(self) -> None:
-        loading = self.query_one("#moods-loading", Static)
-        loading.display = False
-
-        container = self.query_one("#moods-container", Vertical)
-        # Clear _category_items references from old ListViews before removing.
-        for lv in container.query(ListView):
-            if hasattr(lv, "_category_items"):
-                lv._category_items = []  # type: ignore[attr-defined]
-        await container.remove_children()
-
-        if not self._categories:
-            await container.mount(Static("No categories available.", classes="loading"))
-            return
-
-        self._all_items = []
-
-        for category_group in self._categories:
-            group_title = category_group.get("title", "")
-            items = category_group.get("categories", [])
-            if not items:
-                continue
-
-            if group_title:
-                await container.mount(Label(group_title, classes="category-title"))
-
-            list_view = ListView()
-            await container.mount(list_view)
-
-            for item in items:
-                title = item.get("title", "Unknown")
-                list_view.append(ListItem(Label(title)))
-                self._all_items.append(item)
-
-            list_view._category_items = items  # type: ignore[attr-defined]
-
-    def _show_error(self, message: str) -> None:
-        loading = self.query_one("#moods-loading", Static)
-        loading.update(message)
-        loading.display = True
-
-    def on_list_view_selected(self, event: ListView.Selected) -> None:
-        """Handle category selection.
-
-        Sync handler — any exception here propagates to Textual's message
-        dispatch and through ``App._handle_exception``. Belt-and-braces:
-        even with the App-level exit-suppression in place, log instead of
-        triggering the crash-file write path for trivial off-by-one bugs.
-        """
-        try:
-            list_view = event.list_view
-            items = getattr(list_view, "_category_items", [])
-            idx = list_view.index
-            if idx is not None and 0 <= idx < len(items):
-                self.post_message(self.CategorySelected(items[idx]))
-        except Exception:
-            logger.exception("MoodsGenresSection.on_list_view_selected failed")
 
 
 class ChartsSection(Widget):
@@ -629,7 +506,7 @@ class NewReleasesSection(Widget):
 
 
 class BrowsePage(Widget):
-    """Tabbed browse page: For You, Moods & Genres, Charts, New Releases.
+    """Tabbed browse page: For You, Charts, New Releases.
 
     Each tab lazily loads its data on first activation.
     """
@@ -678,7 +555,6 @@ class BrowsePage(Widget):
             yield BrowseTabBar(id="browse-tabs")
             with Vertical(id="browse-content"):
                 yield ForYouSection(id="section-foryou", classes="active-section")
-                yield MoodsGenresSection(id="section-moods")
                 yield ChartsSection(id="section-charts")
                 yield NewReleasesSection(id="section-releases")
 
@@ -710,7 +586,6 @@ class BrowsePage(Widget):
         """Show the section at *index* and hide all others."""
         section_ids = [
             "section-foryou",
-            "section-moods",
             "section-charts",
             "section-releases",
         ]
@@ -744,14 +619,6 @@ class BrowsePage(Widget):
                     exit_on_error=False,
                 )
             case 1:
-                section = self.query_one("#section-moods", MoodsGenresSection)
-                self.run_worker(
-                    section.load_data(),
-                    name="load-moods",
-                    exclusive=True,
-                    exit_on_error=False,
-                )
-            case 2:
                 section = self.query_one("#section-charts", ChartsSection)
                 self.run_worker(
                     section.load_data(),
@@ -759,7 +626,7 @@ class BrowsePage(Widget):
                     exclusive=True,
                     exit_on_error=False,
                 )
-            case 3:
+            case 2:
                 section = self.query_one("#section-releases", NewReleasesSection)
                 self.run_worker(
                     section.load_data(),
@@ -776,72 +643,6 @@ class BrowsePage(Widget):
         """Handle item selection from the For You shelves."""
         item = event.item
         await self._navigate_item(item)
-
-    def on_moods_genres_section_category_selected(
-        self, event: MoodsGenresSection.CategorySelected
-    ) -> None:
-        """Navigate to mood/genre playlist listing.
-
-        Sync handler — wrap defensively so a malformed category dict
-        (ytmusicapi parser drift produces shapes we don't expect) can't
-        bubble out into Textual's message dispatch and tear the app down.
-        """
-        try:
-            category = event.category
-            if not isinstance(category, dict):
-                return
-            params = category.get("params")
-            if not params or not isinstance(params, str):
-                return
-            self.run_worker(
-                self._load_mood_playlists(params),
-                name="load-mood-playlists",
-                exclusive=True,
-                exit_on_error=False,
-            )
-        except Exception:
-            logger.exception("on_moods_genres_section_category_selected failed")
-
-    async def _load_mood_playlists(self, category_params: str) -> None:
-        """Fetch playlists for a mood/genre and navigate to the first one."""
-        host = cast("YTMHostBase", self.app)
-        try:
-            ytmusic = host.ytmusic
-            assert ytmusic is not None
-            playlists = await ytmusic.get_mood_playlists(category_params)
-
-            # Empty result — service caught a parser error or YouTube returned
-            # nothing. Don't silently no-op; tell the user.
-            if not playlists or not isinstance(playlists, list):
-                try:
-                    host.notify(
-                        "This mood is currently unavailable (YouTube changed its data shape)",
-                        severity="warning",
-                        timeout=4,
-                    )
-                except Exception:
-                    logger.exception("notify() failed in _load_mood_playlists empty branch")
-                return
-
-            first = playlists[0] if isinstance(playlists[0], dict) else None
-            if first is None:
-                host.notify("No playlists found for this mood", severity="warning", timeout=3)
-                return
-
-            playlist_id = first.get("playlistId") or first.get("browseId")
-            if not playlist_id:
-                host.notify("No playlists found for this mood", severity="warning", timeout=3)
-                return
-
-            await host.navigate_to("context", context_type="playlist", context_id=playlist_id)
-        except Exception:
-            logger.exception("Failed to load mood playlists")
-            # Even the fallback toast can fail under render-race conditions —
-            # never let a notify() exception escape the worker.
-            try:
-                host.notify("Failed to load mood playlists", severity="error")
-            except Exception:
-                logger.exception("notify() also failed in _load_mood_playlists fallback")
 
     async def on_new_releases_section_album_selected(
         self, event: NewReleasesSection.AlbumSelected
