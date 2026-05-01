@@ -56,7 +56,7 @@ class LibraryPanel(Widget):
         height: 1;
         width: auto;
         padding: 0 1;
-        color: $text-muted;
+        color: $text;
     }
 
     LibraryPanel .panel-icon-btn:hover {
