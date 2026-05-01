@@ -2,12 +2,12 @@
 
 [![PyPI](https://img.shields.io/pypi/v/ytm-player)](https://pypi.org/project/ytm-player/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/peternaame-boop/ytm-player/blob/master/LICENSE)
 [![CI](https://github.com/peternaame-boop/ytm-player/actions/workflows/ci.yml/badge.svg)](https://github.com/peternaame-boop/ytm-player/actions/workflows/ci.yml)
 
 A full-featured YouTube Music player for the terminal. Browse your library, search, queue tracks, and control playback — all from a TUI with vim-style keybindings. Runs on Linux, macOS, and Windows.
 
-![ytm-player screenshot](docs/images/screenshot-v7.png)
+![ytm-player demo](https://raw.githubusercontent.com/peternaame-boop/ytm-player/master/docs/images/ytm-demo.gif)
 
 > Available on **PyPI**, **AUR**, **NixOS**, and **Gentoo** — actively maintained with cross-platform support.
 
@@ -41,7 +41,7 @@ pip install ytm-player
 yay -S ytm-player-git
 ```
 
-For NixOS, Gentoo, Windows-specific mpv DLL setup, source builds, and optional extras (Discord, Last.fm, Spotify import, etc.), see [docs/installation.md](docs/installation.md).
+For NixOS, Gentoo, Windows-specific mpv DLL setup, source builds, and optional extras (Discord, Last.fm, Spotify import, etc.), see [docs/installation.md](https://github.com/peternaame-boop/ytm-player/blob/master/docs/installation.md).
 
 ## Quickstart
 
@@ -56,15 +56,15 @@ Windows: replace `ytm` with `py -m ytm_player`.
 
 | Topic | Link |
 |-------|------|
-| Per-platform install + optional extras | [docs/installation.md](docs/installation.md) |
-| `config.toml` + `theme.toml` reference | [docs/configuration.md](docs/configuration.md) |
-| Full keyboard + mouse keybindings | [docs/keybindings.md](docs/keybindings.md) |
-| All `ytm` CLI subcommands | [docs/cli-reference.md](docs/cli-reference.md) |
-| Spotify playlist import | [docs/spotify-import.md](docs/spotify-import.md) |
-| Troubleshooting (mpv / auth / MPRIS / macOS / cache) | [docs/troubleshooting.md](docs/troubleshooting.md) |
-| File layout + stack | [docs/architecture.md](docs/architecture.md) |
-| Contributing | [CONTRIBUTING.md](CONTRIBUTING.md) |
-| Security policy | [SECURITY.md](SECURITY.md) |
+| Per-platform install + optional extras | [docs/installation.md](https://github.com/peternaame-boop/ytm-player/blob/master/docs/installation.md) |
+| `config.toml` + `theme.toml` reference | [docs/configuration.md](https://github.com/peternaame-boop/ytm-player/blob/master/docs/configuration.md) |
+| Full keyboard + mouse keybindings | [docs/keybindings.md](https://github.com/peternaame-boop/ytm-player/blob/master/docs/keybindings.md) |
+| All `ytm` CLI subcommands | [docs/cli-reference.md](https://github.com/peternaame-boop/ytm-player/blob/master/docs/cli-reference.md) |
+| Spotify playlist import | [docs/spotify-import.md](https://github.com/peternaame-boop/ytm-player/blob/master/docs/spotify-import.md) |
+| Troubleshooting (mpv / auth / MPRIS / macOS / cache) | [docs/troubleshooting.md](https://github.com/peternaame-boop/ytm-player/blob/master/docs/troubleshooting.md) |
+| File layout + stack | [docs/architecture.md](https://github.com/peternaame-boop/ytm-player/blob/master/docs/architecture.md) |
+| Contributing | [CONTRIBUTING.md](https://github.com/peternaame-boop/ytm-player/blob/master/CONTRIBUTING.md) |
+| Security policy | [SECURITY.md](https://github.com/peternaame-boop/ytm-player/blob/master/SECURITY.md) |
 
 ## Contributors
 
@@ -72,4 +72,4 @@ Thanks to [@dmnmsc](https://github.com/dmnmsc), [@Villoh](https://github.com/Vil
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for the full release history.
+See [CHANGELOG.md](https://github.com/peternaame-boop/ytm-player/blob/master/CHANGELOG.md) for the full release history.
