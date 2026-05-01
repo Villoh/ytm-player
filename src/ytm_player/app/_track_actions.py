@@ -219,11 +219,12 @@ class TrackActionsMixin(YTMHostBase):
 
         self.notify("Track removed", timeout=2)
 
-        # Remove from the visible TrackTable.
+        # Remove from the visible TrackTable and update counts.
         try:
             library = self.query_one(LibraryPage)
             table = library.query_one("#library-tracks")
             table.remove_track(video_id)
+            library.update_track_count()
             # Update sidebar count.
             ps = self.query_one("#playlist-sidebar", PlaylistSidebar)
             panel = ps.query_one("#ps-playlists")
