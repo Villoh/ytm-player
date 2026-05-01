@@ -74,8 +74,11 @@ def test_on_click_posts_create_button_message():
     event = _Event()
     sidebar.post_message = fake_post_message
 
-    with active_message_pump.set(sidebar):
+    token = active_message_pump.set(sidebar)
+    try:
         sidebar.on_click(event)
+    finally:
+        active_message_pump.reset(token)
 
     assert len(posted) == 1
     assert isinstance(posted[0], PlaylistSidebar.CreateButtonClicked)
