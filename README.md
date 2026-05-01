@@ -1,11 +1,25 @@
-# ytm-player
+<p align="center">
+  <img src="https://raw.githubusercontent.com/peternaame-boop/ytm-player/master/assets/logo.png" alt="ytm-player" />
+</p>
 
-[![PyPI](https://img.shields.io/pypi/v/ytm-player)](https://pypi.org/project/ytm-player/)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/peternaame-boop/ytm-player/blob/master/LICENSE)
-[![CI](https://github.com/peternaame-boop/ytm-player/actions/workflows/ci.yml/badge.svg)](https://github.com/peternaame-boop/ytm-player/actions/workflows/ci.yml)
+<h1 align="center">ytm-player</h1>
 
-A full-featured YouTube Music player for the terminal. Browse your library, search, queue tracks, and control playback — all from a TUI with vim-style keybindings. Runs on Linux, macOS, and Windows.
+<p align="center">
+  A full-featured YouTube Music player for the terminal. Browse your library, search, queue tracks, and control playback — all from a TUI with vim-style keybindings. Runs on Linux, macOS, and Windows.
+</p>
+
+<p align="center">
+  <a href="https://pypi.org/project/ytm-player/"><img src="https://img.shields.io/pypi/v/ytm-player?style=for-the-badge&logo=pypi&color=ff0000&labelColor=0f0f0f&logoColor=ff4e45" alt="PyPI"></a>
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10%2B-ff0000?style=for-the-badge&logo=python&labelColor=0f0f0f&logoColor=ff4e45" alt="Python 3.10+"></a>
+  <a href="https://github.com/peternaame-boop/ytm-player/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/peternaame-boop/ytm-player/ci.yml?style=for-the-badge&logo=githubactions&labelColor=0f0f0f&logoColor=ff4e45" alt="CI"></a>
+  <a href="https://github.com/peternaame-boop/ytm-player/blob/master/LICENSE"><img src="https://img.shields.io/github/license/peternaame-boop/ytm-player?style=for-the-badge&color=ff0000&labelColor=0f0f0f" alt="License"></a>
+</p>
+
+<p align="center">
+  <a href="#features">Features</a> · <a href="#install">Install</a> · <a href="#quickstart">Quickstart</a> · <a href="#documentation">Documentation</a> · <a href="https://github.com/peternaame-boop/ytm-player/blob/master/CONTRIBUTING.md">Contributing</a> · <a href="https://github.com/peternaame-boop/ytm-player/blob/master/SECURITY.md">Security</a> · <a href="https://github.com/peternaame-boop/ytm-player/blob/master/CHANGELOG.md">Changelog</a>
+</p>
+
+---
 
 ![ytm-player demo](https://raw.githubusercontent.com/peternaame-boop/ytm-player/master/docs/images/ytm-demo.gif)
 
