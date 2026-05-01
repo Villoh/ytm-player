@@ -52,14 +52,14 @@ class LibraryPanel(Widget):
         width: 1fr;
     }
 
-    LibraryPanel .panel-refresh-btn {
+    LibraryPanel .panel-icon-btn {
         height: 1;
         width: auto;
         padding: 0 1;
         color: $text-muted;
     }
 
-    LibraryPanel .panel-refresh-btn:hover {
+    LibraryPanel .panel-icon-btn:hover {
         background: $accent 30%;
     }
 
@@ -152,7 +152,8 @@ class LibraryPanel(Widget):
     def compose(self) -> ComposeResult:
         with Horizontal(classes="panel-header"):
             yield Label(self._title, classes="panel-title")
-            yield Static("\u21ba", classes="panel-refresh-btn", id=f"{self.id}-refresh")
+            yield Static("+", classes="panel-icon-btn", id=f"{self.id}-create")
+            yield Static("\u27f3", classes="panel-icon-btn", id=f"{self.id}-refresh")
         yield Static("Loading...", classes="panel-loading")
         yield ListView(id=f"{self.id}-list")
         yield Static("", classes="panel-count")
@@ -515,6 +516,9 @@ class PlaylistSidebar(Widget):
             super().__init__()
             self.item_data = item_data
 
+    class CreateButtonClicked(Message):
+        """The playlist create button in the header was clicked."""
+
     class NavItemClicked(Message):
         """A pinned nav item (Liked Songs / Recently Played) was clicked."""
 
@@ -604,8 +608,10 @@ class PlaylistSidebar(Widget):
         target = event.widget
         if target is None:
             return
-        if target.id == "ps-nav-liked":
-        if target.id == "ps-playlists-refresh":
+        if target.id == "ps-playlists-create":
+            event.stop()
+            self.post_message(self.CreateButtonClicked())
+        elif target.id == "ps-playlists-refresh":
             event.stop()
             self.run_worker(self._do_refresh())
         elif target.id == "ps-nav-liked":

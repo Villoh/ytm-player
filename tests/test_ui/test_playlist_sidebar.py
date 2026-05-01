@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from ytm_player.ui.sidebars.playlist_sidebar import LibraryPanel
+from textual.message_pump import active_message_pump
+
+from ytm_player.ui.sidebars.playlist_sidebar import LibraryPanel, PlaylistSidebar
 
 
 def _make_item(playlist_id: str, count: int | None, title: str = "Test"):
@@ -50,3 +52,31 @@ def test_update_item_count_unknown_playlist_is_noop():
     panel._filtered_items = list(panel._items)
     panel.update_item_count("PLnonexistent", +3)
     assert panel._items[0]["count"] == 5
+
+
+def test_on_click_posts_create_button_message():
+    sidebar = PlaylistSidebar.__new__(PlaylistSidebar)
+    posted = []
+
+    def fake_post_message(message):
+        posted.append(message)
+
+    class _Target:
+        id = "ps-playlists-create"
+
+    class _Event:
+        widget = _Target()
+        button = 1
+
+        def stop(self):
+            self.stopped = True
+
+    event = _Event()
+    sidebar.post_message = fake_post_message
+
+    with active_message_pump.set(sidebar):
+        sidebar.on_click(event)
+
+    assert len(posted) == 1
+    assert isinstance(posted[0], PlaylistSidebar.CreateButtonClicked)
+    assert getattr(event, "stopped", False) is True

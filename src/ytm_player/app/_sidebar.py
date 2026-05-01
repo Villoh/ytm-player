@@ -206,6 +206,13 @@ class SidebarMixin(YTMHostBase):
         else:
             self._prompt_create_playlist()
 
+    def on_playlist_sidebar_create_button_clicked(
+        self, message: PlaylistSidebar.CreateButtonClicked
+    ) -> None:
+        """Open the create playlist popup from the sidebar header button."""
+        message.stop()
+        self._prompt_create_playlist()
+
     async def on_playlist_sidebar_nav_item_clicked(
         self, message: PlaylistSidebar.NavItemClicked
     ) -> None:
@@ -326,6 +333,7 @@ class SidebarMixin(YTMHostBase):
             ),
             _on_result,
         )
+
     async def _create_sidebar_playlist(
         self, name: str, description: str = "", privacy: str = "PRIVATE"
     ) -> None:
@@ -400,9 +408,7 @@ class SidebarMixin(YTMHostBase):
                 from ytm_player.services.ytmusic import mutation_failure_suffix
 
                 suffix = mutation_failure_suffix(result)
-                self.notify(
-                    f"Failed to edit playlist - {suffix}", severity="error", timeout=4
-                )
+                self.notify(f"Failed to edit playlist - {suffix}", severity="error", timeout=4)
                 return
             self.notify(f"Updated '{name}'", timeout=2)
             await self._apply_playlist_edit_to_ui(
@@ -457,6 +463,7 @@ class SidebarMixin(YTMHostBase):
             return
         raw_id = strip_vl_prefix(playlist_id)
         from ytm_player.services.ytmusic import mutation_failure_suffix
+
         try:
             # Try delete first (owned playlists), fall back to remove from
             # library (subscribed playlists/albums).
