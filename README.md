@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/peternaame-boop/ytm-player/master/assets/logo.png" alt="ytm-player" />
+  <img src="https://raw.githubusercontent.com/peternaame-boop/ytm-player/master/docs/images/logo.png" alt="ytm-player" />
 </p>
 
 <h1 align="center">ytm-player</h1>
