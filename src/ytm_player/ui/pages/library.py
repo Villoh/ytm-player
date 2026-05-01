@@ -234,7 +234,6 @@ class LibraryPage(Widget):
             # get_playlist() returns 'id' but _start_playlist_radio expects 'playlistId'.
             self._playlist_data = data
             self._playlist_data.setdefault("playlistId", playlist_id)
-
             # Update header.
             header = self.query_one("#content-header", Vertical)
             await header.remove_children()
