@@ -246,8 +246,6 @@ class SidebarMixin(YTMHostBase):
                     self.notify("No playlist ID found", severity="error", timeout=2)
             elif action_id == "edit":
                 self._prompt_edit_playlist(item)
-            elif action_id == "edit":
-                self._prompt_edit_playlist(item)
             elif action_id == "delete":
                 from ytm_player.ui.popups.confirm_popup import ConfirmPopup
 
@@ -440,7 +438,7 @@ class SidebarMixin(YTMHostBase):
                     break
             panel._rebuild_list(panel._filtered_items)
         except Exception:
-            logger.debug("Failed to update sidebar panel after edit", exc_info=True)
+            logger.exception("Failed to update sidebar panel after edit")
 
         try:
             from ytm_player.ui.pages.library import LibraryPage
@@ -450,7 +448,7 @@ class SidebarMixin(YTMHostBase):
                 library = self.query_one(LibraryPage)
                 await library.refresh_header(name, description, privacy)
         except Exception:
-            logger.debug("Failed to refresh library header after playlist edit", exc_info=True)
+            logger.exception("Failed to refresh library header after playlist edit")
 
     async def _delete_sidebar_playlist(self, item: dict) -> None:
         """Delete or remove a playlist and refresh the sidebar."""

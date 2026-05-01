@@ -6,6 +6,7 @@ import pytest
 
 from ytm_player.utils.formatting import (
     VALID_VIDEO_ID,
+    build_playlist_subtitle,
     extract_artist,
     extract_duration,
     format_ago,
@@ -15,6 +16,7 @@ from ytm_player.utils.formatting import (
     get_video_id,
     normalize_tracks,
     sanitize_title_for_lyric_lookup,
+    strip_vl_prefix,
     truncate,
 )
 
@@ -573,3 +575,52 @@ class TestSanitizeTitleForLyricLookup:
         assert (
             sanitize_title_for_lyric_lookup("Acoustic Sessions Vol 1") == "Acoustic Sessions Vol 1"
         )
+
+
+# ── strip_vl_prefix ──────────────────────────────────────────────────
+
+
+class TestStripVlPrefix:
+    def test_strips_vl_prefix(self):
+        assert strip_vl_prefix("VLPLabc123") == "PLabc123"
+
+    def test_no_prefix_unchanged(self):
+        assert strip_vl_prefix("PLabc123") == "PLabc123"
+
+    def test_empty_string(self):
+        assert strip_vl_prefix("") == ""
+
+    def test_short_string_with_vl(self):
+        assert strip_vl_prefix("VLx") == "x"
+
+
+# ── build_playlist_subtitle ──────────────────────────────────────────
+
+
+class TestBuildPlaylistSubtitle:
+    def test_owner_and_count_only(self):
+        assert build_playlist_subtitle("Alice", "", None, 5) == "Alice · 5 tracks"
+
+    def test_single_track(self):
+        assert build_playlist_subtitle("Bob", "", None, 1) == "Bob · 1 track"
+
+    def test_includes_privacy(self):
+        assert build_playlist_subtitle("Alice", "PUBLIC", None, 5) == "Alice · Public · 5 tracks"
+
+    def test_includes_year(self):
+        assert build_playlist_subtitle("Alice", "", 2023, 5) == "Alice · 2023 · 5 tracks"
+
+    def test_full_subtitle(self):
+        assert (
+            build_playlist_subtitle("Alice", "PRIVATE", 2023, 5)
+            == "Alice · Private · 2023 · 5 tracks"
+        )
+
+    def test_omits_empty_privacy_and_year(self):
+        assert build_playlist_subtitle("Alice", "", "", 5) == "Alice · 5 tracks"
+
+    def test_year_as_int(self):
+        assert build_playlist_subtitle("Alice", "", 2023, 1) == "Alice · 2023 · 1 track"
+
+    def test_year_as_string(self):
+        assert build_playlist_subtitle("Alice", "", "2023", 1) == "Alice · 2023 · 1 track"

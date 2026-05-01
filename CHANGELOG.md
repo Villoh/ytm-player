@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+### Unreleased
+
+**New features**
+
+- **Playlist sidebar refresh** — press `r` while the sidebar is focused or click the `↻` header button to force-reload the playlist list without restarting the app. Bound to the new `refresh_sidebar` action.
+- **Create playlist with metadata** — the "New Playlist" flow now asks for name, description, and privacy (Private / Public / Unlisted) in a single modal, instead of defaulting to private with no description. New `CreatePlaylistPopup` replaces the minimal `InputPopup`.
+- **Edit playlist metadata** — right-click any user playlist in the sidebar and choose "Edit Playlist" to rename it, update its description, or change privacy. The sidebar and the open library page header update in-place without reloading tracks. New `YTMusicService.edit_playlist()` method.
+- **Enriched library playlist header** — description, privacy status, and year now appear in the header alongside owner and track count. Uses new `build_playlist_subtitle()` helper.
+- **Sidebar count sync on add** — adding tracks via the "Add to Playlist" picker now bumps the target playlist's track count in the sidebar immediately.
+- **Auto-navigate on delete** — deleting the currently open playlist from the sidebar automatically navigates back to the plain library view instead of leaving a ghost page.
+
+---
+
 ### v1.9.1 (2026-04-30)
 
 This is the third and final wave of major updates in a rapid release cycle — quieter cadence ahead.

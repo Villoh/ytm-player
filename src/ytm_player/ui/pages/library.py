@@ -314,7 +314,7 @@ class LibraryPage(Widget):
             self._subtitle_label = Label(subtitle, classes="content-subtitle")
             await header.mount(self._subtitle_label)
         except Exception:
-            logger.debug("Failed to refresh library header after edit", exc_info=True)
+            logger.exception("Failed to refresh library header after edit")
 
     async def _fetch_remaining(self, playlist_id: str, already_have: int) -> None:
         """Background fetch for tracks beyond the first batch."""
