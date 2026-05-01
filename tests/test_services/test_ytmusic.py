@@ -333,6 +333,93 @@ class TestMutationMethodsReturnTypedResult:
         )
         assert result == "server_error"
 
+    async def test_edit_playlist_returns_success_on_ok(self, ytmusic_service, monkeypatch):
+        async def fake_call(func, *_args, **_kwargs):
+            return "STATUS_SUCCEEDED"
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.edit_playlist("PL_test", title="New Name")
+        assert result == "success"
+
+    async def test_edit_playlist_returns_success_on_truthy_result(
+        self, ytmusic_service, monkeypatch
+    ):
+        async def fake_call(func, *_args, **_kwargs):
+            return True
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.edit_playlist("PL_test", description="desc")
+        assert result == "success"
+
+    async def test_edit_playlist_returns_server_error_on_non_success(
+        self, ytmusic_service, monkeypatch
+    ):
+        async def fake_call(func, *_args, **_kwargs):
+            return "SOME_OTHER_STATUS"
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.edit_playlist("PL_test", privacy_status="PUBLIC")
+        assert result == "server_error"
+
+    async def test_edit_playlist_returns_network_on_timeout(self, ytmusic_service, monkeypatch):
+        async def fake_call(func, *_args, **_kwargs):
+            raise asyncio.TimeoutError("timed out")
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.edit_playlist("PL_test", title="Name")
+        assert result == "network"
+
+    async def test_edit_playlist_returns_auth_expired_on_http_401(
+        self, ytmusic_service, monkeypatch
+    ):
+        from ytmusicapi.exceptions import YTMusicServerError
+
+        async def fake_call(func, *_args, **_kwargs):
+            raise YTMusicServerError("Server returned HTTP 401: Unauthorized.\n")
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.edit_playlist("PL_test", title="Name")
+        assert result == "auth_expired"
+
+    async def test_edit_playlist_propagates_unexpected_exceptions(
+        self, ytmusic_service, monkeypatch
+    ):
+        async def fake_call(func, *_args, **_kwargs):
+            raise TypeError("programming bug")
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        with pytest.raises(TypeError, match="programming bug"):
+            await ytmusic_service.edit_playlist("PL_test", title="Name")
+
+    async def test_edit_playlist_sends_all_kwargs(self, ytmusic_service, monkeypatch):
+        calls = []
+
+        async def fake_call(func, playlist_id, **kwargs):
+            calls.append((func, playlist_id, kwargs))
+            return "STATUS_SUCCEEDED"
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.edit_playlist(
+            "PL_test", title="T", description="D", privacy_status="PUBLIC"
+        )
+        assert result == "success"
+        assert len(calls) == 1
+        _func, pid, kwargs = calls[0]
+        assert pid == "PL_test"
+        assert kwargs == {"title": "T", "description": "D", "privacyStatus": "PUBLIC"}
+
+    async def test_edit_playlist_omits_none_kwargs(self, ytmusic_service, monkeypatch):
+        calls = []
+
+        async def fake_call(func, playlist_id, **kwargs):
+            calls.append(kwargs)
+            return "STATUS_SUCCEEDED"
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.edit_playlist("PL_test", title="T")
+        assert result == "success"
+        assert calls == [{"title": "T"}]
+
 
 class TestMutationFailureSuffix:
     """Task 4.11: cascade sites compose toast text via mutation_failure_suffix."""
