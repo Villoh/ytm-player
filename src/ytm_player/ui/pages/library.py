@@ -316,6 +316,22 @@ class LibraryPage(Widget):
         except Exception:
             logger.exception("Failed to refresh library header after edit")
 
+    def update_track_count(self) -> None:
+        """Update the subtitle label to reflect the current table track count.
+
+        Called optimistically after tracks are added or removed in-place.
+        """
+        try:
+            table = self.query_one("#library-tracks", TrackTable)
+            track_count = len(table.tracks)
+            subtitle = build_playlist_subtitle(
+                self._cached_owner, self._cached_privacy, self._cached_year, track_count
+            )
+            if hasattr(self, "_subtitle_label") and self._subtitle_label:
+                self._subtitle_label.update(subtitle)
+        except Exception:
+            logger.debug("Failed to update library track count label", exc_info=True)
+
     async def _fetch_remaining(self, playlist_id: str, already_have: int) -> None:
         """Background fetch for tracks beyond the first batch."""
         ytmusic = cast("YTMHostBase", self.app).ytmusic
@@ -332,13 +348,7 @@ class LibraryPage(Widget):
         try:
             table = self.query_one("#library-tracks", TrackTable)
             table.append_tracks(tracks)
-            # Update subtitle with final count.
-            total = len(table.tracks)
-            if hasattr(self, "_subtitle_label"):
-                privacy = getattr(self, "_cached_privacy", "")
-                self._subtitle_label.update(
-                    build_playlist_subtitle(self._cached_owner, privacy, self._cached_year, total)
-                )
+            self.update_track_count()
         except Exception:
             logger.debug("Failed to append remaining tracks in library", exc_info=True)
 
