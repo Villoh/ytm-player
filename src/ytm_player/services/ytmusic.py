@@ -754,6 +754,39 @@ class YTMusicService:
             logger.debug("create_playlist failed for title=%r", title)
             return ""
 
+    async def edit_playlist(
+        self,
+        playlist_id: str,
+        title: str | None = None,
+        description: str | None = None,
+        privacy_status: str | None = None,
+    ) -> MutationResult:
+        """Edit an existing playlist's metadata.
+
+        Returns:
+            ``"success"`` if the server accepted the edit, otherwise one of
+            ``"auth_required"``, ``"auth_expired"``, ``"network"``,
+            ``"server_error"``. Unexpected exceptions propagate.
+        """
+        kwargs: dict[str, Any] = {}
+        if title is not None:
+            kwargs["title"] = title
+        if description is not None:
+            kwargs["description"] = description
+        if privacy_status is not None:
+            kwargs["privacyStatus"] = privacy_status
+        try:
+            result = await self._call(self.client.edit_playlist, playlist_id, **kwargs)
+            succeeded = result == "STATUS_SUCCEEDED" if isinstance(result, str) else bool(result)
+            if not succeeded:
+                logger.warning("edit_playlist returned non-success for %r: %r", playlist_id, result)
+                return "server_error"
+            return "success"
+        except _EXPECTED_MUTATION_EXCEPTIONS as exc:
+            kind = _classify_mutation_failure(exc)
+            logger.exception("edit_playlist failed for %r (kind=%s)", playlist_id, kind)
+            return kind
+
     async def delete_playlist(self, playlist_id: str) -> MutationResult:
         """Delete a playlist by its ID.
 
