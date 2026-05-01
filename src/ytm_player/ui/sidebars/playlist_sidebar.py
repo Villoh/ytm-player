@@ -243,7 +243,7 @@ class LibraryPanel(Widget):
         current = target_item.get("count")
         if current is None:
             return  # don't fabricate; wait for next library reload
-        target_item["count"] = max(0, current + delta)
+        target_item["count"] = max(0, int(current) + delta)
 
         # Rebuild the list so the visible label reflects the new count.
         # Wrapped in try/except because tests instantiate via __new__ without
@@ -251,7 +251,7 @@ class LibraryPanel(Widget):
         try:
             self._rebuild_list(self._filtered_items)
         except Exception:
-            logger.debug("update_item_count: _rebuild_list failed", exc_info=True)
+            logger.exception("update_item_count: _rebuild_list failed")
 
     def _rebuild_list(self, items: list[dict[str, Any]]) -> None:
         list_view = self.query_one(ListView)

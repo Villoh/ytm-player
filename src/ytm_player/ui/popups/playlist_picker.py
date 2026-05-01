@@ -319,7 +319,7 @@ class PlaylistPicker(ModalScreen[str | None]):
                 panel = self.app.query_one("#ps-playlists", LibraryPanel)
                 panel.update_item_count(playlist_id, +len(self.video_ids))
             except Exception:
-                logger.debug("Sidebar count update failed", exc_info=True)
+                logger.exception("Sidebar count update failed")
 
             # Update library page header if the target playlist is currently open.
             try:
@@ -332,9 +332,9 @@ class PlaylistPicker(ModalScreen[str | None]):
                     current_pid
                 ) == strip_vl_prefix(playlist_id):
                     library = self.app.query_one(LibraryPage)
-                    library.update_track_count()
+                    library.update_track_count(+len(self.video_ids))
             except Exception:
-                logger.debug("Library track count update failed", exc_info=True)
+                logger.exception("Library track count update failed")
 
             track_word = "track" if len(self.video_ids) == 1 else "tracks"
             self.notify(
@@ -382,7 +382,7 @@ class PlaylistPicker(ModalScreen[str | None]):
                 panel = self.app.query_one("#ps-playlists", LibraryPanel)
                 panel.update_item_count(playlist_id, +len(self.video_ids))
             except Exception:
-                logger.debug("Sidebar count update failed", exc_info=True)
+                logger.exception("Sidebar count update failed")
 
             # Update library page header if the target playlist is currently open.
             try:
@@ -395,9 +395,9 @@ class PlaylistPicker(ModalScreen[str | None]):
                     current_pid
                 ) == strip_vl_prefix(playlist_id):
                     library = self.app.query_one(LibraryPage)
-                    library.update_track_count()
+                    library.update_track_count(+len(self.video_ids))
             except Exception:
-                logger.debug("Library track count update failed", exc_info=True)
+                logger.exception("Library track count update failed")
 
             track_word = "track" if len(self.video_ids) == 1 else "tracks"
             self.notify(

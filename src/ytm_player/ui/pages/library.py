@@ -316,21 +316,22 @@ class LibraryPage(Widget):
         except Exception:
             logger.exception("Failed to refresh library header after edit")
 
-    def update_track_count(self) -> None:
+    def update_track_count(self, delta: int = 0) -> None:
         """Update the subtitle label to reflect the current table track count.
 
-        Called optimistically after tracks are added or removed in-place.
+        *delta* is added to the count — useful when the table hasn't been
+        updated yet (e.g. after adding tracks via the API).
         """
         try:
             table = self.query_one("#library-tracks", TrackTable)
-            track_count = len(table.tracks)
+            track_count = len(table.tracks) + delta
             subtitle = build_playlist_subtitle(
                 self._cached_owner, self._cached_privacy, self._cached_year, track_count
             )
             if hasattr(self, "_subtitle_label") and self._subtitle_label:
                 self._subtitle_label.update(subtitle)
         except Exception:
-            logger.debug("Failed to update library track count label", exc_info=True)
+            logger.exception("Failed to update library track count label")
 
     async def _fetch_remaining(self, playlist_id: str, already_have: int) -> None:
         """Background fetch for tracks beyond the first batch."""

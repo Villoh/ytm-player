@@ -238,7 +238,7 @@ class TrackTable(DataTable):
                 try:
                     self.remove_row(row_key)
                 except Exception:
-                    logger.debug("Failed to remove row %r from table", row_key, exc_info=True)
+                    logger.exception("Failed to remove row %r from table", row_key)
 
                 # Remove from visible list.
                 self._tracks.pop(visible_idx)
