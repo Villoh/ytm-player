@@ -318,6 +318,14 @@ class TestNormalizeTracks:
         assert len(result) == 3
         assert [t["video_id"] for t in result] == ["a", "b", "c"]
 
+    def test_set_video_id_preserved(self):
+        result = normalize_tracks([{"videoId": "x", "setVideoId": "sv123"}])
+        assert result[0]["setVideoId"] == "sv123"
+
+    def test_set_video_id_none_when_missing(self):
+        result = normalize_tracks([{"videoId": "x"}])
+        assert result[0]["setVideoId"] is None
+
 
 # ── format_ago ───────────────────────────────────────────────────────
 
