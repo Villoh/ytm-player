@@ -161,6 +161,8 @@ class TrackActionsMixin(YTMHostBase):
                         self.notify("Link copied", timeout=2)
                     else:
                         self.notify(link, timeout=5)
+            elif action_id == "remove_from_playlist":
+                self.run_worker(self._remove_track_from_playlist(track))
 
         # Detect whether this track is currently in the queue so the popup
         # can swap "Add to Queue" for "Remove from Queue".
@@ -168,8 +170,13 @@ class TrackActionsMixin(YTMHostBase):
         in_queue = bool(track_vid) and any(
             t.get("video_id") == track_vid for t in self.queue.tracks
         )
+        # Detect whether we're viewing a playlist so "Remove from Playlist"
+        # can be offered.
+        in_playlist = self._current_page == "library" and bool(
+            self._current_page_kwargs.get("playlist_id")
+        )
         self.push_screen(
-            ActionsPopup(track, item_type="track", in_queue=in_queue),
+            ActionsPopup(track, item_type="track", in_queue=in_queue, in_playlist=in_playlist),
             _handle_action_result,
         )
 
@@ -182,6 +189,47 @@ class TrackActionsMixin(YTMHostBase):
             queue_page._refresh_queue()
         except Exception:
             pass
+
+    async def _remove_track_from_playlist(self, track: dict) -> None:
+        """Remove *track* from the currently open playlist."""
+        playlist_id = self._current_page_kwargs.get("playlist_id", "")
+        if not playlist_id or not self.ytmusic:
+            self.notify("No playlist context", severity="error", timeout=2)
+            return
+
+        video_id = track.get("video_id", "")
+        set_video_id = track.get("setVideoId", "")
+        if not video_id or not set_video_id:
+            self.notify("Track missing required IDs", severity="error", timeout=2)
+            return
+
+        from ytm_player.services.ytmusic import mutation_failure_suffix
+        from ytm_player.ui.pages.library import LibraryPage
+        from ytm_player.ui.sidebars.playlist_sidebar import PlaylistSidebar
+        from ytm_player.utils.formatting import strip_vl_prefix
+
+        result = await self.ytmusic.remove_playlist_items(
+            strip_vl_prefix(playlist_id),
+            [{"videoId": video_id, "setVideoId": set_video_id}],
+        )
+        if result != "success":
+            suffix = mutation_failure_suffix(result)
+            self.notify(f"Failed to remove track — {suffix}", severity="error", timeout=3)
+            return
+
+        self.notify("Track removed", timeout=2)
+
+        # Remove from the visible TrackTable.
+        try:
+            library = self.query_one(LibraryPage)
+            table = library.query_one("#library-tracks")
+            table.remove_track(video_id)
+            # Update sidebar count.
+            ps = self.query_one("#playlist-sidebar", PlaylistSidebar)
+            panel = ps.query_one("#ps-playlists")
+            panel.update_item_count(playlist_id, -1)
+        except Exception:
+            logger.exception("Failed to update UI after track removal")
 
     def on_track_table_track_right_clicked(self, message: TrackTable.TrackRightClicked) -> None:
         """Handle right-click on any TrackTable -- open actions popup."""
