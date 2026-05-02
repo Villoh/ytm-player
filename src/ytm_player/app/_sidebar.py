@@ -206,13 +206,6 @@ class SidebarMixin(YTMHostBase):
         else:
             self._prompt_create_playlist()
 
-    def on_playlist_sidebar_create_button_clicked(
-        self, message: PlaylistSidebar.CreateButtonClicked
-    ) -> None:
-        """Open the create playlist popup from the sidebar header button."""
-        message.stop()
-        self._prompt_create_playlist()
-
     async def on_playlist_sidebar_nav_item_clicked(
         self, message: PlaylistSidebar.NavItemClicked
     ) -> None:
@@ -269,15 +262,6 @@ class SidebarMixin(YTMHostBase):
                     pass
 
         self.push_screen(ActionsPopup(item, item_type="playlist"), _handle_action)
-
-    async def _refresh_playlist_sidebar(self) -> None:
-        """Force-reload the playlist sidebar."""
-        try:
-            ps = self.query_one("#playlist-sidebar", PlaylistSidebar)
-            await ps.refresh_playlists()
-            self.notify("Playlists refreshed", timeout=2)
-        except Exception:
-            logger.debug("Failed to refresh playlist sidebar", exc_info=True)
 
     def _prompt_create_playlist(self) -> None:
         """Show an input screen to create a new playlist."""

@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Vertical
 from textual.events import Click
 from textual.message import Message
 from textual.reactive import reactive
@@ -40,27 +40,11 @@ class LibraryPanel(Widget):
         padding: 0 1;
     }
 
-    LibraryPanel .panel-header {
-        height: 1;
-        width: 1fr;
-    }
-
     LibraryPanel .panel-title {
         text-style: bold;
         color: $text;
         height: 1;
-        width: 1fr;
-    }
-
-    LibraryPanel .panel-icon-btn {
-        height: 1;
-        width: auto;
-        padding: 0 1;
-        color: $text;
-    }
-
-    LibraryPanel .panel-icon-btn:hover {
-        background: $accent 30%;
+        padding: 0 0 0 0;
     }
 
     LibraryPanel .panel-count {
@@ -150,10 +134,7 @@ class LibraryPanel(Widget):
         self._click_activated: bool = False
 
     def compose(self) -> ComposeResult:
-        with Horizontal(classes="panel-header"):
-            yield Label(self._title, classes="panel-title")
-            yield Static("+", classes="panel-icon-btn", id=f"{self.id}-create")
-            yield Static("\u27f3", classes="panel-icon-btn", id=f"{self.id}-refresh")
+        yield Label(self._title, classes="panel-title")
         yield Static("Loading...", classes="panel-loading")
         yield ListView(id=f"{self.id}-list")
         yield Static("", classes="panel-count")
@@ -516,9 +497,6 @@ class PlaylistSidebar(Widget):
             super().__init__()
             self.item_data = item_data
 
-    class CreateButtonClicked(Message):
-        """The playlist create button in the header was clicked."""
-
     class NavItemClicked(Message):
         """A pinned nav item (Liked Songs / Recently Played) was clicked."""
 
@@ -571,14 +549,6 @@ class PlaylistSidebar(Widget):
         self._loaded = False
         await self.ensure_loaded()
 
-    async def action_refresh(self) -> None:
-        """Keybinding handler: refresh the playlist sidebar."""
-        await self._do_refresh()
-
-    async def _do_refresh(self) -> None:
-        await self.refresh_playlists()
-        self.app.notify("Playlists refreshed", timeout=2)
-
     def auto_select_playlist(self, playlist_id: str) -> None:
         """Highlight a specific playlist in the panel."""
         panel = self.query_one("#ps-playlists", LibraryPanel)
@@ -608,13 +578,7 @@ class PlaylistSidebar(Widget):
         target = event.widget
         if target is None:
             return
-        if target.id == "ps-playlists-create":
-            event.stop()
-            self.post_message(self.CreateButtonClicked())
-        elif target.id == "ps-playlists-refresh":
-            event.stop()
-            self.run_worker(self._do_refresh())
-        elif target.id == "ps-nav-liked":
+        if target.id == "ps-nav-liked":
             event.stop()
             self.post_message(self.NavItemClicked("liked_songs"))
         elif target.id == "ps-nav-recent":
