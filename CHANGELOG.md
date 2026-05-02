@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [Unreleased]
+
+**New features**
+
+- **Configurable default theme** — set `theme` under `[ui]` in `config.toml` to control which Textual theme loads on startup (default `ytm-dark`). Changing theme via `Ctrl+P` → `Theme` updates the current session only; the startup default is no longer overwritten by session state. To persist the active theme as the new default, use `Ctrl+P` → `Theme: Set Current as Default`.
+- **`Theme: Set Current as Default` command palette action** — saves the currently active theme to `config.toml` so it becomes the startup default. Includes rollback on save failure (e.g. read-only filesystem) with an error toast.
+
+**Changed**
+
+- **Theme persistence model** — `config.toml` is now the authoritative source for the startup theme; `session.json` stores runtime state only and no longer restores the theme on launch. This separates user-authored configuration from app-managed session state.
+- **Command palette provider architecture** — app-specific commands moved from `get_system_commands()` to a dedicated `YTMCommandProvider` registered in `App.COMMANDS`. Isolates command definitions in `src/ytm_player/app/_commands.py` and keeps `_app.py` focused on app logic.
+
+**Infrastructure**
+
+- **Settings save Windows fallback** — `Settings.save()` now falls back to a direct `path.write_text()` when `os.replace()` raises `PermissionError` (e.g. when `config.toml` is held open by an external editor on Windows).
+
 ### v1.9.1 (2026-04-30)
 
 This is the third and final wave of major updates in a rapid release cycle — quieter cadence ahead.
