@@ -7,6 +7,7 @@ import pytest
 from ytm_player.utils.formatting import (
     VALID_VIDEO_ID,
     build_playlist_subtitle,
+    clean_shelf_title,
     extract_artist,
     extract_duration,
     format_ago,
@@ -632,3 +633,36 @@ class TestBuildPlaylistSubtitle:
 
     def test_year_as_string(self):
         assert build_playlist_subtitle("Alice", "", "2023", 1) == "Alice · 2023 · 1 track"
+
+
+# ── clean_shelf_title ───────────────────────────────────────────────
+
+
+class TestCleanShelfTitle:
+    def test_strips_country_hyphen_suffix(self):
+        assert clean_shelf_title("Daily Top Music Videos - United Kingdom") == "Daily Top Videos"
+
+    def test_strips_country_space_suffix(self):
+        assert clean_shelf_title("Trending 20 United Kingdom") == "Trending 20"
+
+    def test_rewrites_daily_top_100_songs(self):
+        assert clean_shelf_title("Daily Top 100 Songs") == "Daily Top 100"
+
+    def test_rewrites_daily_top_songs_on_shorts(self):
+        assert clean_shelf_title("Daily Top Songs on Shorts") == "Daily Top Songs (Shorts)"
+
+    def test_preserves_brand_prefix(self):
+        """Brand prefixes must NOT be stripped — event pills need the
+        prefix to stay visually distinguishable from country chart pills."""
+        result = clean_shelf_title("Coachella 2026: Daily Top 100 Songs")
+        assert "Coachella 2026:" in result
+
+    def test_event_title_still_rewrites_generic_part(self):
+        result = clean_shelf_title("Coachella 2026: Daily Top 100 Songs")
+        assert result == "Coachella 2026: Daily Top 100"
+
+    def test_plain_title_without_country_passthrough(self):
+        assert clean_shelf_title("Top 100 Songs") == "Top 100 Songs"
+
+    def test_whitespace_handling(self):
+        assert clean_shelf_title("  Daily Top 100 Songs  ") == "Daily Top 100"
