@@ -64,6 +64,7 @@ def _build_session_host():
     h.settings = MagicMock()
     h.settings.playback.default_volume = 80
     h.settings.playback.resume_on_launch = True
+    h.settings.ui.theme = "catppuccin-mocha"
 
     # Misc state the mixin pokes at on load + save.
     h.query_one = MagicMock()
@@ -118,14 +119,15 @@ async def test_valid_round_trip_persists_and_restores(tmp_path, monkeypatch):
 
     # ---- Restore side: a fresh host loads the file we just wrote. -----------
     loader = _build_session_host()
+    loader.theme = loader.settings.ui.theme
     await loader._restore_session_state()
 
     loader.player.set_volume.assert_awaited_once_with(42)
     loader.queue.set_repeat.assert_called_once_with(RepeatMode.ALL)
     # shuffle was False -> toggle_shuffle must NOT have been called.
     loader.queue.toggle_shuffle.assert_not_called()
-    # theme string is propagated onto the host.
-    assert loader.theme == "textual-dark"
+    # The configured default theme wins on startup; session theme is only runtime state.
+    assert loader.theme == "catppuccin-mocha"
 
 
 # --------------------------------------------------------------------------- #

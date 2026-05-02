@@ -64,6 +64,7 @@ js_runtimes = ""             # Optional: bun, bun:/path/to/bun, node, quickjs, e
 
 ```toml
 [ui]
+theme = "ytm-dark"           # startup default Textual theme; runtime changes are saved in session.json
 album_art = true             # show colored half-block album art in playback bar
 progress_style = "block"     # block or line
 sidebar_width = 30
@@ -78,6 +79,8 @@ home_shelves = 3             # number of recommendation shelves on Browse → Fo
 show_selection_info = true   # show focused-item full name in the row above the playback bar
 sidebar_overflow = "truncate"  # "truncate" (1-row + ellipsis) or "wrap" (multi-line names)
 ```
+
+`theme` is the startup default. Changing theme from Textual's command palette (`Ctrl+P` → `Theme`) updates the current session and is saved in `session.json`, not `config.toml`. To make the active theme the new default, run `Ctrl+P` → `Set Current Theme as Default`.
 
 Per-playlist Shuffle lock state (set via the `Shuffle lock` toggle in the
 Library page playlist header) is persisted separately to
@@ -128,7 +131,7 @@ backup_count = 5             # number of rotated logs to keep
 
 ## `theme.toml`
 
-Base colors (primary, background, etc.) come from the active Textual theme — switch themes with `Ctrl+P`. The `theme.toml` file overrides app-specific colors only:
+Base colors (primary, background, etc.) come from the active Textual theme. Choose the startup default with `[ui] theme`, switch the current session with `Ctrl+P` → `Theme`, and use `theme.toml` for app-specific color overrides:
 
 ```toml
 [colors]

@@ -68,6 +68,7 @@ class CacheSettings:
 
 @dataclass
 class UISettings:
+    theme: str = "ytm-dark"
     album_art: bool = True
     border_style: str = "rounded"
     progress_style: str = "block"
@@ -210,11 +211,16 @@ class Settings:
                 lines.append(f"{f_info.name} = {_format_toml_value(value)}")
             lines.append("")
 
+        content = "\n".join(lines)
         tmp_path = path.with_suffix(path.suffix + ".tmp")
         try:
-            tmp_path.write_text("\n".join(lines), encoding="utf-8")
+            tmp_path.write_text(content, encoding="utf-8")
             secure_chmod(tmp_path, SECURE_FILE_MODE)
-            os.replace(tmp_path, path)
+            try:
+                os.replace(tmp_path, path)
+            except PermissionError:
+                path.write_text(content, encoding="utf-8")
+                secure_chmod(path, SECURE_FILE_MODE)
         finally:
             # Clean up temp file if replace failed.
             if tmp_path.exists():

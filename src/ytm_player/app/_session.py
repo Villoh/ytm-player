@@ -95,14 +95,6 @@ class SessionMixin(YTMHostBase):
         # files (or fresh installs) trigger the toast on first launch.
         self._first_run_hint_shown = bool(state.get("first_run_hint_shown", False))
 
-        # Restore Textual theme from last session.
-        saved_theme = state.get("theme")
-        if saved_theme and isinstance(saved_theme, str):
-            try:
-                self.theme = saved_theme
-            except Exception:
-                pass
-
         # Restore transliteration toggle state (session overrides config).
         if "transliteration_enabled" in state:
             try:

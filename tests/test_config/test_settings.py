@@ -23,9 +23,28 @@ class TestDefaultValues:
         assert s.search.default_mode == "music"
         assert s.cache.enabled is True
         assert s.cache.max_size_mb == 1024
+        assert s.ui.theme == "ytm-dark"
         assert s.ui.album_art is True
         assert s.notifications.enabled is True
         assert s.mpris.enabled is True
+
+
+def test_ui_settings_theme_default():
+    """theme defaults to the bundled ytm-dark Textual theme."""
+    from ytm_player.config.settings import UISettings
+
+    ui = UISettings()
+    assert ui.theme == "ytm-dark"
+
+
+def test_settings_load_respects_ui_theme(tmp_config_dir):
+    """theme in [ui] is honoured as the declarative default."""
+    config_file = tmp_config_dir / "config.toml"
+    config_file.write_text('[ui]\ntheme = "catppuccin-mocha"\n', encoding="utf-8")
+
+    s = Settings.load(config_file)
+
+    assert s.ui.theme == "catppuccin-mocha"
 
 
 def test_ui_settings_show_selection_info_default():
@@ -68,12 +87,14 @@ class TestSaveLoadRoundTrip:
         original.playback.default_volume = 50
         original.general.startup_page = "search"
         original.cache.max_size_mb = 2048
+        original.ui.theme = "textual-dark"
         original.save(path)
 
         loaded = Settings.load(path)
         assert loaded.playback.default_volume == 50
         assert loaded.general.startup_page == "search"
         assert loaded.cache.max_size_mb == 2048
+        assert loaded.ui.theme == "textual-dark"
         # Other defaults preserved.
         assert loaded.playback.audio_quality == "high"
         assert loaded.ui.album_art is True
@@ -145,3 +166,24 @@ class TestAtomicWrites:
         assert str(config_path) in targets, (
             f"expected os.replace into {config_path}, got replace calls: {replace_calls}"
         )
+
+    def test_save_falls_back_to_direct_write_when_replace_is_denied(self, tmp_path, monkeypatch):
+        """Windows may deny os.replace when config.toml is held by another process."""
+        import os
+
+        config_path = tmp_path / "config.toml"
+        config_path.write_text("stale", encoding="utf-8")
+
+        def denied_replace(_src, _dst):
+            raise PermissionError("access denied")
+
+        monkeypatch.setattr(os, "replace", denied_replace)
+
+        s = Settings()
+        s.ui.theme = "textual-dark"
+        s.save(config_path)
+
+        with open(config_path, "rb") as f:
+            data = tomllib.load(f)
+        assert data["ui"]["theme"] == "textual-dark"
+        assert not config_path.with_suffix(config_path.suffix + ".tmp").exists()

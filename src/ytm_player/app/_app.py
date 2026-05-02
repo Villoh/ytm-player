@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -14,8 +15,9 @@ else:
     # Python 3.10 backport via PyPI
     import tomli as tomllib  # pyright: ignore[reportMissingImports]
 
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, SystemCommand
 from textual.containers import Container, Horizontal, Vertical
+from textual.screen import Screen
 
 from ytm_player.app._ipc import IPCMixin
 from ytm_player.app._keys import KeyHandlingMixin
@@ -184,15 +186,15 @@ class YTMPlayerApp(
     def __init__(self) -> None:
         super().__init__()
 
-        # Register custom YTM theme and set as default.
+        # Register custom YTM theme and set the configured default.
         from ytm_player.ui.theme import YTM_DARK
 
         self.register_theme(YTM_DARK)
-        self.theme = "ytm-dark"
 
         # Configuration.
         self.settings: Settings = get_settings()
         self.keymap: KeyMap = get_keymap()
+        self.theme = self.settings.ui.theme or "ytm-dark"
         self.theme_colors: ThemeColors = get_theme()
 
         # Services (initialized in on_mount).
@@ -369,6 +371,33 @@ class YTMPlayerApp(
             self.theme_colors = tc
         except Exception:
             pass
+
+    def get_system_commands(self, screen: Screen) -> Iterable[SystemCommand]:
+        yield from super().get_system_commands(screen)
+        yield SystemCommand(
+            "Set Current Theme as Default",
+            "Save the active theme to config.toml",
+            self.action_set_current_theme_as_default,
+        )
+
+    def action_set_current_theme_as_default(self) -> None:
+        """Persist the active runtime theme as the config.toml default."""
+        previous_theme = self.settings.ui.theme
+        current_theme = str(self.theme)
+        self.settings.ui.theme = current_theme
+        try:
+            self.settings.save()
+        except OSError:
+            self.settings.ui.theme = previous_theme
+            logger.exception("Failed to save default theme to config.toml")
+            self.notify(
+                "Could not save default theme to config.toml",
+                severity="error",
+                timeout=5,
+            )
+            return
+
+        self.notify(f"Saved {current_theme} as default theme", timeout=3)
 
     # ── Crash diagnostics ────────────────────────────────────────────
 
