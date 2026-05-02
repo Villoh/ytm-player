@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
-from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -15,9 +14,8 @@ else:
     # Python 3.10 backport via PyPI
     import tomli as tomllib  # pyright: ignore[reportMissingImports]
 
-from textual.app import App, ComposeResult, SystemCommand
+from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
-from textual.screen import Screen
 
 from ytm_player.app._ipc import IPCMixin
 from ytm_player.app._keys import KeyHandlingMixin
@@ -90,6 +88,13 @@ def _read_theme_toml_cached() -> dict:
         return _theme_toml_cache
     except Exception:
         return {}
+
+
+def _get_ytm_commands_provider():
+    """Lazy-load the custom YTM command provider to avoid circular imports."""
+    from ytm_player.app._commands import YTMCommandProvider
+
+    return YTMCommandProvider
 
 
 # ── Main Application ────────────────────────────────────────────────
@@ -182,6 +187,9 @@ class YTMPlayerApp(
 
     # We handle all bindings ourselves through the KeyMap system.
     BINDINGS = []
+
+    # Register custom command palette providers alongside Textual's defaults.
+    COMMANDS = App.COMMANDS | {_get_ytm_commands_provider}
 
     def __init__(self) -> None:
         super().__init__()
@@ -371,14 +379,6 @@ class YTMPlayerApp(
             self.theme_colors = tc
         except Exception:
             pass
-
-    def get_system_commands(self, screen: Screen) -> Iterable[SystemCommand]:
-        yield from super().get_system_commands(screen)
-        yield SystemCommand(
-            "Set Current Theme as Default",
-            "Save the active theme to config.toml",
-            self.action_set_current_theme_as_default,
-        )
 
     def action_set_current_theme_as_default(self) -> None:
         """Persist the active runtime theme as the config.toml default."""
