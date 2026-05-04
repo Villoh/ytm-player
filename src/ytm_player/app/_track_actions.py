@@ -205,7 +205,7 @@ class TrackActionsMixin(YTMHostBase):
 
         from ytm_player.services.ytmusic import mutation_failure_suffix
         from ytm_player.ui.pages.library import LibraryPage
-        from ytm_player.ui.sidebars.playlist_sidebar import PlaylistSidebar
+        from ytm_player.ui.sidebars.playlist_sidebar import LibraryPanel, PlaylistSidebar
         from ytm_player.utils.formatting import strip_vl_prefix
 
         result = await self.ytmusic.remove_playlist_items(
@@ -222,13 +222,13 @@ class TrackActionsMixin(YTMHostBase):
         # Remove from the visible TrackTable and update counts.
         try:
             library = self.query_one(LibraryPage)
-            table = library.query_one("#library-tracks")
+            table = library.query_one("#library-tracks", TrackTable)
             removed = table.remove_track(video_id)
             if removed:
                 library.update_track_count()
             # Update sidebar count.
             ps = self.query_one("#playlist-sidebar", PlaylistSidebar)
-            panel = ps.query_one("#ps-playlists")
+            panel = ps.query_one("#ps-playlists", LibraryPanel)
             panel.update_item_count(playlist_id, -1)
         except Exception:
             logger.exception("Failed to update UI after track removal")
