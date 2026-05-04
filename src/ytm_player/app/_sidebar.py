@@ -419,7 +419,7 @@ class SidebarMixin(YTMHostBase):
         """Update the sidebar panel and library header to reflect a successful edit."""
         try:
             ps = self.query_one("#playlist-sidebar", PlaylistSidebar)
-            panel = ps.query_one("#ps-playlists")
+            panel = ps.query_one("#ps-playlists", LibraryPanel)
             for stored in panel._items:
                 pid = stored.get("playlistId") or stored.get("browseId", "")
                 if pid in (playlist_id, raw_id, f"VL{raw_id}"):
