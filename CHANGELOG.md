@@ -8,10 +8,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### v1.9.3 (2026-05-04)
+
+A small follow-up release: two crash fixes caught by manual smoke after v1.9.2, two CLI/utility fixes, plus three community PRs.
+
 **New features**
 
-- **Configurable default theme** — set `theme` under `[ui]` in `config.toml` to control which Textual theme loads on startup (default `ytm-dark`). Changing theme via `Ctrl+P` → `Theme` updates the current session only; the startup default is no longer overwritten by session state. To persist the active theme as the new default, use `Ctrl+P` → `Theme: Set Current as Default`.
+- **Configurable default theme** — set `theme` under `[ui]` in `config.toml` to control which Textual theme loads on startup (default `ytm-dark`). Changing theme via `Ctrl+P` → `Theme` updates the current session only; the startup default is no longer overwritten by session state. To persist the active theme as the new default, use `Ctrl+P` → `Theme: Set Current as Default`. Thanks @Villoh (#85).
 - **`Theme: Set Current as Default` command palette action** — saves the currently active theme to `config.toml` so it becomes the startup default. Includes rollback on save failure (e.g. read-only filesystem) with an error toast.
+- **Discovery round-robin** — `D` now cycles deterministically through Charts → Trending → For You → Liked → Artist → Recently Played (was random source selection). Charts sub-rotates through its shelves between presses, and the Discovery label shows the active source (e.g. `Discovery (US Daily Top 100)`). Mood source dropped (the Moods & Genres tab was removed in v1.9.1 due to upstream crashes). Thanks @wgordon17 (#75).
+- **Radio queues prepend their seed tracks** — radio playback now starts with the seed before suggestions, matching YouTube Music's native behaviour. Append-mode background refill is unchanged. Thanks @wgordon17 (#75).
+- **Persistent queue source header** — Queue page shows `Generated from: …` beneath Now Playing for radio and discovery queues, with up to three seed titles inline and a tooltip for the full list. Toggle via `[ui] show_queue_source` (default on). Thanks @wgordon17 (#75).
+
+**Fixes**
+
+- **Crash on Go to Artist / Album / Playlist** — `TrackTable` and `_ArtistAlbumList` set up their columns in `on_mount`, but `context._build_artist`'s nested-mount chain calls `load_tracks` / `load_albums` synchronously before `on_mount` fires, so `add_row` ran with 0 columns and raised `ValueError: More values provided than there are columns`. Both widgets now eager-init columns in `__init__`, eliminating the mount-order race.
+- **Update check version comparison** — `_is_newer` now uses `packaging.version.Version` for proper PEP 440 comparison. The hand-rolled tuple parser dropped non-numeric chunks and got post-releases (e.g. `1.6.0.post1`) wrong.
+- **`ytm config` with multi-arg `$EDITOR`** — `EDITOR="code -w"` and similar now work; previously the whole string was passed as a single argv entry, so subprocess looked for an executable literally named `code -w` and failed. Malformed quoting (e.g. unbalanced quotes) now exits cleanly via the existing error path instead of crashing.
+- **Search race conditions** — fixed four interacting bugs that caused searches to require a second Enter, the suggestion overlay to re-appear on top of incoming results, and selecting a suggestion to cancel the in-flight search worker. Thanks @wgordon17 (#84).
 
 **Changed**
 
@@ -20,7 +34,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 **Infrastructure**
 
+- **Pre-commit hooks + pyright in CI + `dbus-fast` migration** — new `.pre-commit-config.yaml` runs ruff-format / ruff / pyright on commit and pytest on push (`pre-commit install` to activate). New CI job runs pyright at standard strictness. The Linux MPRIS service migrates from the unmaintained `dbus-next` to the maintained `dbus-fast` fork (identical API). Thanks @wgordon17 (#83).
 - **Settings save Windows fallback** — `Settings.save()` now falls back to a direct `path.write_text()` when `os.replace()` raises `PermissionError` (e.g. when `config.toml` is held open by an external editor on Windows).
+
+### v1.9.2 (2026-05-01)
+
+A focused fix release. The Charts page region selector was effectively non-functional — three structural bugs in how we read YouTube's chart response made a global event playlist appear regardless of region. Also includes a TrackTable migration that retires three hand-rolled `DataTable` pages and two related bug fixes.
+
+**Charts** — bug report thanks @dmnmsc (#73)
+
+- **Events visually separated from country charts.** YouTube injects a global event playlist (currently `"Coachella 2026: Daily Top 100 Songs"` — same playlist ID worldwide) at position 0 of every country's response. Previously the Charts page default-loaded that slot, so picking a country still showed the global Coachella playlist. The Charts page now renders two stacked pill rows: a `Featured globally:` strip for any shelves whose title carries a brand prefix (`": "` separator) and a country-charts row for the actual regional shelves. Country charts sort by priority — `Top 100 Songs` → `Weekly Top Songs on Shorts` → `Trending 20` → rest — and the default-loaded pill is the first country chart, never an event. The event row hides automatically on narrow terminals (< 80 cols) to reclaim a row of vertical space.
+- **Now reads `daily + weekly + videos` from the API.** Previously only `daily` was consulted, which silently dropped Spain (returns its data under `videos`) and missed the Top 100 Songs / Top 100 Music Videos shelves under `weekly` for premium-supported regions. All three keys are now concatenated, then split into events vs charts.
+- **Region picker expanded 17 → 68 entries.** Global (`ZZ`) is the new default. The list now mirrors YouTube's full advertised set (62 codes from `countries.options`) plus six historically-supported codes outside that list (Hong Kong, Malaysia, Singapore, Taiwan, Thailand, Vietnam). Settings default flips `region = "GB"` → `region = "ZZ"`.
+- **Locale-style configs auto-normalise.** New `services/regions.normalise_region()` helper strips locale tails — `"ES-ES"`, `"en-GB"`, `"es_ES"` now resolve to bare two-letter codes (`ES`, `EN`, `ES`) before hitting the API. YouTube's chart endpoint silently falls back to Global for any locale-shaped input; this prevents existing configs from being broken by that quirk.
+- **`_clean_shelf_title` no longer strips brand prefixes.** Coachella keeps its `"Coachella 2026:"` prefix on the pill so users can tell an event from a country chart at a glance.
+
+**New**
+
+- **TrackTable migration on Queue, Liked Songs, Recently Played.** Three pages migrated from raw `DataTable` to `TrackTable`. Gains right-click context menus, play indicators, column resize, filtering, and sorting — for free, on three pages that previously rolled those manually. Also retires the `on_mouse_down` right-click workaround we added to QueuePage in v1.9.0 (TrackTable already wires this up). Thanks @wgordon17 (#74).
+- **`[▶ Start Radio]` button** added to Liked Songs and Recently Played page headers — seeds a radio from 5 random tracks in the collection. Thanks @wgordon17 (#74).
+- **Shuffle-lock integration** on Liked Songs and Recently Played — selecting a track applies the per-collection shuffle preference. Thanks @wgordon17 (#74).
+- Discovery mix now cycles sources in fixed order (Charts → Trending → For You → Your Liked Songs → Artist → Recently Played) instead of random selection — guarantees variety across consecutive presses of `D`
+- Radio notifications now list all seed track names as a bulleted list instead of showing only the first seed or a generic label
+- Playlist radio notification now includes the playlist name (e.g. "Playing: Radio from My Playlist")
+
+**Changed**
+
+- Mood source removed from discovery mix — upstream removed Moods & Genres tab; the source was failing silently
+- `clean_shelf_title` and `get_chart_shelf_tracks` added as shared utilities for reuse in discovery mix
+
+**Fixes**
+
+- **Radio track durations no longer show `--:--`** — ytmusicapi's `get_watch_playlist` returns duration under a `length` key (e.g. `"3:07"`), not `duration`. `extract_duration()` now checks `duration_seconds` → `duration` → `length` in priority order. Thanks @wgordon17 (#74).
+- **Play history no longer stores duration as 0** — `log_play` was reading raw `track.get("duration_seconds", 0)`, but normalized tracks store the value under `duration`. Switched to `extract_duration()` so the value is always correct regardless of source. Thanks @wgordon17 (#74).
+- **TrackTable Duration column no longer cut off on first paint.** The row-label column (which carries the `▶` playing indicator) reserves ~3 cells of width that the original column-fit pass didn't account for, so the rightmost column ("Duratio…") got pushed past the visible viewport on initial render. `_fill_title_column` now runs after `load_tracks` and `append_tracks` so the Title column shrinks to compensate as soon as rows exist.
+- **Sidebar gains a bottom separator under the Playlists panel** — the existing top separator (a `Rule` widget between the pinned-nav block and the LibraryPanel) is now mirrored below the LibraryPanel, so the `Playlists` panel sits between two matching `$border`-coloured horizontal rules instead of just one.
 
 ### v1.9.1 (2026-04-30)
 
@@ -142,39 +190,6 @@ A reliability and quality release driven by a multi-agent expert audit. Hardens 
 - **Codebase-wide `self.app.X` typing** — UI widgets/pages now cast `self.app` to `YTMHostBase` at access points so Pyright can see the host's services. ~42 sites across 6 files.
 - **README polish** — badges, tagline, Contributors section.
 - **Audit-driven follow-up plans** at `docs/superpowers/plans/2026-04-28-audit-driven-error-handling-cleanup.md` and `docs/superpowers/plans/2026-04-28-audit-driven-followup.md` — written via the superpowers writing-plans + subagent-driven-development workflow.
-
-### v1.9.2 (2026-05-01)
-
-A focused fix release. The Charts page region selector was effectively non-functional — three structural bugs in how we read YouTube's chart response made a global event playlist appear regardless of region. Also includes a TrackTable migration that retires three hand-rolled `DataTable` pages and two related bug fixes.
-
-**Charts** — bug report thanks @dmnmsc (#73)
-
-- **Events visually separated from country charts.** YouTube injects a global event playlist (currently `"Coachella 2026: Daily Top 100 Songs"` — same playlist ID worldwide) at position 0 of every country's response. Previously the Charts page default-loaded that slot, so picking a country still showed the global Coachella playlist. The Charts page now renders two stacked pill rows: a `Featured globally:` strip for any shelves whose title carries a brand prefix (`": "` separator) and a country-charts row for the actual regional shelves. Country charts sort by priority — `Top 100 Songs` → `Weekly Top Songs on Shorts` → `Trending 20` → rest — and the default-loaded pill is the first country chart, never an event. The event row hides automatically on narrow terminals (< 80 cols) to reclaim a row of vertical space.
-- **Now reads `daily + weekly + videos` from the API.** Previously only `daily` was consulted, which silently dropped Spain (returns its data under `videos`) and missed the Top 100 Songs / Top 100 Music Videos shelves under `weekly` for premium-supported regions. All three keys are now concatenated, then split into events vs charts.
-- **Region picker expanded 17 → 68 entries.** Global (`ZZ`) is the new default. The list now mirrors YouTube's full advertised set (62 codes from `countries.options`) plus six historically-supported codes outside that list (Hong Kong, Malaysia, Singapore, Taiwan, Thailand, Vietnam). Settings default flips `region = "GB"` → `region = "ZZ"`.
-- **Locale-style configs auto-normalise.** New `services/regions.normalise_region()` helper strips locale tails — `"ES-ES"`, `"en-GB"`, `"es_ES"` now resolve to bare two-letter codes (`ES`, `EN`, `ES`) before hitting the API. YouTube's chart endpoint silently falls back to Global for any locale-shaped input; this prevents existing configs from being broken by that quirk.
-- **`_clean_shelf_title` no longer strips brand prefixes.** Coachella keeps its `"Coachella 2026:"` prefix on the pill so users can tell an event from a country chart at a glance.
-
-**New**
-
-- **TrackTable migration on Queue, Liked Songs, Recently Played.** Three pages migrated from raw `DataTable` to `TrackTable`. Gains right-click context menus, play indicators, column resize, filtering, and sorting — for free, on three pages that previously rolled those manually. Also retires the `on_mouse_down` right-click workaround we added to QueuePage in v1.9.0 (TrackTable already wires this up). Thanks @wgordon17 (#74).
-- **`[▶ Start Radio]` button** added to Liked Songs and Recently Played page headers — seeds a radio from 5 random tracks in the collection. Thanks @wgordon17 (#74).
-- **Shuffle-lock integration** on Liked Songs and Recently Played — selecting a track applies the per-collection shuffle preference. Thanks @wgordon17 (#74).
-- Discovery mix now cycles sources in fixed order (Charts → Trending → For You → Your Liked Songs → Artist → Recently Played) instead of random selection — guarantees variety across consecutive presses of `D`
-- Radio notifications now list all seed track names as a bulleted list instead of showing only the first seed or a generic label
-- Playlist radio notification now includes the playlist name (e.g. "Playing: Radio from My Playlist")
-
-**Changed**
-
-- Mood source removed from discovery mix — upstream removed Moods & Genres tab; the source was failing silently
-- `clean_shelf_title` and `get_chart_shelf_tracks` added as shared utilities for reuse in discovery mix
-
-**Fixes**
-
-- **Radio track durations no longer show `--:--`** — ytmusicapi's `get_watch_playlist` returns duration under a `length` key (e.g. `"3:07"`), not `duration`. `extract_duration()` now checks `duration_seconds` → `duration` → `length` in priority order. Thanks @wgordon17 (#74).
-- **Play history no longer stores duration as 0** — `log_play` was reading raw `track.get("duration_seconds", 0)`, but normalized tracks store the value under `duration`. Switched to `extract_duration()` so the value is always correct regardless of source. Thanks @wgordon17 (#74).
-- **TrackTable Duration column no longer cut off on first paint.** The row-label column (which carries the `▶` playing indicator) reserves ~3 cells of width that the original column-fit pass didn't account for, so the rightmost column ("Duratio…") got pushed past the visible viewport on initial render. `_fill_title_column` now runs after `load_tracks` and `append_tracks` so the Title column shrinks to compensate as soon as rows exist.
-- **Sidebar gains a bottom separator under the Playlists panel** — the existing top separator (a `Rule` widget between the pinned-nav block and the LibraryPanel) is now mirrored below the LibraryPanel, so the `Playlists` panel sits between two matching `$border`-coloured horizontal rules instead of just one.
 
 ---
 
