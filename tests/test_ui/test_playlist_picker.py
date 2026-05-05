@@ -32,9 +32,7 @@ class TestCreateNewItemSelected:
     def test_pushes_create_playlist_popup(self):
         picker = PlaylistPicker(video_ids=["vid1"])
         mock_app = MagicMock()
-        with patch.object(
-            type(picker), "app", new_callable=PropertyMock, return_value=mock_app
-        ):
+        with patch.object(type(picker), "app", new_callable=PropertyMock, return_value=mock_app):
             event = MagicMock()
             event.item = _CreateNewItem()
 
