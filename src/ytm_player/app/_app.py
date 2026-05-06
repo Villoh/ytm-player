@@ -528,19 +528,27 @@ class YTMPlayerApp(
         # Validate auth actually works (not just file exists).
         auth_valid = await asyncio.to_thread(auth.validate)
         if not auth_valid:
-            # Try to auto-refresh from the browser's cookies.
-            logger.info("Auth expired, attempting auto-refresh from browser...")
-            refreshed = await asyncio.to_thread(auth.try_auto_refresh)
-            if refreshed:
-                self.notify("Cookies refreshed from browser.", timeout=4)
-                logger.info("Auto-refresh succeeded.")
+            # OAuth auto-refreshes internally; only attempt browser refresh for cookies.
+            if not auth.is_oauth_authenticated():
+                logger.info("Auth expired, attempting auto-refresh from browser...")
+                refreshed = await asyncio.to_thread(auth.try_auto_refresh)
+                if refreshed:
+                    self.notify("Cookies refreshed from browser.", timeout=4)
+                    logger.info("Auto-refresh succeeded.")
+                else:
+                    self.notify(
+                        "Your YouTube Music session expired. Run `ytm setup` to sign in again.",
+                        severity="error",
+                        timeout=8,
+                    )
+                    logger.warning("Auth validation failed at startup — session expired.")
             else:
                 self.notify(
-                    "Your YouTube Music session expired. Run `ytm setup` to sign in again.",
+                    "OAuth authentication is invalid. Run `ytm setup --oauth` to re-authenticate.",
                     severity="error",
                     timeout=8,
                 )
-                logger.warning("Auth validation failed at startup — session expired.")
+                logger.warning("OAuth validation failed at startup.")
 
         # Write PID for CLI IPC detection.
         write_pid()
