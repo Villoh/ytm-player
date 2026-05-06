@@ -163,9 +163,46 @@ def main(ctx: click.Context, compact_json: bool, debug: bool) -> None:
     default=None,
     help="Extract cookies from a specific browser (chrome, firefox, brave, edge, etc.).",
 )
-def setup(manual: bool, browser: str | None) -> None:
+@click.option(
+    "--oauth",
+    is_flag=True,
+    help="Use OAuth device flow instead of browser cookies.",
+)
+def setup(manual: bool, browser: str | None, oauth: bool) -> None:
     """Interactive authentication wizard for YouTube Music."""
     auth = AuthManager(cookies_file=get_settings().yt_dlp.cookies_file)
+
+    if oauth:
+        if auth.is_oauth_authenticated():
+            click.echo("Existing OAuth authentication found.")
+            if not click.confirm("Do you want to re-authenticate?", default=False):
+                click.echo("Setup cancelled.")
+                return
+
+        client_id = click.prompt("Enter your Google OAuth Client ID")
+        client_secret = click.prompt("Enter your Google OAuth Client Secret", hide_input=True)
+        success = auth.setup_oauth(client_id, client_secret)
+        if not success:
+            _error("OAuth setup failed.")
+
+        click.echo("\nValidating credentials...")
+        try:
+            if auth.validate():
+                click.echo("Authentication is valid. You're all set!")
+            else:
+                click.echo(
+                    "Warning: Could not validate OAuth credentials. "
+                    "Try launching `ytm` anyway.",
+                    err=True,
+                )
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+            click.echo(
+                "Warning: Could not reach YouTube Music servers to validate.\n"
+                "Your credentials were saved but could not be verified. "
+                "They may still work — try launching `ytm`.",
+                err=True,
+            )
+        return
 
     if auth.is_authenticated():
         click.echo("Existing authentication found.")
