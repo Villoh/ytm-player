@@ -12,14 +12,14 @@ import logging
 import os
 import sys
 import tempfile
+import webbrowser
 from http.cookiejar import MozillaCookieJar
 from pathlib import Path
 
 import requests.exceptions
 from ytmusicapi import YTMusic
-from ytmusicapi.auth.oauth import OAuthCredentials
+from ytmusicapi.auth.oauth import OAuthCredentials, RefreshingToken
 from ytmusicapi.helpers import get_authorization, initialize_headers, sapisid_from_cookie
-from ytmusicapi.setup import setup_oauth
 
 from ytm_player.config.paths import (
     AUTH_FILE,
@@ -155,20 +155,50 @@ class AuthManager:
             return None
 
     def setup_oauth(self, client_id: str, client_secret: str) -> bool:
-        """Run OAuth device flow and save token + credentials."""
+        """Run OAuth device flow and save token + credentials.
+
+        .. note::
+            The Google OAuth client **must** be of type *"TVs and limited
+            input devices"*. Desktop or Web application clients will not work
+            with the device-code flow that ytmusicapi uses.
+        """
         print()
         print("=" * 60)
         print("  YouTube Music OAuth Authentication")
         print("=" * 60)
         print()
+        print("  Make sure your Google Cloud OAuth client is of type")
+        print("  'TVs and limited input devices'. Other types will fail.")
+        print()
 
         try:
-            token = setup_oauth(
-                client_id=client_id,
-                client_secret=client_secret,
-                filepath=str(OAUTH_FILE),
-                open_browser=True,
+            credentials = OAuthCredentials(client_id, client_secret)
+            code = credentials.get_code()
+            url = f"{code['verification_url']}?user_code={code['user_code']}"
+            print(f"  Opening browser: {url}")
+            webbrowser.open(url)
+            input(
+                "  Press Enter after authorizing in your browser (Ctrl-C to abort): "
             )
+            raw_token = credentials.token_from_code(code["device_code"])
+
+            # Google may return extra keys (e.g. refresh_token_expires_in) that
+            # the ytmusicapi dataclass does not accept. Filter to known fields.
+            _token_fields = {
+                "scope",
+                "token_type",
+                "access_token",
+                "refresh_token",
+                "expires_at",
+                "expires_in",
+            }
+            filtered = {k: v for k, v in raw_token.items() if k in _token_fields}
+            token = RefreshingToken(credentials=credentials, **filtered)
+            token.update(token.as_dict())
+            token.local_cache = OAUTH_FILE
+        except (EOFError, KeyboardInterrupt):
+            print("\n  Cancelled.")
+            return False
         except Exception as exc:
             logger.error("OAuth setup failed: %s", exc)
             print(f"\n  OAuth setup failed: {exc}")

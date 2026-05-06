@@ -9,8 +9,8 @@ from ytm_player.cli import main
 
 def test_setup_oauth_flag_invokes_setup_oauth():
     runner = CliRunner()
-    with mock.patch("ytm_player.cli.AuthManager") as MockAuth:
-        instance = MockAuth.return_value
+    with mock.patch("ytm_player.cli.AuthManager") as mock_auth:
+        instance = mock_auth.return_value
         instance.is_oauth_authenticated.return_value = False
         instance.setup_oauth.return_value = True
         instance.validate.return_value = True
@@ -22,8 +22,8 @@ def test_setup_oauth_flag_invokes_setup_oauth():
 
 def test_setup_oauth_reauth_prompt():
     runner = CliRunner()
-    with mock.patch("ytm_player.cli.AuthManager") as MockAuth:
-        instance = MockAuth.return_value
+    with mock.patch("ytm_player.cli.AuthManager") as mock_auth:
+        instance = mock_auth.return_value
         instance.is_oauth_authenticated.return_value = True
         instance.setup_oauth.return_value = True
         instance.validate.return_value = True
@@ -36,8 +36,8 @@ def test_setup_oauth_reauth_prompt():
 
 def test_setup_oauth_validation_failure():
     runner = CliRunner()
-    with mock.patch("ytm_player.cli.AuthManager") as MockAuth:
-        instance = MockAuth.return_value
+    with mock.patch("ytm_player.cli.AuthManager") as mock_auth:
+        instance = mock_auth.return_value
         instance.is_oauth_authenticated.return_value = False
         instance.setup_oauth.return_value = True
         instance.validate.return_value = False

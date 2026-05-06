@@ -114,9 +114,7 @@ class TestOAuthAuthentication:
 
     def test_create_ytmusic_client_prefers_oauth(self, tmp_path: Path, monkeypatch):
         monkeypatch.setattr("ytm_player.services.auth.OAUTH_FILE", tmp_path / "oauth.json")
-        monkeypatch.setattr(
-            "ytm_player.services.auth.OAUTH_CREDS_FILE", tmp_path / "creds.json"
-        )
+        monkeypatch.setattr("ytm_player.services.auth.OAUTH_CREDS_FILE", tmp_path / "creds.json")
 
         auth = AuthManager(auth_file=tmp_path / "auth.json")
         (tmp_path / "oauth.json").write_text(json.dumps({"refresh_token": "rt"}))
@@ -124,9 +122,9 @@ class TestOAuthAuthentication:
             json.dumps({"client_id": "id", "client_secret": "sec"})
         )
 
-        with mock.patch("ytm_player.services.auth.YTMusic") as MockYTM:
+        with mock.patch("ytm_player.services.auth.YTMusic") as mock_ytm:
             auth.create_ytmusic_client(user="test")
-            MockYTM.assert_called_once_with(
+            mock_ytm.assert_called_once_with(
                 str(tmp_path / "oauth.json"),
                 user="test",
                 oauth_credentials=mock.ANY,

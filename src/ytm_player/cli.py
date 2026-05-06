@@ -191,8 +191,7 @@ def setup(manual: bool, browser: str | None, oauth: bool) -> None:
                 click.echo("Authentication is valid. You're all set!")
             else:
                 click.echo(
-                    "Warning: Could not validate OAuth credentials. "
-                    "Try launching `ytm` anyway.",
+                    "Warning: Could not validate OAuth credentials. Try launching `ytm` anyway.",
                     err=True,
                 )
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
