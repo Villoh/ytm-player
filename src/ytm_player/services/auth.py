@@ -17,11 +17,15 @@ from pathlib import Path
 
 import requests.exceptions
 from ytmusicapi import YTMusic
+from ytmusicapi.auth.oauth import OAuthCredentials
 from ytmusicapi.helpers import get_authorization, initialize_headers, sapisid_from_cookie
+from ytmusicapi.setup import setup_oauth
 
 from ytm_player.config.paths import (
     AUTH_FILE,
     CONFIG_DIR,
+    OAUTH_CREDS_FILE,
+    OAUTH_FILE,
     SECURE_FILE_MODE,
     secure_chmod,
 )
@@ -102,8 +106,8 @@ class AuthManager:
     def auth_file(self) -> Path:
         return self._auth_file
 
-    def is_authenticated(self) -> bool:
-        """Check whether a valid auth file exists on disk."""
+    def is_cookie_authenticated(self) -> bool:
+        """Check whether a valid cookie-based auth file exists on disk."""
         if not self._auth_file.exists():
             return False
         try:
@@ -113,9 +117,76 @@ class AuthManager:
         except (json.JSONDecodeError, OSError):
             return False
 
+    def is_oauth_authenticated(self) -> bool:
+        """Check whether a valid OAuth token file exists on disk."""
+        if not OAUTH_FILE.exists():
+            return False
+        try:
+            with open(OAUTH_FILE, encoding="utf-8") as f:
+                data = json.load(f)
+            return bool(data.get("refresh_token"))
+        except (json.JSONDecodeError, OSError):
+            return False
+
+    def is_authenticated(self) -> bool:
+        """Check whether any valid auth (cookies or OAuth) exists."""
+        return self.is_cookie_authenticated() or self.is_oauth_authenticated()
+
     def create_ytmusic_client(self, user: str | None = None) -> YTMusic:
-        """Create a YTMusic client from the stored auth file."""
+        """Create a YTMusic client from stored auth (OAuth preferred, then cookies)."""
+        if self.is_oauth_authenticated():
+            creds = self._load_oauth_credentials()
+            return YTMusic(str(OAUTH_FILE), user=user, oauth_credentials=creds)
         return YTMusic(str(self._auth_file), user=user)
+
+    def _load_oauth_credentials(self) -> OAuthCredentials | None:
+        """Load OAuth client credentials from disk."""
+        if not OAUTH_CREDS_FILE.exists():
+            return None
+        try:
+            with open(OAUTH_CREDS_FILE, encoding="utf-8") as f:
+                data = json.load(f)
+            return OAuthCredentials(
+                client_id=data.get("client_id", ""),
+                client_secret=data.get("client_secret", ""),
+            )
+        except (json.JSONDecodeError, OSError, KeyError):
+            logger.exception("Failed to load OAuth credentials")
+            return None
+
+    def setup_oauth(self, client_id: str, client_secret: str) -> bool:
+        """Run OAuth device flow and save token + credentials."""
+        print()
+        print("=" * 60)
+        print("  YouTube Music OAuth Authentication")
+        print("=" * 60)
+        print()
+
+        try:
+            token = setup_oauth(
+                client_id=client_id,
+                client_secret=client_secret,
+                filepath=str(OAUTH_FILE),
+                open_browser=True,
+            )
+        except Exception as exc:
+            logger.error("OAuth setup failed: %s", exc)
+            print(f"\n  OAuth setup failed: {exc}")
+            return False
+
+        # Save credentials so we can recreate the client later
+        try:
+            OAUTH_CREDS_FILE.write_text(
+                json.dumps({"client_id": client_id, "client_secret": client_secret}, indent=4),
+                encoding="utf-8",
+            )
+            secure_chmod(OAUTH_CREDS_FILE, SECURE_FILE_MODE)
+        except OSError:
+            logger.warning("Failed to save OAuth credentials file", exc_info=True)
+
+        print("\n  OAuth authentication saved.")
+        print(f"  Account: {token.refresh_token[:8]}... (refresh token)")
+        return True
 
     def validate(self) -> bool:
         """Verify that the auth credentials actually work.
@@ -143,7 +214,11 @@ class AuthManager:
 
         Called when the app detects an auth failure at runtime. Returns
         True if fresh cookies were extracted and validation passed.
+        OAuth tokens auto-refresh internally; no action needed.
         """
+        if self.is_oauth_authenticated():
+            return True  # OAuth handles its own refresh
+
         if self._cookies_file and self._refresh_from_cookies_file(Path(self._cookies_file)):
             return True
 

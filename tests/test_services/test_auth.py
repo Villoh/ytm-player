@@ -1,6 +1,10 @@
-"""Tests for ytm_player.services.auth._normalize_raw_headers."""
+"""Tests for ytm_player.services.auth."""
 
-from ytm_player.services.auth import _normalize_raw_headers
+import json
+from pathlib import Path
+from unittest import mock
+
+from ytm_player.services.auth import AuthManager, _normalize_raw_headers
 
 
 class TestStandardFormat:
@@ -76,3 +80,61 @@ class TestEdgeCases:
 
     def test_whitespace_only_returns_empty(self):
         assert _normalize_raw_headers("   \n   \n  ") == ""
+
+
+class TestOAuthAuthentication:
+    """OAuth authentication detection and client creation."""
+
+    def test_is_oauth_authenticated_missing_file(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setattr("ytm_player.services.auth.OAUTH_FILE", tmp_path / "oauth.json")
+        auth = AuthManager(auth_file=tmp_path / "auth.json")
+        assert not auth.is_oauth_authenticated()
+
+    def test_is_oauth_authenticated_with_refresh_token(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setattr("ytm_player.services.auth.OAUTH_FILE", tmp_path / "oauth.json")
+        auth = AuthManager(auth_file=tmp_path / "auth.json")
+        (tmp_path / "oauth.json").write_text(json.dumps({"refresh_token": "abc123"}))
+        assert auth.is_oauth_authenticated()
+
+    def test_is_oauth_authenticated_without_refresh_token(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setattr("ytm_player.services.auth.OAUTH_FILE", tmp_path / "oauth.json")
+        auth = AuthManager(auth_file=tmp_path / "auth.json")
+        (tmp_path / "oauth.json").write_text(json.dumps({"access_token": "xyz"}))
+        assert not auth.is_oauth_authenticated()
+
+    def test_is_authenticated_prefers_oauth(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setattr("ytm_player.services.auth.OAUTH_FILE", tmp_path / "oauth.json")
+        auth = AuthManager(auth_file=tmp_path / "auth.json")
+        # No cookie auth, no OAuth
+        assert not auth.is_authenticated()
+
+        # OAuth present
+        (tmp_path / "oauth.json").write_text(json.dumps({"refresh_token": "rt"}))
+        assert auth.is_authenticated()
+
+    def test_create_ytmusic_client_prefers_oauth(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setattr("ytm_player.services.auth.OAUTH_FILE", tmp_path / "oauth.json")
+        monkeypatch.setattr(
+            "ytm_player.services.auth.OAUTH_CREDS_FILE", tmp_path / "creds.json"
+        )
+
+        auth = AuthManager(auth_file=tmp_path / "auth.json")
+        (tmp_path / "oauth.json").write_text(json.dumps({"refresh_token": "rt"}))
+        (tmp_path / "creds.json").write_text(
+            json.dumps({"client_id": "id", "client_secret": "sec"})
+        )
+
+        with mock.patch("ytm_player.services.auth.YTMusic") as MockYTM:
+            auth.create_ytmusic_client(user="test")
+            MockYTM.assert_called_once_with(
+                str(tmp_path / "oauth.json"),
+                user="test",
+                oauth_credentials=mock.ANY,
+            )
+
+    def test_try_auto_refresh_skips_oauth(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setattr("ytm_player.services.auth.OAUTH_FILE", tmp_path / "oauth.json")
+        auth = AuthManager(auth_file=tmp_path / "auth.json")
+        (tmp_path / "oauth.json").write_text(json.dumps({"refresh_token": "rt"}))
+        # Should return True immediately without attempting browser/cookie refresh
+        assert auth.try_auto_refresh() is True
