@@ -141,9 +141,10 @@ class PlaylistPicker(ModalScreen[str | None]):
 
     """
 
-    def __init__(self, video_ids: list[str]) -> None:
+    def __init__(self, video_ids: list[str], tracks: list[dict[str, Any]] | None = None) -> None:
         super().__init__()
         self.video_ids = video_ids
+        self.tracks = tracks or []
         self._playlists: list[dict[str, Any]] = []
 
     def compose(self) -> ComposeResult:
@@ -369,10 +370,11 @@ class PlaylistPicker(ModalScreen[str | None]):
             except Exception:
                 logger.exception("Sidebar count update failed")
 
-            # Update library page header if the target playlist is currently open.
+            # Append tracks to the table and update header if playlist is open.
             try:
                 from ytm_player.ui.pages.library import LibraryPage
-                from ytm_player.utils.formatting import strip_vl_prefix
+                from ytm_player.ui.widgets.track_table import TrackTable
+                from ytm_player.utils.formatting import normalize_tracks, strip_vl_prefix
 
                 host = cast("YTMHostBase", self.app)
                 current_pid = host._current_page_kwargs.get("playlist_id", "")
@@ -380,9 +382,14 @@ class PlaylistPicker(ModalScreen[str | None]):
                     current_pid
                 ) == strip_vl_prefix(playlist_id):
                     library = self.app.query_one(LibraryPage)
-                    library.update_track_count(+len(self.video_ids))
+                    if self.tracks:
+                        table = library.query_one("#library-tracks", TrackTable)
+                        table.append_tracks(normalize_tracks(self.tracks))
+                        library.update_track_count()
+                    else:
+                        library.update_track_count(+len(self.video_ids))
             except Exception:
-                logger.exception("Library track count update failed")
+                logger.exception("Library track/count update failed")
 
             track_word = "track" if len(self.video_ids) == 1 else "tracks"
             self.notify(
