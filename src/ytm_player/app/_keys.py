@@ -6,6 +6,7 @@ import logging
 
 from textual.events import Key
 
+from ytm_player.app._base import YTMHostBase
 from ytm_player.config import Action, MatchResult
 from ytm_player.ui.playback_bar import PlaybackBar
 from ytm_player.ui.sidebars.lyrics_sidebar import LyricsSidebar
@@ -15,7 +16,7 @@ logger = logging.getLogger(__name__)
 _MAX_KEY_COUNT = 1000
 
 
-class KeyHandlingMixin:
+class KeyHandlingMixin(YTMHostBase):
     """Keyboard input processing and action dispatch."""
 
     async def on_key(self, event: Key) -> None:
@@ -165,6 +166,17 @@ class KeyHandlingMixin:
                 self.notify(f"Repeat: {mode.value}", timeout=2)
 
             case Action.TOGGLE_SHUFFLE:
+                # If the current playlist has Shuffle lock on, the keyboard
+                # shortcut is also a no-op — direct the user to the lock toggle.
+                ctx = self.queue.current_context_id
+                if ctx and self.shuffle_prefs.get(ctx):
+                    self.notify(
+                        "Shuffle is locked for this playlist — "
+                        "toggle Shuffle lock in the playlist header.",
+                        severity="warning",
+                        timeout=4,
+                    )
+                    return
                 self.queue.toggle_shuffle()
                 bar = self.query_one("#playback-bar", PlaybackBar)
                 bar.update_shuffle(self.queue.shuffle_enabled)
@@ -198,10 +210,26 @@ class KeyHandlingMixin:
             case Action.RECENTLY_PLAYED:
                 await self.navigate_to("recently_played")
             case Action.CURRENT_CONTEXT:
-                await self.navigate_to("context")
+                track = self.queue.current_track
+                if track:
+                    album_id = track.get("album_id")
+                    album = track.get("album")
+                    if not album_id and isinstance(album, dict):
+                        album_id = album.get("id")
+                    if album_id:
+                        await self.navigate_to("context", context_type="album", context_id=album_id)
+                    else:
+                        self.notify(
+                            "No album info for current track", severity="warning", timeout=2
+                        )
+                else:
+                    self.notify("No track playing", severity="warning", timeout=2)
 
             case Action.GO_BACK:
                 await self.navigate_to("back")
+
+            case Action.GO_FORWARD:
+                await self.navigate_to("forward")
 
             case Action.CLOSE_POPUP:
                 # Dismiss active popup if any; otherwise ignore.
@@ -215,9 +243,16 @@ class KeyHandlingMixin:
             case Action.ADD_TO_PLAYLIST:
                 await self._open_add_to_playlist()
 
+            # -- Discovery roulette: random mix from one of seven sources --
+            case Action.DISCOVERY_MIX:
+                self.run_worker(self._start_discovery_mix(), exclusive=True)
+
             # -- Track actions (opens popup, handles result) --
             case Action.TRACK_ACTIONS:
                 await self._open_track_actions()
+
+            case Action.LIKE_TOGGLE:
+                await self._toggle_like_current()
 
             # -- Navigation actions delegated to the current page --
             case (
@@ -243,6 +278,7 @@ class KeyHandlingMixin:
                 | Action.REVERSE_SORT
                 | Action.JUMP_TO_CURRENT
                 | Action.TOGGLE_SEARCH_MODE
+                | Action.PICK_COUNTRY
             ):
                 page = self._get_current_page()
                 if page and hasattr(page, "handle_action"):

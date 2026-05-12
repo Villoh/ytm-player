@@ -33,6 +33,12 @@ _RTL_RE = re.compile(
     r"\uFB1D-\uFB4F\uFB50-\uFDFF\uFE70-\uFEFF]"
 )
 
+# Unicode directional isolate marks (UAX #9, since Unicode 6.3).
+LRI = "\u2066"  # LEFT-TO-RIGHT ISOLATE
+RLI = "\u2067"  # RIGHT-TO-LEFT ISOLATE
+FSI = "\u2068"  # FIRST STRONG ISOLATE
+PDI = "\u2069"  # POP DIRECTIONAL ISOLATE
+
 # Cached detection result.
 _should_reorder: bool | None = None
 
@@ -172,6 +178,38 @@ def reorder_rtl_line(text: str) -> str:
     if not _get_reorder_enabled():
         return text
     return _do_reorder(text)
+
+
+def isolate_bidi(text: str, *, only_if_rtl: bool = True) -> str:
+    """Wrap *text* in FSI...PDI so its directional context cannot leak.
+
+    Use for ANY user-supplied string concatenated with other independent
+    strings on the same line (table cells, playback bar fragments, lyric
+    lines).  Without isolation, RTL text can bleed into adjacent layout
+    in some terminals — appearing as duplicated text at the row edge or
+    fragments after the volume display in the playback bar.
+
+    FSI auto-detects the inner direction from the first strong character,
+    so pure-Latin titles render LTR, pure-Arabic titles render RTL, mixed
+    titles work correctly.
+
+    IMPORTANT: Apply ``isolate_bidi`` AFTER ``truncate``.  FSI and PDI
+    are zero display columns but each adds 1 to ``len()``, so truncating
+    after wrapping would cut off the closing PDI.
+
+    Args:
+        text: The text to isolate.
+        only_if_rtl: If True (default), skip the wrap for pure-LTR text
+            to keep clipboard output clean.  Set False to always wrap.
+    """
+    if not text:
+        return text
+    if only_if_rtl and not has_rtl(text):
+        return text
+    # Don't double-wrap.
+    if text.startswith(FSI) and text.endswith(PDI):
+        return text
+    return f"{FSI}{text}{PDI}"
 
 
 def wrap_rtl_line(text: str, width: int) -> str:

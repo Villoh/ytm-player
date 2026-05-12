@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import logging
 
+from ytm_player.app._base import YTMHostBase
+
 logger = logging.getLogger(__name__)
 
 
-class IPCMixin:
+class IPCMixin(YTMHostBase):
     """Handles IPC commands from the CLI."""
 
     async def _handle_ipc_command(self, command: str, args: dict) -> dict:
@@ -64,8 +66,14 @@ class IPCMixin:
                         or not self.player.current_track.get("video_id")
                     ):
                         return {"ok": False, "error": "no track is playing"}
-                    await self.ytmusic.rate_song(self.player.current_track["video_id"], "LIKE")
-                    return {"ok": True}
+                    if not self.ytmusic:
+                        return {"ok": False, "error": "ytmusic not initialized"}
+                    result = await self.ytmusic.rate_song(
+                        self.player.current_track["video_id"], "LIKE"
+                    )
+                    if result == "success":
+                        return {"ok": True}
+                    return {"ok": False, "error": result}
 
                 case "dislike":
                     if (
@@ -74,8 +82,14 @@ class IPCMixin:
                         or not self.player.current_track.get("video_id")
                     ):
                         return {"ok": False, "error": "no track is playing"}
-                    await self.ytmusic.rate_song(self.player.current_track["video_id"], "DISLIKE")
-                    return {"ok": True}
+                    if not self.ytmusic:
+                        return {"ok": False, "error": "ytmusic not initialized"}
+                    result = await self.ytmusic.rate_song(
+                        self.player.current_track["video_id"], "DISLIKE"
+                    )
+                    if result == "success":
+                        return {"ok": True}
+                    return {"ok": False, "error": result}
 
                 case "unlike":
                     if (
@@ -84,10 +98,14 @@ class IPCMixin:
                         or not self.player.current_track.get("video_id")
                     ):
                         return {"ok": False, "error": "no track is playing"}
-                    await self.ytmusic.rate_song(
+                    if not self.ytmusic:
+                        return {"ok": False, "error": "ytmusic not initialized"}
+                    result = await self.ytmusic.rate_song(
                         self.player.current_track["video_id"], "INDIFFERENT"
                     )
-                    return {"ok": True}
+                    if result == "success":
+                        return {"ok": True}
+                    return {"ok": False, "error": result}
 
                 case _:
                     return {"ok": False, "error": f"unknown command: {command}"}

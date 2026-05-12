@@ -42,6 +42,7 @@ ACTION_DESCRIPTIONS: dict[Action, str] = {
     Action.FOCUS_NEXT: "Focus next panel",
     Action.FOCUS_PREV: "Focus previous panel",
     Action.GO_BACK: "Go back / close page",
+    Action.GO_FORWARD: "Go forward (after going back)",
     Action.CLOSE_POPUP: "Close popup / cancel",
     # Pages
     Action.LIBRARY: "Go to library",
@@ -57,11 +58,14 @@ ACTION_DESCRIPTIONS: dict[Action, str] = {
     # Actions
     Action.DELETE_ITEM: "Delete / remove item",
     Action.TRACK_ACTIONS: "Show track actions menu",
+    Action.LIKE_TOGGLE: "Toggle like on the currently playing track",
     Action.CONTEXT_ACTIONS: "Show context actions menu",
     Action.SELECTED_ACTIONS: "Actions for selected items",
     Action.ADD_TO_QUEUE: "Add track to queue",
     Action.ADD_TO_PLAYLIST: "Add track to a playlist",
+    Action.DISCOVERY_MIX: "Start discovery roulette — random mix from a rotating source",
     Action.FILTER: "Filter / search within list",
+    Action.PICK_COUNTRY: "Pick chart region (Browse → Charts only)",
     # Sorting
     Action.SORT_TITLE: "Sort by title",
     Action.SORT_ARTIST: "Sort by artist",
@@ -99,6 +103,7 @@ ACTION_CATEGORIES: dict[str, list[Action]] = {
         Action.FOCUS_NEXT,
         Action.FOCUS_PREV,
         Action.GO_BACK,
+        Action.GO_FORWARD,
         Action.CLOSE_POPUP,
     ],
     "Pages": [
@@ -116,11 +121,14 @@ ACTION_CATEGORIES: dict[str, list[Action]] = {
     "Actions": [
         Action.DELETE_ITEM,
         Action.TRACK_ACTIONS,
+        Action.LIKE_TOGGLE,
         Action.CONTEXT_ACTIONS,
         Action.SELECTED_ACTIONS,
         Action.ADD_TO_QUEUE,
         Action.ADD_TO_PLAYLIST,
+        Action.DISCOVERY_MIX,
         Action.FILTER,
+        Action.PICK_COUNTRY,
     ],
     "Sorting": [
         Action.SORT_TITLE,

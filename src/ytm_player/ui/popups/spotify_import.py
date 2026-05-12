@@ -479,8 +479,8 @@ class SpotifyImportPopup(ModalScreen[str | None]):
             MatchResult,
             MatchType,
             _fuzzy_score,
-            _get_video_id,
             extract_spotify_tracks,
+            get_video_id,
             has_spotify_creds,
         )
 
@@ -546,7 +546,7 @@ class SpotifyImportPopup(ModalScreen[str | None]):
             self._disambig_index = 0
             self._start_disambiguation()
         else:
-            self._show_summary(MatchType, _get_video_id)
+            self._show_summary(MatchType, get_video_id)
 
     # ── Multi mode: setup ────────────────────────────────────────────
 
@@ -638,8 +638,8 @@ class SpotifyImportPopup(ModalScreen[str | None]):
             MatchResult,
             MatchType,
             _fuzzy_score,
-            _get_video_id,
             extract_spotify_tracks,
+            get_video_id,
         )
 
         status = self.query_one("#si-status", Static)
@@ -715,7 +715,7 @@ class SpotifyImportPopup(ModalScreen[str | None]):
             self._disambig_index = 0
             self._start_disambiguation()
         else:
-            self._show_summary(MatchType, _get_video_id)
+            self._show_summary(MatchType, get_video_id)
 
     # ── Shared: match classification ─────────────────────────────────
 
@@ -762,9 +762,9 @@ class SpotifyImportPopup(ModalScreen[str | None]):
     def _show_current_disambig(self) -> None:
         """Display candidates for the current uncertain match."""
         if self._disambig_index >= len(self._disambig_queue):
-            from ytm_player.services.spotify_import import MatchType, _get_video_id
+            from ytm_player.services.spotify_import import MatchType, get_video_id
 
-            self._show_summary(MatchType, _get_video_id)
+            self._show_summary(MatchType, get_video_id)
             return
 
         result = self._disambig_queue[self._disambig_index]
@@ -814,7 +814,7 @@ class SpotifyImportPopup(ModalScreen[str | None]):
 
     # ── Shared: summary + create ─────────────────────────────────────
 
-    def _show_summary(self, MatchType, _get_video_id) -> None:
+    def _show_summary(self, MatchType, get_video_id) -> None:
         """Display summary stats and playlist name input."""
         self._phase = "summary"
 
@@ -824,7 +824,7 @@ class SpotifyImportPopup(ModalScreen[str | None]):
         total = len(self._results)
 
         self._video_ids = [
-            _get_video_id(r.selected) for r in self._results if r.selected is not None
+            get_video_id(r.selected) for r in self._results if r.selected is not None
         ]
         self._video_ids = [vid for vid in self._video_ids if vid]
 
@@ -883,18 +883,59 @@ class SpotifyImportPopup(ModalScreen[str | None]):
                     progress_bar.display = True
                     progress_bar.update(total=len(batches), progress=0)
 
+                from ytm_player.services.ytmusic import mutation_failure_suffix
+
+                failed_batches = 0
+                # Track distinct failure kinds across batches so the final
+                # toast can surface the dominant cause (e.g. all batches
+                # 401 → "session expired"; mixed → fall back to generic).
+                failure_kinds: list[str] = []
+                # Cumulative count of tracks the server actually accepted.
+                # Computed by summing len(batch) on success so the final
+                # batch's partial size is reported accurately.
+                added_total = 0
                 for batch_idx, batch in enumerate(batches, 1):
                     status.update(
                         f"Adding tracks... ({min(batch_idx * _ADD_BATCH_SIZE, total_ids)}/{total_ids})"
                     )
-                    await ytmusic_svc.add_playlist_items(playlist_id, batch)
+                    result = await ytmusic_svc.add_playlist_items(playlist_id, batch)
+                    if result == "success":
+                        added_total += len(batch)
+                    else:
+                        failed_batches += 1
+                        failure_kinds.append(result)
                     if len(batches) > 1:
                         progress_bar.update(progress=batch_idx)
 
-            self.notify(
-                f"Created '{name}' with {total_ids} tracks",
-                severity="information",
-            )
+                if failed_batches == 0:
+                    self.notify(
+                        f"Created '{name}' with {total_ids} tracks",
+                        severity="information",
+                    )
+                elif failed_batches == len(batches):
+                    # All batches failed. If they all failed for the same
+                    # reason, surface that. Otherwise stay generic.
+                    unique_kinds = set(failure_kinds)
+                    if len(unique_kinds) == 1:
+                        kind = failure_kinds[0]
+                        suffix = mutation_failure_suffix(kind)  # type: ignore[arg-type]
+                        self.notify(
+                            f"Created '{name}' but couldn't add any tracks — {suffix}",
+                            severity="error",
+                        )
+                    else:
+                        self.notify(
+                            f"Created '{name}' but failed to add any tracks "
+                            f"({len(batches)} batch(es) rejected)",
+                            severity="error",
+                        )
+                else:
+                    self.notify(
+                        f"Created '{name}' with partial track set: "
+                        f"{added_total}/{total_ids} added "
+                        f"({failed_batches} batch(es) failed)",
+                        severity="warning",
+                    )
             self.dismiss(playlist_id)
 
         except Exception as exc:

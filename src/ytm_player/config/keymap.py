@@ -2,11 +2,22 @@
 
 from __future__ import annotations
 
-import tomllib
+import sys
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Self
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    # Python 3.10 backport via PyPI
+    import tomli as tomllib  # pyright: ignore[reportMissingImports]
+
+if sys.version_info >= (3, 11):
+    from typing import Self
+else:
+    # Python 3.10 backport via PyPI
+    from typing_extensions import Self  # pyright: ignore[reportMissingImports]
 
 from ytm_player.config.paths import KEYMAP_FILE
 
@@ -37,6 +48,7 @@ class Action(str, Enum):
     FOCUS_NEXT = "focus_next"
     FOCUS_PREV = "focus_prev"
     GO_BACK = "go_back"
+    GO_FORWARD = "go_forward"
     CLOSE_POPUP = "close_popup"
     QUIT = "quit"
 
@@ -60,11 +72,14 @@ class Action(str, Enum):
     # Actions
     DELETE_ITEM = "delete_item"
     TRACK_ACTIONS = "track_actions"
+    LIKE_TOGGLE = "like_toggle"
     CONTEXT_ACTIONS = "context_actions"
     SELECTED_ACTIONS = "selected_actions"
     ADD_TO_QUEUE = "add_to_queue"
     ADD_TO_PLAYLIST = "add_to_playlist"
+    DISCOVERY_MIX = "discovery_mix"
     FILTER = "filter"
+    PICK_COUNTRY = "pick_country"
 
     # Sorting
     SORT_TITLE = "sort_title"
@@ -109,6 +124,7 @@ DEFAULT_BINDINGS: dict[str, list[str]] = {
     "focus_next": ["tab"],
     "focus_prev": ["S-tab"],
     "go_back": ["backspace"],
+    "go_forward": ["S-backspace"],
     "close_popup": ["escape"],
     "quit": ["q", "C-q"],
     # Pages
@@ -129,11 +145,14 @@ DEFAULT_BINDINGS: dict[str, list[str]] = {
     # Actions
     "delete_item": ["delete", "d d"],
     "track_actions": ["a"],
+    "like_toggle": ["l"],
     "context_actions": ["g A"],
     "selected_actions": ["g a", "C-space"],
     "add_to_queue": ["Z", "C-z"],
     "add_to_playlist": ["A"],
+    "discovery_mix": ["D"],
     "filter": ["/"],
+    "pick_country": ["c"],
     # Sorting
     "sort_title": ["s t"],
     "sort_artist": ["s a"],

@@ -3,21 +3,36 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from ytm_player.app._base import YTMHostBase
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.events import Click
 from textual.reactive import reactive
 from textual.widget import Widget
-from textual.widgets import DataTable, Label, Static
+from textual.widgets import DataTable, Input, Label, Static
 from textual.worker import Worker, WorkerState
 
 from ytm_player.config.keymap import Action
+from ytm_player.services.ytmusic import _EXPECTED_API_EXCEPTIONS
 from ytm_player.ui.widgets.track_table import TrackTable
 from ytm_player.utils.formatting import extract_artist, normalize_tracks
 
 logger = logging.getLogger(__name__)
+
+
+def _load_failure_message(context_type: str) -> str:
+    """Failure-state message shown when fetching album/artist/playlist
+    data fails. Points the user at the log file so they can self-diagnose
+    instead of guessing whether the network is down or the page is broken.
+    """
+    return (
+        f"Couldn't load this {context_type}. Check the log at "
+        f"~/.config/ytm-player/logs/ytm.log for details."
+    )
 
 
 class _ArtistAlbumList(DataTable):
@@ -36,8 +51,10 @@ class _ArtistAlbumList(DataTable):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(cursor_type="row", zebra_stripes=True, **kwargs)
         self._albums: list[dict] = []
-
-    def on_mount(self) -> None:
+        # Same option-C pattern as TrackTable: columns at construction
+        # time so a synchronous load_albums() called from a nested-mount
+        # path (see _build_artist) doesn't hit add_row before on_mount
+        # has fired.
         self.add_column("Album", width=None, key="title")
         self.add_column("Year", width=6, key="year")
 
@@ -91,9 +108,23 @@ class ContextPage(Widget):
     #add-to-library-btn:hover {
         background: $primary 30%;
     }
+    #start-radio-btn {
+        width: auto;
+        min-width: 14;
+        height: 1;
+        margin: 0 0 0 1;
+        padding: 0 1;
+        color: $primary;
+    }
+    #start-radio-btn:hover {
+        background: $primary 30%;
+    }
     .context-header-row {
         height: auto;
         width: 1fr;
+    }
+    .context-header-row Label {
+        width: auto;
     }
     .context-body {
         height: 1fr;
@@ -130,10 +161,21 @@ class ContextPage(Widget):
     .artist-right:focus-within {
         border: solid $accent;
     }
+
+    .track-filter {
+        dock: bottom;
+        display: none;
+    }
+
+    .track-filter.visible {
+        display: block;
+    }
     """
 
-    loading: reactive[bool] = reactive(True)
+    # ``loading`` is inherited from Widget — re-declaring would shadow
+    # the parent's reactive with an invariant-mismatched type.
     error_message: reactive[str] = reactive("")
+    _load_failed: bool
 
     def __init__(
         self,
@@ -152,16 +194,27 @@ class ContextPage(Widget):
         self.context_id = context_id
         self._data: dict[str, Any] = {}
         self._active_focus: str = "tracks"  # "tracks" or "albums" for artist view
+        # Set when ``_fetch_data`` catches an expected API/network
+        # exception. ``on_worker_state_changed`` reads it to decide
+        # between the empty-data message and the richer failure copy
+        # that points at the log file.
+        self._load_failed = False
 
     def compose(self) -> ComposeResult:
         yield Label("Loading...", id="context-loading", classes="context-loading")
         yield Label("", id="context-error", classes="context-error")
         yield Vertical(id="context-content")
+        yield Input(placeholder="/ Filter tracks...", id="track-filter", classes="track-filter")
 
     def on_mount(self) -> None:
         self.query_one("#context-error").display = False
         self.query_one("#context-content").display = False
         self._load_data()
+
+    def on_remove(self) -> None:
+        """Cancel background workers when page is removed (prevents DuplicateIds crash)."""
+        for worker in self.workers:
+            worker.cancel()
 
     def _load_data(self) -> None:
         """Start an async worker to fetch context data."""
@@ -173,17 +226,32 @@ class ContextPage(Widget):
     _FIRST_BATCH = 300
 
     async def _fetch_data(self) -> dict[str, Any]:
-        """Fetch data from ytmusic based on context_type."""
+        """Fetch data from ytmusic based on context_type.
+
+        Expected API/network failures (``_EXPECTED_API_EXCEPTIONS``) are
+        caught here, logged via ``logger.exception`` and recorded on the
+        page's ``_load_failed`` flag so ``on_worker_state_changed`` can
+        render the user-facing "Couldn't load this <type>" message that
+        points at the log file. Programming errors (TypeError,
+        AttributeError, etc.) propagate so bugs surface in development.
+        """
         ytmusic = self.app.ytmusic  # type: ignore[attr-defined]
-        match self.context_type:
-            case "album":
-                return await ytmusic.get_album(self.context_id)
-            case "artist":
-                return await ytmusic.get_artist(self.context_id)
-            case "playlist":
-                return await ytmusic.get_playlist(self.context_id, limit=self._FIRST_BATCH)
-            case _:
-                raise ValueError(f"Unknown context type: {self.context_type}")
+        try:
+            match self.context_type:
+                case "album":
+                    result = await ytmusic.get_album(self.context_id)
+                case "artist":
+                    result = await ytmusic.get_artist(self.context_id)
+                case "playlist":
+                    result = await ytmusic.get_playlist(self.context_id, limit=self._FIRST_BATCH)
+                case _:
+                    raise ValueError(f"Unknown context type: {self.context_type}")
+        except _EXPECTED_API_EXCEPTIONS:
+            logger.exception("Failed to load %s %s", self.context_type, self.context_id)
+            self._load_failed = True
+            return {}
+        self._load_failed = False
+        return result
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         if event.worker.name == "fetch_context":
@@ -191,12 +259,19 @@ class ContextPage(Widget):
                 self._data = event.worker.result or {}
                 self.loading = False
                 if not self._data:
-                    self.error_message = "No data found."
+                    # ``_fetch_data`` flips ``_load_failed`` when it
+                    # caught an expected API exception — distinguish
+                    # that path (network failure, point at log) from
+                    # the genuine "API returned empty" path.
+                    if self._load_failed:
+                        self.error_message = _load_failure_message(self.context_type)
+                    else:
+                        self.error_message = "No data found."
                 else:
                     self._build_content()
             elif event.state == WorkerState.ERROR:
                 self.loading = False
-                self.error_message = f"Failed to load {self.context_type}."
+                self.error_message = _load_failure_message(self.context_type)
                 logger.exception("Failed to load %s %s", self.context_type, self.context_id)
         elif event.worker.name == "fetch_remaining":
             if event.state == WorkerState.SUCCESS:
@@ -293,8 +368,11 @@ class ContextPage(Widget):
         container.mount(header)
         title_row = Horizontal(classes="context-header-row")
         header.mount(title_row)
+        owned = data.get("owned", False)
         title_row.mount(Label("[b]Playlist[/b]", markup=True))
-        title_row.mount(Static("[+ Add to Library]", id="add-to-library-btn", markup=True))
+        if not owned:
+            title_row.mount(Static("[+ Add to Library]", id="add-to-library-btn", markup=True))
+        title_row.mount(Static("[▶ Start Radio]", id="start-radio-btn", markup=True))
         header.mount(Label(title, classes="context-title"))
         header.mount(Label(subtitle, classes="context-subtitle"))
         unavailable = len(raw_tracks) - track_count
@@ -319,6 +397,56 @@ class ContextPage(Widget):
         """Background fetch for tracks beyond the first batch."""
         ytmusic = self.app.ytmusic  # type: ignore[attr-defined]
         return await ytmusic.get_playlist_remaining(self.context_id, already_have)
+
+    async def _fetch_full_artist_songs(self, browse_id: str, table: TrackTable) -> None:
+        """Background-fetch the full artist songs playlist and swap into the table.
+
+        Loads the first batch (limit=_FIRST_BATCH) into the table, then chains
+        ``get_playlist_remaining`` to append anything beyond that — mirrors the
+        playlist progressive-load pattern in ``_fetch_remaining_tracks`` so
+        artists with > _FIRST_BATCH top songs aren't silently truncated.
+
+        Silent on failure — if the fetch errors or the playlist is empty,
+        leave the existing (truncated) list in place and log a debug message.
+        """
+        ytmusic = self.app.ytmusic  # type: ignore[attr-defined]
+        try:
+            data = await ytmusic.get_playlist(browse_id, limit=self._FIRST_BATCH)
+        except Exception:
+            logger.debug("Failed to fetch full artist songs for %s", browse_id, exc_info=True)
+            return
+        raw_tracks = data.get("tracks", []) if isinstance(data, dict) else []
+        if not raw_tracks:
+            return
+        full_tracks = normalize_tracks(raw_tracks)
+        if not full_tracks:
+            return
+        try:
+            table.load_tracks(full_tracks)
+        except Exception:
+            logger.debug("Failed to swap artist songs table contents", exc_info=True)
+            return
+
+        # Chain remaining tracks if the playlist exceeds the first batch.
+        # If trackCount isn't exposed, fall back to attempting the call and
+        # treating empty/error as "nothing more to fetch".
+        total_count = data.get("trackCount") if isinstance(data, dict) else None
+        if total_count is not None and total_count <= len(raw_tracks):
+            return
+        try:
+            remaining = await ytmusic.get_playlist_remaining(browse_id, len(raw_tracks))
+        except Exception:
+            logger.debug("Failed to fetch remaining artist songs for %s", browse_id, exc_info=True)
+            return
+        if not remaining:
+            return
+        remaining_tracks = normalize_tracks(remaining)
+        if not remaining_tracks:
+            return
+        try:
+            table.append_tracks(remaining_tracks)
+        except Exception:
+            logger.debug("Failed to append remaining artist songs", exc_info=True)
 
     def _build_artist(self, container: Vertical) -> None:
         data = self._data
@@ -346,6 +474,18 @@ class ContextPage(Widget):
         top_tracks_table = TrackTable(show_album=False, id="context-tracks")
         left.mount(top_tracks_table)
         top_tracks_table.load_tracks(normalize_tracks(top_songs))
+
+        # ytmusicapi truncates artist songs to ~5 by default. The full list
+        # lives at songs_section["browseId"] as a regular playlist. Fetch
+        # it in the background and silently swap the table contents in
+        # when ready (closes #55).
+        songs_browse_id = songs_section.get("browseId") if isinstance(songs_section, dict) else None
+        if songs_browse_id:
+            self.run_worker(
+                self._fetch_full_artist_songs(songs_browse_id, top_tracks_table),
+                name="fetch-artist-songs",
+                exclusive=True,
+            )
 
         right = Vertical(classes="artist-right")
         columns.mount(right)
@@ -386,11 +526,16 @@ class ContextPage(Widget):
     # ── Events ────────────────────────────────────────────────────────
 
     def on_click(self, event: Click) -> None:
-        """Handle clicks on the add-to-library button."""
+        """Handle clicks on header action buttons."""
         widget = event.widget
+        if widget is None:
+            return
         if widget.id == "add-to-library-btn":
             event.stop()
             self.run_worker(self._add_to_library(), name="add_to_lib", exclusive=True)
+        elif widget.id == "start-radio-btn":
+            event.stop()
+            self.run_worker(self._start_radio(), name="start_radio", exclusive=True)
 
     async def _add_to_library(self) -> None:
         """Add the current album or playlist to the user's library."""
@@ -409,8 +554,10 @@ class ContextPage(Widget):
             self.app.notify("Cannot add — no playlist ID found", severity="error", timeout=3)
             return
 
-        ok = await ytmusic.add_to_library(playlist_id)
-        if ok:
+        from ytm_player.services.ytmusic import mutation_failure_suffix
+
+        result = await ytmusic.add_to_library(playlist_id)
+        if result == "success":
             self.app.notify("Added to library", timeout=2)
             try:
                 btn = self.query_one("#add-to-library-btn", Static)
@@ -425,7 +572,14 @@ class ContextPage(Widget):
             except Exception:
                 pass
         else:
-            self.app.notify("Failed to add to library", severity="error", timeout=3)
+            suffix = mutation_failure_suffix(result)
+            self.app.notify(f"Failed to add to library — {suffix}", severity="error", timeout=4)
+
+    async def _start_radio(self) -> None:
+        """Start radio seeded from the current playlist."""
+        data = self._data
+        data.setdefault("playlistId", self.context_id)
+        await cast("YTMHostBase", self.app)._start_playlist_radio(data)
 
     async def on_track_table_track_selected(self, event: TrackTable.TrackSelected) -> None:
         """Play the selected track and enqueue remaining tracks."""
@@ -434,13 +588,31 @@ class ContextPage(Widget):
         tracks = table.tracks
         idx = event.index
 
+        host = cast("YTMHostBase", self.app)
+
         # Load all tracks into the queue starting from the selected one.
-        self.app.queue.clear()  # type: ignore[attr-defined]
-        self.app.queue.add_multiple(tracks)  # type: ignore[attr-defined]
-        self.app.queue.jump_to_real(idx)  # type: ignore[attr-defined]
+        host.queue.clear()
+        host.queue.add_multiple(tracks)
+        host.queue.jump_to_real(idx)
+
+        # Shuffle lock — force shuffle ON if the context (album/artist/
+        # playlist) has the lock set. Lock is one-way enforcement on entry.
+        # set_context(None) is meaningful (clears prior context); the lock
+        # check below is gated on a truthy id, so None never reaches
+        # shuffle_prefs.get.
+        host.queue.set_context(self.context_id)
+        if self.context_id and host.shuffle_prefs.get(self.context_id):
+            if not host.queue.shuffle_enabled:
+                host.queue.toggle_shuffle()
+        try:
+            bar = host.query_one("#playback-bar")
+            bar.update_shuffle(host.queue.shuffle_enabled)  # type: ignore[attr-defined]
+            bar.refresh_shuffle_lock_state()  # type: ignore[attr-defined]
+        except Exception:
+            pass
 
         # Play selected track.
-        await self.app.play_track(event.track)  # type: ignore[attr-defined]
+        await host.play_track(event.track)
 
     async def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handle album selection in artist view."""
@@ -457,6 +629,57 @@ class ContextPage(Widget):
                 context_type="album",
                 context_id=album["browseId"],
             )
+
+    # ── Track filter ──────────────────────────────────────────────────
+
+    def on_track_table_filter_requested(self, _event: TrackTable.FilterRequested) -> None:
+        try:
+            f = self.query_one("#track-filter", Input)
+            f.value = ""
+            f.add_class("visible")
+            f.focus()
+        except Exception:
+            pass
+
+    def on_track_table_filter_closed(self, _event: TrackTable.FilterClosed) -> None:
+        try:
+            f = self.query_one("#track-filter", Input)
+            f.remove_class("visible")
+            self.query_one("#context-tracks", TrackTable).focus()
+        except Exception:
+            pass
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id == "track-filter":
+            try:
+                self.query_one("#context-tracks", TrackTable).apply_filter(event.value)
+            except Exception:
+                pass
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "track-filter":
+            f = self.query_one("#track-filter", Input)
+            f.remove_class("visible")
+            try:
+                self.query_one("#context-tracks", TrackTable).focus()
+            except Exception:
+                pass
+
+    def on_key(self, event: object) -> None:
+        """Handle Escape in filter input."""
+        from textual.events import Key
+
+        if not isinstance(event, Key):
+            return
+        if event.key == "escape":
+            try:
+                f = self.query_one("#track-filter", Input)
+                if f.has_class("visible"):
+                    event.stop()
+                    event.prevent_default()
+                    self.query_one("#context-tracks", TrackTable).clear_filter()
+            except Exception:
+                pass
 
     # ── Action handling ───────────────────────────────────────────────
 

@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
+from textual.events import Click
 from textual.reactive import reactive
 from textual.widget import Widget
-from textual.widgets import Label, Static
+from textual.widgets import Input, Label, Static
 
 from ytm_player.config.keymap import Action
 from ytm_player.ui.widgets.track_table import TrackTable
 from ytm_player.utils.formatting import normalize_tracks
+
+if TYPE_CHECKING:
+    from ytm_player.app._base import YTMHostBase
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +42,48 @@ class LibraryPage(Widget):
         padding: 1 2;
     }
 
+    .content-title-row {
+        height: auto;
+        width: 1fr;
+    }
+    .content-title-row Label {
+        width: auto;
+    }
     .content-title {
         text-style: bold;
     }
-
     .content-subtitle {
         color: $text-muted;
+    }
+    #start-radio-btn {
+        width: auto;
+        min-width: 14;
+        height: 1;
+        margin: 0 0 0 1;
+        padding: 0 1;
+        color: $primary;
+    }
+    #start-radio-btn:hover {
+        background: $primary 30%;
+    }
+
+    .content-title-spacer {
+        width: 1fr;
+        height: 1;
+    }
+
+    #shuffle-lock-btn {
+        width: auto;
+        height: 1;
+        padding: 0 1;
+        color: $text-muted;
+    }
+    #shuffle-lock-btn.locked {
+        color: $primary;
+        text-style: bold;
+    }
+    #shuffle-lock-btn:hover {
+        background: $accent 30%;
     }
 
     #empty-state {
@@ -62,6 +102,15 @@ class LibraryPage(Widget):
 
     #library-tracks {
         height: 1fr;
+    }
+
+    .track-filter {
+        dock: bottom;
+        display: none;
+    }
+
+    .track-filter.visible {
+        display: block;
     }
     """
 
@@ -85,6 +134,7 @@ class LibraryPage(Widget):
         yield Static("Select a playlist from the sidebar", id="empty-state")
         yield Static("Loading...", id="loading-state")
         yield TrackTable(show_album=True, id="library-tracks")
+        yield Input(placeholder="/ Filter tracks...", id="track-filter", classes="track-filter")
 
     def on_mount(self) -> None:
         self.query_one("#loading-state").display = False
@@ -108,6 +158,11 @@ class LibraryPage(Widget):
                     name="load-playlist",
                     exclusive=True,
                 )
+
+    def on_remove(self) -> None:
+        """Cancel background workers (e.g. _fetch_remaining) when page is removed."""
+        for worker in self.workers:
+            worker.cancel()
 
     def get_nav_state(self) -> dict[str, Any]:
         """Return state to preserve when navigating away."""
@@ -141,7 +196,9 @@ class LibraryPage(Widget):
         loading.display = True
 
         try:
-            data = await self.app.ytmusic.get_playlist(
+            ytmusic = cast("YTMHostBase", self.app).ytmusic
+            assert ytmusic is not None
+            data = await ytmusic.get_playlist(
                 playlist_id, limit=self._FIRST_BATCH, order="recently_added"
             )
 
@@ -157,11 +214,25 @@ class LibraryPage(Widget):
             track_count = len(tracks)
             total_count = data.get("trackCount") or track_count
 
+            # Store data for radio button — ensure playlistId is set since
+            # get_playlist() returns 'id' but _start_playlist_radio expects 'playlistId'.
+            self._playlist_data = data
+            self._playlist_data.setdefault("playlistId", playlist_id)
+
             # Update header.
             header = self.query_one("#content-header", Vertical)
             await header.remove_children()
             header.display = True
-            await header.mount(Label(title, classes="content-title"))
+            title_row = Horizontal(classes="content-title-row")
+            await header.mount(title_row)
+            await title_row.mount(Label(title, classes="content-title"))
+            await title_row.mount(Static("[▶ Start Radio]", id="start-radio-btn", markup=True))
+            await title_row.mount(Static(classes="content-title-spacer"))
+            host = cast("YTMHostBase", self.app)
+            locked = bool(host.shuffle_prefs.get(playlist_id))
+            lock_label = "Shuffle lock: ON" if locked else "Shuffle lock: off"
+            lock_classes = "locked" if locked else ""
+            await title_row.mount(Static(lock_label, id="shuffle-lock-btn", classes=lock_classes))
             subtitle = f"{owner} \u00b7 {track_count} track{'s' if track_count != 1 else ''}"
             if total_count > track_count:
                 subtitle += f" (loading {total_count} total\u2026)"
@@ -198,7 +269,9 @@ class LibraryPage(Widget):
 
     async def _fetch_remaining(self, playlist_id: str, already_have: int) -> None:
         """Background fetch for tracks beyond the first batch."""
-        remaining = await self.app.ytmusic.get_playlist_remaining(
+        ytmusic = cast("YTMHostBase", self.app).ytmusic
+        assert ytmusic is not None
+        remaining = await ytmusic.get_playlist_remaining(
             playlist_id, already_have, order="recently_added"
         )
         # Discard if user switched playlists while we were fetching.
@@ -230,9 +303,8 @@ class LibraryPage(Widget):
             return
 
         # Fall back to the currently-playing track.
-        playing_id = getattr(self.app, "player", None) and getattr(
-            self.app.player, "_current_track", None
-        )
+        player = cast("YTMHostBase", self.app).player
+        playing_id = getattr(player, "_current_track", None) if player is not None else None
         if playing_id and isinstance(playing_id, dict):
             playing_id = playing_id.get("video_id")
 
@@ -250,6 +322,112 @@ class LibraryPage(Widget):
                     return
 
     # ------------------------------------------------------------------
+    # Track filter
+    # ------------------------------------------------------------------
+
+    def on_track_table_filter_requested(self, event: TrackTable.FilterRequested) -> None:
+        try:
+            f = self.query_one("#track-filter", Input)
+            f.value = ""
+            f.add_class("visible")
+            f.focus()
+        except Exception:
+            pass
+
+    def on_track_table_filter_closed(self, event: TrackTable.FilterClosed) -> None:
+        try:
+            f = self.query_one("#track-filter", Input)
+            f.remove_class("visible")
+            self.query_one("#library-tracks", TrackTable).focus()
+        except Exception:
+            pass
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id == "track-filter":
+            self.query_one("#library-tracks", TrackTable).apply_filter(event.value)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "track-filter":
+            f = self.query_one("#track-filter", Input)
+            f.remove_class("visible")
+            self.query_one("#library-tracks", TrackTable).focus()
+
+    def on_key(self, event: object) -> None:
+        """Handle Escape in filter input."""
+        from textual.events import Key
+
+        if not isinstance(event, Key):
+            return
+        if event.key == "escape":
+            try:
+                f = self.query_one("#track-filter", Input)
+                if f.has_class("visible"):
+                    event.stop()
+                    event.prevent_default()
+                    self.query_one("#library-tracks", TrackTable).clear_filter()
+            except Exception:
+                pass
+
+    # ------------------------------------------------------------------
+    # Header button clicks
+    # ------------------------------------------------------------------
+
+    def on_click(self, event: Click) -> None:
+        """Handle clicks on header action buttons."""
+        widget = event.widget
+        if widget is None:
+            return
+        if widget.id == "start-radio-btn":
+            event.stop()
+            data = getattr(self, "_playlist_data", None)
+            if data:
+                self.run_worker(
+                    cast("YTMHostBase", self.app)._start_playlist_radio(data),
+                    name="start_radio",
+                    exclusive=True,
+                )
+        elif widget.id == "shuffle-lock-btn":
+            event.stop()
+            self._toggle_shuffle_lock()
+
+    def _toggle_shuffle_lock(self) -> None:
+        """Flip the per-playlist Shuffle lock and update the button label."""
+        playlist_id = self._active_playlist_id
+        if not playlist_id:
+            return
+        host = cast("YTMHostBase", self.app)
+        currently_locked = bool(host.shuffle_prefs.get(playlist_id))
+        new_locked = not currently_locked
+        host.shuffle_prefs.set(playlist_id, new_locked)
+        # Update button visuals.
+        try:
+            btn = self.query_one("#shuffle-lock-btn", Static)
+            btn.update("Shuffle lock: ON" if new_locked else "Shuffle lock: off")
+            if new_locked:
+                btn.add_class("locked")
+            else:
+                btn.remove_class("locked")
+        except Exception:
+            logger.debug("Failed to update shuffle-lock-btn label", exc_info=True)
+        # If we just locked AND the queue is currently this playlist, force
+        # shuffle on; if we unlocked, leave shuffle as-is (lock is one-way
+        # enforcement on entry, not a toggle of current state).
+        if new_locked and host.queue.current_context_id == playlist_id:
+            if not host.queue.shuffle_enabled:
+                host.queue.toggle_shuffle()
+                try:
+                    bar = host.query_one("#playback-bar")
+                    bar.update_shuffle(host.queue.shuffle_enabled)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+        # Refresh the playback-bar shuffle button enabled/disabled state.
+        try:
+            bar = host.query_one("#playback-bar")
+            bar.refresh_shuffle_lock_state()  # type: ignore[attr-defined]
+        except Exception:
+            logger.debug("Failed to refresh playback-bar lock state", exc_info=True)
+
+    # ------------------------------------------------------------------
     # Track selection → play
     # ------------------------------------------------------------------
 
@@ -260,12 +438,27 @@ class LibraryPage(Widget):
         tracks = table.tracks
         idx = event.index
 
-        self.app.queue.clear()
-        self.app.queue.add_multiple(tracks)
-        self.app.queue.jump_to_real(idx)
+        host = cast("YTMHostBase", self.app)
+        host.queue.clear()
+        host.queue.add_multiple(tracks)
+        host.queue.jump_to_real(idx)
+        # Shuffle lock (per-playlist, replaces TP-7 implicit memory).
+        # set_context() accepts None — that case clears any previous context;
+        # the lock check below is gated on a truthy id, so None never reaches
+        # shuffle_prefs.get.
+        host.queue.set_context(self._active_playlist_id)
         if self._active_playlist_id:
-            self.app._active_library_playlist_id = self._active_playlist_id  # type: ignore[attr-defined]
-        await self.app.play_track(event.track)
+            locked = bool(host.shuffle_prefs.get(self._active_playlist_id))
+            if locked and not host.queue.shuffle_enabled:
+                host.queue.toggle_shuffle()
+            host._active_library_playlist_id = self._active_playlist_id
+        # Sync the playback bar's shuffle button enabled/disabled state.
+        try:
+            bar = host.query_one("#playback-bar")
+            bar.refresh_shuffle_lock_state()  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        await host.play_track(event.track)
 
     # ------------------------------------------------------------------
     # Vim-style action handler

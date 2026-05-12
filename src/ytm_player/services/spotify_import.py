@@ -15,7 +15,7 @@ from ytmusicapi import YTMusic
 try:
     from rich.console import Console
     from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
-    from thefuzz import fuzz
+    from thefuzz import fuzz  # type: ignore[reportMissingImports]
 
     _HAS_SPOTIFY_DEPS = True
 except ImportError:
@@ -76,7 +76,11 @@ def save_spotify_creds(client_id: str, client_secret: str) -> None:
     import os
 
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    fd = os.open(str(SPOTIFY_CREDS_FILE), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, SECURE_FILE_MODE)
+    fd = os.open(
+        str(SPOTIFY_CREDS_FILE),
+        os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0),
+        SECURE_FILE_MODE,
+    )
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump({"client_id": client_id, "client_secret": client_secret}, f, indent=2)
 
@@ -116,8 +120,8 @@ def extract_spotify_tracks_spotipy(url: str) -> tuple[str, list[dict]]:
     Uses stored client credentials from ``~/.config/ytm-player/spotify.json``.
     Raises ``RuntimeError`` if credentials are missing or the request fails.
     """
-    import spotipy
-    from spotipy.oauth2 import SpotifyClientCredentials
+    import spotipy  # type: ignore[reportMissingImports]
+    from spotipy.oauth2 import SpotifyClientCredentials  # type: ignore[reportMissingImports]
 
     creds = load_spotify_creds()
     if not creds:
@@ -139,10 +143,14 @@ def extract_spotify_tracks_spotipy(url: str) -> tuple[str, list[dict]]:
 
     if is_album:
         album = sp.album(playlist_id)
+        if album is None:
+            raise RuntimeError("Spotify API returned no data for album")
         playlist_name = album.get("name", "Imported Album")
         results = album.get("tracks", {})
     else:
         playlist = sp.playlist(playlist_id)
+        if playlist is None:
+            raise RuntimeError("Spotify API returned no data for playlist")
         playlist_name = playlist.get("name", "Imported Playlist")
         results = playlist.get("tracks", {})
 
@@ -175,7 +183,7 @@ def extract_spotify_tracks(url: str) -> tuple[str, list[dict]]:
             logger.warning("spotipy extraction failed, falling back to scraper: %s", exc)
 
     # Fallback: spotify_scraper (limited to ~100 tracks).
-    from spotify_scraper import SpotifyClient
+    from spotify_scraper import SpotifyClient  # type: ignore[reportMissingImports]
 
     client = SpotifyClient()
     try:
@@ -221,8 +229,12 @@ def _fuzzy_score(spotify_track: dict, ytm_track: dict) -> int:
     ytm_title = (ytm_track.get("title", "") or "").lower()
     ytm_artist = extract_artist(ytm_track).lower()
 
-    title_score = fuzz.ratio(sp_title, ytm_title)
-    artist_score = fuzz.ratio(sp_artist, ytm_artist)
+    # fuzz / Console / Progress / etc. are conditionally imported under
+    # _HAS_SPOTIFY_DEPS at module top. Callers gate on _HAS_SPOTIFY_DEPS
+    # before reaching this code path; Pyright can't narrow through that
+    # so we suppress the possibly-unbound warning on each usage site.
+    title_score = fuzz.ratio(sp_title, ytm_title)  # type: ignore[possibly-unbound]
+    artist_score = fuzz.ratio(sp_artist, ytm_artist)  # type: ignore[possibly-unbound]
 
     # Weighted: title matters more but artist is still important.
     return int(title_score * TITLE_MATCH_WEIGHT + artist_score * ARTIST_MATCH_WEIGHT)
@@ -280,11 +292,11 @@ def match_tracks(
     # Pre-allocate results list so we can slot them back in order.
     results: list[MatchResult | None] = [None] * len(spotify_tracks)
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("{task.completed}/{task.total}"),
+    with Progress(  # type: ignore[possibly-unbound]
+        SpinnerColumn(),  # type: ignore[possibly-unbound]
+        TextColumn("[progress.description]{task.description}"),  # type: ignore[possibly-unbound]
+        BarColumn(),  # type: ignore[possibly-unbound]
+        TextColumn("{task.completed}/{task.total}"),  # type: ignore[possibly-unbound]
         console=console,
     ) as progress:
         task = progress.add_task("Searching YouTube Music...", total=len(spotify_tracks))
@@ -320,7 +332,7 @@ def run_import(spotify_url: str, auth_file: Path) -> None:
     if not _HAS_SPOTIFY_DEPS:
         click.echo("Spotify import requires extra dependencies: pip install ytm-player[spotify]")
         return
-    console = Console()
+    console = Console()  # type: ignore[possibly-unbound]
 
     # Validate URL.
     if not re.match(r"https?://open\.spotify\.com/(playlist|album)/", spotify_url):

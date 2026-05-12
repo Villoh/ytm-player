@@ -206,6 +206,7 @@ class CacheManager:
             "FROM cache_index"
         ) as cursor:
             row = await cursor.fetchone()
+        assert row is not None  # COUNT/SUM aggregate query always returns one row
         return {
             "total_size": row["total_size"],
             "file_count": row["file_count"],
@@ -222,7 +223,9 @@ class CacheManager:
         async with self._db.execute(
             "SELECT COALESCE(SUM(file_size), 0) AS total FROM cache_index"
         ) as cursor:
-            total = (await cursor.fetchone())["total"]
+            row = await cursor.fetchone()
+            assert row is not None  # SUM(...) always returns one row
+            total = row["total"]
 
         if total <= max_bytes:
             return

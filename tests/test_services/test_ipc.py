@@ -2,6 +2,9 @@
 
 import asyncio
 import json
+import sys
+import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -96,13 +99,23 @@ class TestIPCPayloadValidation:
         assert len(payload.encode()) > 65536
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="IPCServerHandler tests use AF_UNIX which Windows doesn't support",
+)
 class TestIPCServerHandler:
     """Exercise the real IPCServer._client_connected handler via a Unix socket."""
 
     @pytest.fixture
-    async def ipc_env(self, tmp_path, monkeypatch):
+    async def ipc_env(self, monkeypatch):
         """Start an IPCServer on a temp socket and yield a helper to send messages."""
-        socket_path = tmp_path / "test.sock"
+        # AF_UNIX sun_path is capped at 104 bytes on macOS / 108 on Linux.
+        # pytest's tmp_path on CI runners (e.g. /Users/runner/work/_temp/...
+        # plus pytest-of-runner/pytest-N/test_xxx0/) blows past that. Use the
+        # system tempdir with a short basename so the socket path stays small
+        # on every platform.
+        tmp_dir = Path(tempfile.mkdtemp(prefix="ytm-ipc-"))
+        socket_path = tmp_dir / "s"
 
         async def handler(command: str, args: dict) -> dict:
             return {"ok": True, "command": command, "args": args}
@@ -129,6 +142,11 @@ class TestIPCServerHandler:
             yield send
         finally:
             await server.stop()
+            socket_path.unlink(missing_ok=True)
+            try:
+                tmp_dir.rmdir()
+            except OSError:
+                pass
 
     async def test_valid_command_returns_handler_response(self, ipc_env):
         send = ipc_env

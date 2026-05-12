@@ -1,0 +1,49 @@
+name: Feature request
+description: Suggest a new feature or improvement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Got an idea? Great. **Please bundle related ideas into a single
+        issue.** Not standard practice, I know — but as a solo
+        maintainer one batched decision is way more manageable than
+        five separate threads filed across a week.
+
+        **Don't mix bug reports with feature requests** — file bugs
+        separately so they don't get buried under the wishlist.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's the use case or preference behind this?
+      description: |
+        If it's a workflow problem, describe what you were trying to do
+        and what got in your way. If it's a preference (look, feel,
+        behavior you'd rather have), say what bothers you about the
+        current behavior and what would feel better. Suggested
+        solutions are welcome but go in the field below — this one is
+        for the underlying need.
+      placeholder: |
+        Workflow example: When I'm doing X, I want Y because Z.
+        Preference example: The X bar shows redundant info — I'd
+        rather see Y instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution (optional)
+      description: How would you like this to work? (Skip if you don't have one.)
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered (optional)
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?

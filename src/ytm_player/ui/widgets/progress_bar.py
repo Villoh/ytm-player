@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
 from rich.text import Text
 from textual.events import Click, MouseScrollDown, MouseScrollUp
 from textual.reactive import reactive
@@ -10,6 +12,9 @@ from textual.widget import Widget
 
 from ytm_player.ui.theme import get_theme
 from ytm_player.utils.formatting import format_duration
+
+if TYPE_CHECKING:
+    from ytm_player.app._base import YTMHostBase
 
 # Seconds to jump per scroll tick.
 _SCROLL_STEP = 3.0
@@ -90,15 +95,15 @@ class PlaybackProgress(Widget):
         return time_prefix, time_suffix, bar_width
 
     def render(self) -> Text:
+        time_prefix, time_suffix, bar_width = self._bar_metrics()
+        filled_count = int(bar_width * self.progress)
+        empty_count = bar_width - filled_count
+
         theme = get_theme()
         filled_color = self._filled_color or theme.progress_filled
         empty_color = self._empty_color or theme.progress_empty
         time_color = self._time_color or theme.secondary
         marker_color = self._marker_color or theme.foreground
-
-        time_prefix, time_suffix, bar_width = self._bar_metrics()
-        filled_count = int(bar_width * self.progress)
-        empty_count = bar_width - filled_count
 
         result = Text()
         result.append(time_prefix, style=time_color)
@@ -216,9 +221,10 @@ class PlaybackProgress(Widget):
 
     def _seek_to(self, seconds: float) -> None:
         """Tell the app player to seek to an absolute position."""
-        app = self.app
-        if hasattr(app, "player") and app.player:
-            self.call_later(lambda: app.run_worker(app.player.seek_absolute(seconds)))
+        app = cast("YTMHostBase", self.app)
+        player = app.player
+        if player is not None:
+            self.call_later(lambda: app.run_worker(player.seek_absolute(seconds)))
 
     # ── Public API (unchanged) ────────────────────────────────────
 

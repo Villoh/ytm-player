@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
+from ytm_player.app._base import YTMHostBase
 from ytm_player.ui.playback_bar import PlaybackBar
 from ytm_player.ui.popups.actions import ActionsPopup
 from ytm_player.ui.popups.playlist_picker import PlaylistPicker
@@ -13,7 +15,7 @@ from ytm_player.utils.formatting import copy_to_clipboard, get_video_id
 logger = logging.getLogger(__name__)
 
 
-class TrackActionsMixin:
+class TrackActionsMixin(YTMHostBase):
     """Track table integration and actions popup wiring."""
 
     async def on_track_table_track_selected(self, message: TrackTable.TrackSelected) -> None:
@@ -91,12 +93,23 @@ class TrackActionsMixin:
                 self.run_worker(self._download_track(track))
             elif action_id == "play_next":
                 self.queue.add_next(track)
+                self._refresh_queue_page()
                 self.notify("Playing next", timeout=2)
             elif action_id == "add_to_queue":
                 self.queue.add(track)
+                self._refresh_queue_page()
                 self.notify("Added to queue", timeout=2)
+            elif action_id == "remove_from_queue":
+                video_id = get_video_id(track)
+                if video_id:
+                    for i, t in enumerate(self.queue.tracks):
+                        if t.get("video_id") == video_id:
+                            self.queue.remove(i)
+                            self._refresh_queue_page()
+                            self.notify("Removed from queue", timeout=2)
+                            break
             elif action_id == "start_radio":
-                self.run_worker(self._start_radio_for(track))
+                self.run_worker(self._fetch_and_play_radio(track))
             elif action_id == "go_to_artist":
                 artists = track.get("artists", [])
                 if isinstance(artists, list) and artists:
@@ -119,18 +132,24 @@ class TrackActionsMixin:
                     )
             elif action_id == "toggle_like":
                 video_id = get_video_id(track)
-                if video_id and self.ytmusic:
+                ytmusic = self.ytmusic
+                if video_id and ytmusic is not None:
                     is_liked = track.get("likeStatus") == "LIKE" or track.get("liked", False)
                     rating = "INDIFFERENT" if is_liked else "LIKE"
                     label = "Unliked" if is_liked else "Liked"
 
                     async def _rate(vid: str, r: str, lbl: str) -> None:
-                        try:
-                            await self.ytmusic.rate_song(vid, r)
+                        from ytm_player.services.ytmusic import mutation_failure_suffix
+
+                        result = await ytmusic.rate_song(vid, r)
+                        if result == "success":
+                            track["likeStatus"] = r
                             self.notify(lbl, timeout=2)
-                        except Exception:
+                        else:
                             self.notify(
-                                f"Failed to {lbl.lower()} track", severity="error", timeout=3
+                                f"Couldn't {lbl.lower()} — {mutation_failure_suffix(result)}",
+                                severity="error",
+                                timeout=3,
                             )
 
                     self.run_worker(_rate(video_id, rating, label))
@@ -143,7 +162,26 @@ class TrackActionsMixin:
                     else:
                         self.notify(link, timeout=5)
 
-        self.push_screen(ActionsPopup(track, item_type="track"), _handle_action_result)
+        # Detect whether this track is currently in the queue so the popup
+        # can swap "Add to Queue" for "Remove from Queue".
+        track_vid = get_video_id(track)
+        in_queue = bool(track_vid) and any(
+            t.get("video_id") == track_vid for t in self.queue.tracks
+        )
+        self.push_screen(
+            ActionsPopup(track, item_type="track", in_queue=in_queue),
+            _handle_action_result,
+        )
+
+    def _refresh_queue_page(self) -> None:
+        """Refresh the queue page if it's currently displayed."""
+        try:
+            from ytm_player.ui.pages.queue import QueuePage
+
+            queue_page = self.query_one(QueuePage)
+            queue_page._refresh_queue()
+        except Exception:
+            pass
 
     def on_track_table_track_right_clicked(self, message: TrackTable.TrackRightClicked) -> None:
         """Handle right-click on any TrackTable -- open actions popup."""
@@ -153,25 +191,19 @@ class TrackActionsMixin:
         """Handle right-click on the playback bar -- open actions popup."""
         self._open_actions_for_track(message.track)
 
-    async def _start_radio_for(self, track: dict) -> None:
-        """Start radio from a specific track."""
-        video_id = get_video_id(track)
-        if not video_id or not self.ytmusic:
-            return
+    def on_selection_changed(self, message: Any) -> None:
+        """Relay SelectionChanged messages to the SelectionInfoBar.
 
-        self.notify("Starting radio...", timeout=3)
+        SelectionChanged bubbles up the DOM from descendants (sidebar items,
+        TrackTable rows). The bar is a sibling of those widgets — it's NOT
+        an ancestor — so the bubble never reaches it directly. The App is
+        the common ancestor: catch the message here and push the text to
+        the bar by id.
+        """
         try:
-            from ytm_player.utils.formatting import normalize_tracks
+            from ytm_player.ui.selection_info_bar import SelectionInfoBar
 
-            radio_tracks = normalize_tracks(await self.ytmusic.get_radio(video_id))
+            bar = self.query_one("#selection-info-bar", SelectionInfoBar)
+            bar.text = getattr(message, "text", "")
         except Exception:
-            logger.exception("Failed to start radio")
-            self.notify("Failed to start radio", severity="error")
-            return
-
-        if radio_tracks:
-            self.queue.clear()
-            self.queue.set_radio_tracks(radio_tracks)
-            first = self.queue.next_track()
-            if first:
-                await self.play_track(first)
+            logger.debug("Failed to relay SelectionChanged to bar", exc_info=True)

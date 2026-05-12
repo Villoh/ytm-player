@@ -3,15 +3,47 @@
 from __future__ import annotations
 
 import logging
-import tomllib
-from dataclasses import dataclass
+import sys
+from dataclasses import dataclass, fields
 from pathlib import Path
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    # Python 3.10 backport via PyPI
+    import tomli as tomllib  # pyright: ignore[reportMissingImports]
+
+if sys.version_info >= (3, 11):
+    from typing import Self
+else:
+    # Python 3.10 backport via PyPI
+    from typing_extensions import Self  # pyright: ignore[reportMissingImports]
 
 from textual.theme import Theme
 
-from ytm_player.config.paths import THEMES_DIR
+from ytm_player.config.paths import THEME_FILE, THEMES_DIR
 
 logger = logging.getLogger(__name__)
+
+# Default lyric-current color used when a theme defines no accent/primary.
+# Single source of truth: the dataclass default, the from_css_variables
+# fallback, and the two _app.py fallbacks (get_css_variables, watch_theme)
+# all derive from this constant.  Matches ytm-dark's accent.
+DEFAULT_LYRIC_CURRENT = "#ff4e45"
+
+# ── App-specific CSS variable names (not provided by Textual themes) ───
+
+_APP_VARS = (
+    "playback_bar_bg",
+    "active_tab",
+    "inactive_tab",
+    "selected_item",
+    "progress_filled",
+    "progress_empty",
+    "lyrics_played",
+    "lyrics_current",
+    "lyrics_upcoming",
+)
 
 # ── YTM dark theme — YouTube Music-inspired defaults ──────────────────
 
@@ -34,9 +66,10 @@ YTM_DARK = Theme(
         "selected-item": "#2a2a2a",
         "progress-filled": "#ff0000",
         "progress-empty": "#555555",
-        "lyrics-played": "#999999",
-        "lyrics-current": "#2ecc71",
-        "lyrics-upcoming": "#aaaaaa",
+        # Note: lyrics-* vars intentionally NOT hardcoded here so they
+        # derive from the active theme via from_css_variables fallbacks
+        # (played → text-muted, current → accent, upcoming → text).
+        # This keeps lyric coloring theme-aware on every theme.
     },
 )
 
@@ -45,10 +78,8 @@ YTM_DARK = Theme(
 class ThemeColors:
     """Resolved color values for Rich Text rendering in widget render() methods.
 
-    Populated from the active Textual theme via watch_theme.  App-specific
-    variables (playback bar, lyrics, etc.) are read from the theme's
-    ``variables`` dict, which user themes can set in their ``[variables]``
-    section.
+    Base colors come from the active Textual theme.  App-specific colors
+    can be overridden via ``theme.toml`` or a user theme's ``[variables]``.
     """
 
     # Base colors (populated from Textual theme at runtime).
@@ -65,7 +96,7 @@ class ThemeColors:
     muted_text: str = "#999999"
     text: str = "#ffffff"
 
-    # App-specific colors (set from theme variables dict).
+    # App-specific colors.
     playback_bar_bg: str = "#1a1a1a"
     active_tab: str = "#ffffff"
     inactive_tab: str = "#999999"
@@ -73,27 +104,105 @@ class ThemeColors:
     progress_filled: str = "#ff0000"
     progress_empty: str = "#555555"
     lyrics_played: str = "#999999"
-    lyrics_current: str = "#2ecc71"
+    lyrics_current: str = DEFAULT_LYRIC_CURRENT
     lyrics_upcoming: str = "#aaaaaa"
+
+    @classmethod
+    def from_css_variables(cls, variables: dict[str, str]) -> Self:
+        """Build ThemeColors from resolved Textual CSS variables."""
+        tc = cls(
+            background=variables.get("background", cls.background),
+            foreground=variables.get("foreground", cls.foreground),
+            primary=variables.get("primary", cls.primary),
+            secondary=variables.get("secondary", cls.secondary),
+            accent=variables.get("accent", cls.accent),
+            success=variables.get("success", cls.success),
+            warning=variables.get("warning", cls.warning),
+            error=variables.get("error", cls.error),
+            surface=variables.get("surface", cls.surface),
+            border=variables.get("border", cls.border),
+            muted_text=variables.get("text-muted", cls.muted_text),
+            text=variables.get("text", cls.text),
+            # App-specific: use theme value if present, else derive from base.
+            playback_bar_bg=variables.get(
+                "playback-bar-bg", variables.get("surface", cls.playback_bar_bg)
+            ),
+            active_tab=variables.get("active-tab", variables.get("text", cls.active_tab)),
+            inactive_tab=variables.get(
+                "inactive-tab", variables.get("text-muted", cls.inactive_tab)
+            ),
+            selected_item=variables.get(
+                "selected-item", variables.get("surface", cls.selected_item)
+            ),
+            progress_filled=variables.get(
+                "progress-filled", variables.get("primary", cls.progress_filled)
+            ),
+            progress_empty=variables.get(
+                "progress-empty", variables.get("surface", cls.progress_empty)
+            ),
+            lyrics_played=variables.get(
+                "lyrics-played", variables.get("text-muted", cls.lyrics_played)
+            ),
+            lyrics_current=variables.get(
+                "lyrics-current",
+                variables.get("accent", variables.get("primary", cls.lyrics_current)),
+            ),
+            lyrics_upcoming=variables.get(
+                "lyrics-upcoming", variables.get("text", cls.lyrics_upcoming)
+            ),
+        )
+
+        tc._apply_toml_overrides()
+        return tc
+
+    def _apply_toml_overrides(self, path: Path = THEME_FILE) -> None:
+        """Load color overrides from theme.toml."""
+        if not path.exists():
+            return
+        try:
+            with open(path, "rb") as f:
+                data = tomllib.load(f)
+        except (UnicodeDecodeError, tomllib.TOMLDecodeError):
+            return
+
+        colors = data.get("colors", data)
+        for f_info in fields(self):
+            if f_info.name in colors:
+                setattr(self, f_info.name, colors[f_info.name])
+
+    @classmethod
+    def load(cls, path: Path = THEME_FILE) -> Self:
+        """Load from theme.toml (legacy fallback for non-app contexts)."""
+        theme = cls()
+        if not path.exists():
+            return theme
+        try:
+            with open(path, "rb") as f:
+                data = tomllib.load(f)
+        except (UnicodeDecodeError, tomllib.TOMLDecodeError):
+            return theme
+        colors = data.get("colors", data)
+        for f_info in fields(theme):
+            if f_info.name in colors:
+                setattr(theme, f_info.name, colors[f_info.name])
+        return theme
+
+    def save(self, path: Path = THEME_FILE) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lines = ["[colors]"]
+        for f_info in fields(self):
+            value = getattr(self, f_info.name)
+            lines.append(f'{f_info.name} = "{value}"')
+        lines.append("")
+        path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def load_user_themes(themes_dir: Path = THEMES_DIR) -> list[Theme]:
     """Load user-defined themes from the themes/ config directory.
 
-    Each TOML file must have at least ``name`` and ``primary``.  An optional
-    ``[variables]`` section maps directly to Textual CSS variables, which is
-    where ytm-player-specific colors (playback bar, lyrics, etc.) can be set.
-
-    Example theme file::
-
-        name = "my-theme"
-        primary = "#ff6b6b"
-        background = "#1a1a2e"
-        dark = true
-
-        [variables]
-        playback-bar-bg = "#0f3460"
-        lyrics-current = "#ff6b6b"
+    Each TOML file must have at least ``name`` and ``primary``. An optional
+    ``[variables]`` section maps directly to Textual CSS variables, including
+    ytm-player-specific colors (playback bar, lyrics, etc.).
     """
     if not themes_dir.exists():
         return []
@@ -145,7 +254,7 @@ _theme: ThemeColors | None = None
 def get_theme() -> ThemeColors:
     global _theme
     if _theme is None:
-        _theme = ThemeColors()
+        _theme = ThemeColors.load()
     return _theme
 
 

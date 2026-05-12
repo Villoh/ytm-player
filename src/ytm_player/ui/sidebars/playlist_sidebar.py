@@ -15,6 +15,7 @@ from textual.widget import Widget
 from textual.widgets import Input, Label, ListItem, ListView, Rule, Static
 
 from ytm_player.config.settings import get_settings
+from ytm_player.ui.selection_info_bar import SelectionChanged
 from ytm_player.utils.formatting import copy_to_clipboard, truncate
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,18 @@ class LibraryPanel(Widget):
     LibraryPanel ListView {
         height: 1fr;
         width: 1fr;
+    }
+
+    LibraryPanel ListView ListItem:hover {
+        background: $accent 30%;
+    }
+
+    LibraryPanel.truncate-items ListView ListItem {
+        height: 1;
+    }
+
+    LibraryPanel.truncate-items ListView ListItem Static {
+        height: 1;
     }
 
     LibraryPanel .panel-loading {
@@ -133,6 +146,14 @@ class LibraryPanel(Widget):
 
     def on_mount(self) -> None:
         self._set_loading_visible(True)
+        # Apply [ui] sidebar_overflow setting via CSS class.
+        try:
+            from ytm_player.config.settings import get_settings
+
+            if get_settings().ui.sidebar_overflow == "truncate":
+                self.add_class("truncate-items")
+        except Exception:
+            logger.debug("Failed to apply sidebar_overflow class", exc_info=True)
 
     def _set_loading_visible(self, visible: bool) -> None:
         try:
@@ -151,12 +172,75 @@ class LibraryPanel(Widget):
         self._set_loading_visible(False)
         self.is_loading = False
 
+    def prepend_item(self, item: dict[str, Any]) -> None:
+        """Optimistically insert *item* at the top of the panel."""
+        self._items.insert(0, item)
+        self._filtered_items.insert(0, item)
+        full_text = self._format_item(item)
+        lbl = Static(self._render_text(full_text))
+        list_view = self.query_one(ListView)
+        list_view.insert(0, [ListItem(lbl)])
+        count_label = self.query_one(".panel-count", Static)
+        total = len(self._items)
+        shown = len(self._filtered_items)
+        if shown == total:
+            count_label.update(f"{total} item{'s' if total != 1 else ''}")
+        else:
+            count_label.update(f"{shown}/{total}")
+
+    def remove_item(self, playlist_id: str) -> None:
+        """Optimistically remove the item with *playlist_id* from the panel."""
+
+        def matches(item: dict[str, Any]) -> bool:
+            pid = item.get("playlistId") or item.get("browseId", "")
+            return pid == playlist_id or pid == f"VL{playlist_id}"
+
+        self._items = [i for i in self._items if not matches(i)]
+        self._filtered_items = [i for i in self._filtered_items if not matches(i)]
+        self._rebuild_list(self._filtered_items)
+
+    def update_item_count(self, playlist_id: str, delta: int) -> None:
+        """Optimistically update the cached track count for a playlist.
+
+        Matches against both 'playlistId' and 'browseId' keys. Tolerates a
+        VL-prefix mismatch in either direction. If the cached count is None
+        (unknown), leaves it None — never fabricates.
+        """
+
+        def matches(item: dict[str, Any]) -> bool:
+            pid = item.get("playlistId") or item.get("browseId", "") or ""
+            target = playlist_id
+            return (
+                pid == target
+                or pid == f"VL{target}"
+                or f"VL{pid}" == target
+                or pid == target.removeprefix("VL")
+            )
+
+        target_item = next((i for i in self._items if matches(i)), None)
+        if target_item is None:
+            return
+
+        current = target_item.get("count")
+        if current is None:
+            return  # don't fabricate; wait for next library reload
+        target_item["count"] = max(0, current + delta)
+
+        # Rebuild the list so the visible label reflects the new count.
+        # Wrapped in try/except because tests instantiate via __new__ without
+        # mounting the ListView; production code always has it mounted.
+        try:
+            self._rebuild_list(self._filtered_items)
+        except Exception:
+            logger.debug("update_item_count: _rebuild_list failed", exc_info=True)
+
     def _rebuild_list(self, items: list[dict[str, Any]]) -> None:
         list_view = self.query_one(ListView)
         list_view.clear()
         for item in items:
-            label = self._format_item(item)
-            list_view.append(ListItem(Label(label)))
+            full_text = self._format_item(item)
+            lbl = Static(self._render_text(full_text))
+            list_view.append(ListItem(lbl))
         count_label = self.query_one(".panel-count", Static)
         total = len(self._items)
         shown = len(items)
@@ -169,8 +253,27 @@ class LibraryPanel(Widget):
         title = item.get("title", item.get("name", "Unknown"))
         count = item.get("count")
         if count is not None:
-            return truncate(f"{title} ({count} tracks)", 60)
-        return truncate(title, 60)
+            return f"{title} ({count} tracks)"
+        return title
+
+    def _render_text(self, full_text: str) -> str:
+        """Apply the configured overflow rule to *full_text*.
+
+        - "truncate" (default): hard-cut to 60 chars with `…` suffix on overflow.
+          The `truncate-items` CSS class additionally clips the row to height 1
+          so even truncated-but-still-too-wide text won't wrap visually.
+        - "wrap": pass the text through unchanged; Textual's Static widget will
+          wrap to multiple lines naturally.
+        """
+        try:
+            from ytm_player.config.settings import get_settings
+
+            mode = get_settings().ui.sidebar_overflow
+        except Exception:
+            mode = "truncate"
+        if mode == "wrap":
+            return full_text
+        return truncate(full_text, 60)
 
     # -- Filtering --
 
@@ -213,6 +316,43 @@ class LibraryPanel(Widget):
             self.filter_visible = False
             list_view = self.query_one(ListView)
             list_view.focus()
+
+    # -- Highlight --
+
+    def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
+        """Post SelectionChanged so SelectionInfoBar can display the full title.
+
+        Only posts when this panel's ListView actually has focus — otherwise
+        a freshly-mounted ListView fires Highlighted at index 0 on init and
+        stomps a different focused widget's selection in the info bar.
+        """
+        try:
+            list_view = event.list_view
+            if not list_view.has_focus:
+                return
+            sel_idx = list_view.index
+            if sel_idx is not None and 0 <= sel_idx < len(self._filtered_items):
+                item = self._filtered_items[sel_idx]
+                title = item.get("title", item.get("name", ""))
+                self.post_message(SelectionChanged(title))
+            else:
+                self.post_message(SelectionChanged(""))
+        except Exception:
+            self.post_message(SelectionChanged(""))
+
+    def on_focus(self) -> None:
+        """When the panel gains focus, push the current highlight into the info bar."""
+        try:
+            list_view = self.query_one(ListView)
+            sel_idx = list_view.index
+            if sel_idx is not None and 0 <= sel_idx < len(self._filtered_items):
+                item = self._filtered_items[sel_idx]
+                title = item.get("title", item.get("name", ""))
+                self.post_message(SelectionChanged(title))
+            else:
+                self.post_message(SelectionChanged(""))
+        except Exception:
+            self.post_message(SelectionChanged(""))
 
     # -- Selection --
 
@@ -316,7 +456,7 @@ class PlaylistSidebar(Widget):
     }
 
     .ps-pinned-item:hover {
-        background: $border;
+        background: $accent 30%;
         color: $text;
     }
 
@@ -325,7 +465,8 @@ class PlaylistSidebar(Widget):
         text-style: bold;
     }
 
-    #ps-separator {
+    #ps-separator,
+    #ps-separator-bottom {
         margin: 0 1;
         color: $border;
     }
@@ -371,8 +512,10 @@ class PlaylistSidebar(Widget):
         with Vertical(id="ps-pinned-nav"):
             yield Static("\u2665 Liked Songs", id="ps-nav-liked", classes="ps-pinned-item")
             yield Static("\u23f1 Recently Played", id="ps-nav-recent", classes="ps-pinned-item")
+            yield Static("\u266b Discovery Mix", id="ps-nav-discovery", classes="ps-pinned-item")
         yield Rule(id="ps-separator")
         yield LibraryPanel("Playlists", id="ps-playlists", instant_select=True)
+        yield Rule(id="ps-separator-bottom")
 
     def on_mount(self) -> None:
         settings = get_settings()
@@ -433,12 +576,17 @@ class PlaylistSidebar(Widget):
 
     def on_click(self, event: Click) -> None:
         target = event.widget
+        if target is None:
+            return
         if target.id == "ps-nav-liked":
             event.stop()
             self.post_message(self.NavItemClicked("liked_songs"))
         elif target.id == "ps-nav-recent":
             event.stop()
             self.post_message(self.NavItemClicked("recently_played"))
+        elif target.id == "ps-nav-discovery":
+            event.stop()
+            self.post_message(self.NavItemClicked("discovery_mix"))
 
     # -- Public helpers for sidebar actions --
 
@@ -463,9 +611,11 @@ class PlaylistSidebar(Widget):
             case Action.PAGE_UP:
                 list_view.action_scroll_up()
             case Action.GO_TOP:
-                list_view.action_first()
+                if len(list_view.children) > 0:
+                    list_view.index = 0
             case Action.GO_BOTTOM:
-                list_view.action_last()
+                if len(list_view.children) > 0:
+                    list_view.index = len(list_view.children) - 1
             case Action.SELECT:
                 list_view.action_select_cursor()
             case Action.FILTER:

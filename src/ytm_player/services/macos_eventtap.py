@@ -4,6 +4,7 @@ Interface: MacOSEventTapService.start/stop registers and tears down a global eve
 Invariants: Only media-key key-down events are intercepted; all other events pass through.
 Decisions: Swallow handled media keys so Apple Music does not auto-launch while ytm-player is active.
 """
+# pyright: reportAttributeAccessIssue=false, reportOptionalMemberAccess=false
 
 from __future__ import annotations
 
@@ -16,8 +17,8 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 try:
-    import AppKit
-    import Quartz
+    import AppKit  # type: ignore[reportMissingImports]
+    import Quartz  # type: ignore[reportMissingImports]
 
     _EVENT_TAP_AVAILABLE = True
 except ImportError:
@@ -33,11 +34,15 @@ _MEDIA_KEY_DOWN_STATE = 0xA
 _PLAY_PAUSE_KEY = 16
 _NEXT_KEY = 17
 _PREVIOUS_KEY = 18
+_FAST_FORWARD_KEY = 19
+_REWIND_KEY = 20
 
 _KEY_TO_ACTION = {
     _PLAY_PAUSE_KEY: "play_pause",
     _NEXT_KEY: "next",
     _PREVIOUS_KEY: "previous",
+    _FAST_FORWARD_KEY: "next",
+    _REWIND_KEY: "previous",
 }
 
 

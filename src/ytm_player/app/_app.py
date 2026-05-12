@@ -5,10 +5,17 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+from pathlib import Path
 from typing import Any
 
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    # Python 3.10 backport via PyPI
+    import tomli as tomllib  # pyright: ignore[reportMissingImports]
+
 from textual.app import App, ComposeResult
-from textual.containers import Container, Horizontal
+from textual.containers import Container, Horizontal, Vertical
 
 from ytm_player.app._ipc import IPCMixin
 from ytm_player.app._keys import KeyHandlingMixin
@@ -19,6 +26,7 @@ from ytm_player.app._session import SessionMixin
 from ytm_player.app._sidebar import SidebarMixin
 from ytm_player.app._track_actions import TrackActionsMixin
 from ytm_player.config import KeyMap, get_keymap
+from ytm_player.config.paths import THEME_FILE  # noqa: F401  # module-level for monkeypatch
 from ytm_player.config.settings import Settings, get_settings
 from ytm_player.ipc import IPCServer, remove_pid, write_pid
 from ytm_player.services.auth import AuthManager
@@ -31,17 +39,62 @@ from ytm_player.services.mediakeys import MediaKeysService
 from ytm_player.services.mpris import MPRISService
 from ytm_player.services.player import Player, PlayerEvent
 from ytm_player.services.queue import QueueManager
+from ytm_player.services.shuffle_prefs import ShufflePreferences
 from ytm_player.services.stream import StreamResolver
 from ytm_player.services.ytmusic import YTMusicService
 from ytm_player.ui.header_bar import HeaderBar
 from ytm_player.ui.playback_bar import FooterBar, PlaybackBar
+from ytm_player.ui.selection_info_bar import SelectionInfoBar
 from ytm_player.ui.sidebars.lyrics_sidebar import LyricsSidebar
 from ytm_player.ui.sidebars.playlist_sidebar import PlaylistSidebar
-from ytm_player.ui.theme import ThemeColors, get_theme
+from ytm_player.ui.theme import DEFAULT_LYRIC_CURRENT, ThemeColors, get_theme
 
 logger = logging.getLogger(__name__)
 
 _POSITION_POLL_INTERVAL = 0.5
+
+# Cache for theme.toml so get_css_variables doesn't re-parse TOML on
+# every CSS resolution.  Invalidated when the file's mtime changes
+# (covers user edits via `ytm config` or external editors).
+_theme_toml_cache: dict | None = None
+_theme_toml_mtime: float | None = None
+
+
+def _read_theme_toml_cached() -> dict:
+    """Return the [colors] section of theme.toml, cached by file mtime."""
+    global _theme_toml_cache, _theme_toml_mtime
+
+    # Re-read the THEME_FILE binding dynamically (tests monkeypatch this module attribute).
+    path = globals().get("THEME_FILE")
+    if path is None:
+        return {}
+
+    try:
+        if not path.exists():
+            _theme_toml_cache = {}
+            _theme_toml_mtime = None
+            return _theme_toml_cache
+
+        mtime = path.stat().st_mtime
+        if _theme_toml_cache is not None and _theme_toml_mtime == mtime:
+            return _theme_toml_cache
+
+        with open(path, "rb") as f:
+            data = tomllib.load(f)
+        # The file may have a [colors] table OR be a flat top-level dict.
+        colors = data.get("colors", data)
+        _theme_toml_cache = colors if isinstance(colors, dict) else {}
+        _theme_toml_mtime = mtime
+        return _theme_toml_cache
+    except Exception:
+        return {}
+
+
+def _get_ytm_commands_provider():
+    """Lazy-load the custom YTM command provider to avoid circular imports."""
+    from ytm_player.app._commands import YTMCommandProvider
+
+    return YTMCommandProvider
 
 
 # ── Main Application ────────────────────────────────────────────────
@@ -78,8 +131,39 @@ class YTMPlayerApp(
         align-horizontal: right;
     }
 
+    /* When the lyrics sidebar is open, shift the toast rack left
+       so notifications don't cover the lyrics. The lyrics sidebar
+       is 40 cells wide; +1 for its left border. Use offset (post-
+       layout) since Textual's own ToastRack DEFAULT_CSS sets margins
+       that would override a margin rule. */
+    Screen.lyrics-open ToastRack {
+        offset: -41 0;
+    }
+
+    Toast {
+        background: $surface;
+    }
+
+    Toast.-information {
+        border-left: thick $primary;
+    }
+
+    Toast.-warning {
+        border-left: thick $warning;
+    }
+
+    Toast.-error {
+        border-left: thick $error;
+    }
+
     #app-body {
         height: 1fr;
+        width: 1fr;
+    }
+
+    #bottom-stack {
+        dock: bottom;
+        height: auto;
         width: 1fr;
     }
 
@@ -104,15 +188,19 @@ class YTMPlayerApp(
     # We handle all bindings ourselves through the KeyMap system.
     BINDINGS = []
 
+    # Register custom command palette providers alongside Textual's defaults.
+    COMMANDS = App.COMMANDS | {_get_ytm_commands_provider}
+
     def __init__(self) -> None:
         super().__init__()
 
+        # Register custom YTM theme and any user-defined themes.
         self._register_themes()
-        self.theme = "ytm-dark"
 
         # Configuration.
         self.settings: Settings = get_settings()
         self.keymap: KeyMap = get_keymap()
+        self.theme = self.settings.ui.theme or "ytm-dark"
         self.theme_colors: ThemeColors = get_theme()
 
         # Services (initialized in on_mount).
@@ -130,6 +218,11 @@ class YTMPlayerApp(
         self.lastfm: LastFMService | None = None
         self.downloader: DownloadService = DownloadService()
 
+        # Per-collection shuffle memory (Spotify-style).
+        from ytm_player.config.paths import SHUFFLE_PREFS_FILE
+
+        self.shuffle_prefs: ShufflePreferences = ShufflePreferences(SHUFFLE_PREFS_FILE)
+
         # Key input state for multi-key sequences and count prefixes.
         self._key_buffer: list[str] = []
         self._count_buffer: str = ""
@@ -140,6 +233,10 @@ class YTMPlayerApp(
 
         # Navigation stack for back navigation.
         self._nav_stack: list[tuple[str, dict]] = []
+        # Forward stack for browser-style "go forward" after a back.
+        # Pushed when going back, popped when going forward. Cleared on any
+        # new (non-back, non-forward) navigation, matching browser semantics.
+        self._forward_stack: list[tuple[str, dict]] = []
         # Cached page state for forward navigation restoration.
         self._page_state_cache: dict[str, dict] = {}
 
@@ -158,6 +255,11 @@ class YTMPlayerApp(
         self._last_play_video_id: str = ""
         self._last_play_time: float = 0.0
 
+        # Pending resume from prior session (set by _restore_session_state).
+        # Cleared on first matching play_track call.
+        self._pending_resume_video_id: str | None = None
+        self._pending_resume_position: float = 0.0
+
         # Reference to the position poll timer (for cleanup).
         self._poll_timer = None
 
@@ -172,6 +274,11 @@ class YTMPlayerApp(
         self._sidebar_default: bool = True
         self._sidebar_per_page: dict[str, bool] = {}
         self._lyrics_sidebar_open: bool = False
+
+        # First-run discoverability hint (Task 4.8). Flipped to True after
+        # the toast fires; persisted via session.json so the hint shows
+        # exactly once per install.
+        self._first_run_hint_shown: bool = False
 
     def get_css_variables(self) -> dict[str, str]:
         """Inject app-specific CSS variables alongside Textual's theme variables.
@@ -191,12 +298,45 @@ class YTMPlayerApp(
             "progress-filled": variables.get("primary", "#ff0000"),
             "progress-empty": variables.get("surface", "#555555"),
             "lyrics-played": variables.get("text-muted", "#999999"),
-            "lyrics-current": variables.get("success", "#2ecc71"),
+            "lyrics-current": variables.get(
+                "accent", variables.get("primary", DEFAULT_LYRIC_CURRENT)
+            ),
             "lyrics-upcoming": variables.get("text", "#aaaaaa"),
         }
         for key, default in app_defaults.items():
             if key not in variables:
                 variables[key] = default
+
+        # Apply theme.toml overrides on top (user customizations win over everything).
+        colors = _read_theme_toml_cached()
+        if colors:
+            # Map underscore field names to CSS dash-case variable names.
+            field_to_css = {
+                "background": "background",
+                "foreground": "foreground",
+                "primary": "primary",
+                "secondary": "secondary",
+                "accent": "accent",
+                "success": "success",
+                "warning": "warning",
+                "error": "error",
+                "surface": "surface",
+                "border": "border",
+                "text": "text",
+                "muted_text": "text-muted",
+                "playback_bar_bg": "playback-bar-bg",
+                "active_tab": "active-tab",
+                "inactive_tab": "inactive-tab",
+                "selected_item": "selected-item",
+                "progress_filled": "progress-filled",
+                "progress_empty": "progress-empty",
+                "lyrics_played": "lyrics-played",
+                "lyrics_current": "lyrics-current",
+                "lyrics_upcoming": "lyrics-upcoming",
+            }
+            for field_name, css_name in field_to_css.items():
+                if field_name in colors:
+                    variables[css_name] = colors[field_name]
 
         return variables
 
@@ -234,7 +374,9 @@ class YTMPlayerApp(
                 progress_filled=v.get("progress-filled", t.primary),
                 progress_empty=v.get("progress-empty", t.surface or "#555555"),
                 lyrics_played=v.get("lyrics-played", t.secondary or "#999999"),
-                lyrics_current=v.get("lyrics-current", t.success or "#2ecc71"),
+                lyrics_current=v.get(
+                    "lyrics-current", t.accent or t.primary or DEFAULT_LYRIC_CURRENT
+                ),
                 lyrics_upcoming=v.get("lyrics-upcoming", t.foreground or "#aaaaaa"),
             )
             set_theme(tc)
@@ -242,12 +384,116 @@ class YTMPlayerApp(
         except Exception:
             pass
 
+    def action_set_current_theme_as_default(self) -> None:
+        """Persist the active runtime theme as the config.toml default."""
+        previous_theme = self.settings.ui.theme
+        current_theme = str(self.theme)
+        self.settings.ui.theme = current_theme
+        try:
+            self.settings.save()
+        except OSError:
+            self.settings.ui.theme = previous_theme
+            logger.exception("Failed to save default theme to config.toml")
+            self.notify(
+                "Could not save default theme to config.toml",
+                severity="error",
+                timeout=5,
+            )
+            return
+
+        self.notify(f"Saved {current_theme} as default theme", timeout=3)
+
+    # ── Crash diagnostics ────────────────────────────────────────────
+
+    def _handle_exception(self, error: Exception) -> None:
+        """Override Textual's unhandled-exception path to keep the TUI alive.
+
+        Textual's base ``_handle_exception`` is documented as "Always
+        results in the app exiting" — it sets ``_return_code = 1`` and
+        calls ``_close_messages_no_wait()``. For a music TUI, that's
+        the wrong default: a parser drift on one page or a transient
+        render glitch shouldn't kill the player mid-track.
+
+        We persist the traceback to the crash dir (so ``ytm doctor``
+        can still surface it), log it, surface a toast, and *do not*
+        defer to ``super()`` — letting the app keep running. If the
+        next render also fails the user will see stale UI and can
+        quit cleanly.
+        """
+        import traceback as _traceback
+
+        from ytm_player.utils.logging import write_crash_file
+
+        crash_path: Path | None = None
+        try:
+            text = "".join(_traceback.format_exception(type(error), error, error.__traceback__))
+            crash_path = write_crash_file(text, label="Textual crash (App._handle_exception)")
+            logger.exception(
+                "Textual unhandled exception (crash file: %s)",
+                crash_path or "<not written>",
+                exc_info=(type(error), error, error.__traceback__),
+            )
+        except Exception:
+            # Never let crash-capture itself crash the app any harder.
+            pass
+
+        # Surface to the user so it's not invisible.
+        try:
+            hint = f" (crash: {crash_path.name})" if crash_path else ""
+            self.notify(
+                f"Background error{hint} — see ~/.config/ytm-player/crashes/",
+                severity="error",
+                timeout=5,
+            )
+        except Exception:
+            pass
+
+        # Intentionally NOT calling super()._handle_exception(error) — that
+        # would tear down the app. Errors that genuinely make the TUI
+        # unusable will still be obvious to the user via stale UI; a soft
+        # error shouldn't cost them their queue position.
+
+    def _asyncio_exception_handler(
+        self, _loop: asyncio.AbstractEventLoop, context: dict[str, Any]
+    ) -> None:
+        """Capture asyncio loop exceptions that bypass _handle_exception.
+
+        Default behaviour prints to stderr (invisible inside Textual's
+        alt-screen). We funnel into write_crash_file so background-task
+        failures are visible in crashes/ and ytm doctor. Loop is not
+        terminated — the handler is informational only.
+        """
+        import traceback as _traceback
+
+        from ytm_player.utils.logging import write_crash_file
+
+        exc = context.get("exception")
+        try:
+            if exc is not None:
+                text = "".join(_traceback.format_exception(type(exc), exc, exc.__traceback__))
+            else:
+                text = (
+                    "asyncio loop exception (no traceback available)\n"
+                    f"Message: {context.get('message', '<none>')}\n"
+                    f"Context: {context!r}"
+                )
+            crash_path = write_crash_file(text, label="Asyncio loop exception")
+            logger.warning(
+                "Asyncio loop exception captured (crash file: %s)",
+                crash_path or "<not written>",
+            )
+        except Exception:
+            # Never let crash-capture itself crash the loop.
+            pass
+
     # ── Compose ──────────────────────────────────────────────────────
 
     def compose(self) -> ComposeResult:
         yield HeaderBar(id="app-header")
-        yield PlaybackBar(id="playback-bar")
-        yield FooterBar(id="app-footer")
+        with Vertical(id="bottom-stack"):
+            yield SelectionInfoBar(id="selection-info-bar")
+            yield PlaybackBar(id="playback-bar")
+            yield FooterBar(id="app-footer")
         with Horizontal(id="app-body"):
             yield PlaylistSidebar(id="playlist-sidebar")
             yield Container(id="main-content")
@@ -257,6 +503,16 @@ class YTMPlayerApp(
 
     async def on_mount(self) -> None:
         """Initialize services and navigate to the startup page."""
+        # Wire the asyncio loop exception handler so background-task
+        # failures and 'Task exception was never retrieved' warnings end
+        # up in crashes/ instead of invisible stderr.
+        try:
+            loop = asyncio.get_running_loop()
+            loop.set_exception_handler(self._asyncio_exception_handler)
+        except RuntimeError:
+            # No running loop somehow — extreme edge case; default handler stays.
+            logger.debug("No running asyncio loop in on_mount — skipping handler install")
+
         from ytm_player.config.paths import ensure_dirs
 
         ensure_dirs()
@@ -401,6 +657,30 @@ class YTMPlayerApp(
             startup = "library"
         await self.navigate_to(startup)
 
+        # Honour the [ui] show_selection_info toggle (TP-3).
+        try:
+            bar = self.query_one("#selection-info-bar", SelectionInfoBar)
+            bar.display = self.settings.ui.show_selection_info
+        except Exception:
+            logger.exception("Failed to apply show_selection_info toggle")
+
+        self._start_update_check()
+
+        # First-run discoverability hint (Task 4.8). Delay slightly so the
+        # toast lands after the initial layout settles, not during the
+        # first paint flash.
+        if not self._first_run_hint_shown:
+
+            def _show_first_run_hint() -> None:
+                self.notify(
+                    "Press ? for help · vim-style keys",
+                    severity="information",
+                    timeout=8,
+                )
+                self._first_run_hint_shown = True
+
+            self.set_timer(1.5, _show_first_run_hint)
+
     async def on_unmount(self) -> None:
         """Clean up services and remove PID file."""
         self._save_session_state()
@@ -445,3 +725,30 @@ class YTMPlayerApp(
 
         if self.cache:
             await self.cache.close()
+
+    def _start_update_check(self) -> None:
+        """Background-check PyPI for a newer release; toast once if found."""
+        if not self.settings.general.check_for_updates:
+            return
+
+        async def _run() -> None:
+            from ytm_player import __version__
+            from ytm_player.config.paths import UPDATE_CHECK_CACHE
+            from ytm_player.services.update_check import check_for_update
+
+            try:
+                import asyncio
+
+                latest = await asyncio.to_thread(check_for_update, __version__, UPDATE_CHECK_CACHE)
+            except Exception:
+                logger.debug("Update check failed", exc_info=True)
+                return
+
+            if latest:
+                self.notify(
+                    f"ytm-player {latest} is available (you have {__version__}). "
+                    f"Run: pip install -U ytm-player",
+                    timeout=8,
+                )
+
+        self.run_worker(_run(), group="update-check", exclusive=True)

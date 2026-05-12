@@ -376,3 +376,72 @@ class TestRadioTracks:
         ]
         queue_manager.set_radio_tracks(radio)
         assert queue_manager.length == 7
+
+
+class TestQueuePositionTracking:
+    """Tests for real_index and remaining_tracks properties."""
+
+    def test_real_index_without_shuffle(self, queue_manager, sample_tracks):
+        for t in sample_tracks:
+            queue_manager.add(t)
+        queue_manager.jump_to(2)
+        assert queue_manager.real_index == 2
+
+    def test_real_index_with_shuffle_resolves_to_tracks_index(self, queue_manager, sample_tracks):
+        for t in sample_tracks:
+            queue_manager.add(t)
+        queue_manager.toggle_shuffle()
+        queue_manager.jump_to(0)
+        assert 0 <= queue_manager.real_index < len(sample_tracks)
+
+    def test_remaining_tracks_without_shuffle(self, queue_manager, sample_tracks):
+        for t in sample_tracks:
+            queue_manager.add(t)
+        queue_manager.jump_to(2)
+        assert queue_manager.remaining_tracks == 2  # tracks 3 and 4
+
+    def test_remaining_tracks_with_shuffle(self, queue_manager, sample_tracks):
+        for t in sample_tracks:
+            queue_manager.add(t)
+        queue_manager.toggle_shuffle()
+        queue_manager.jump_to(0)
+        assert queue_manager.remaining_tracks == len(sample_tracks) - 1
+
+
+class TestContextId:
+    def test_default_is_none(self, queue_manager):
+        assert queue_manager.current_context_id is None
+
+    def test_set_and_read_back(self, queue_manager):
+        queue_manager.set_context("PLABCD")
+        assert queue_manager.current_context_id == "PLABCD"
+
+    def test_set_to_none_clears(self, queue_manager):
+        queue_manager.set_context("PLABCD")
+        queue_manager.set_context(None)
+        assert queue_manager.current_context_id is None
+
+    def test_clear_does_not_affect_context(self, queue_manager, sample_track):
+        # clear() resets tracks/shuffle state but does NOT reset context_id —
+        # the context only changes via explicit set_context() at the
+        # playback-start sites.
+        queue_manager.set_context("PLABCD")
+        queue_manager.add(sample_track)
+        queue_manager.clear()
+        assert queue_manager.current_context_id == "PLABCD"
+
+
+class TestRadioSeeds:
+    def test_default_is_none(self, queue_manager):
+        assert queue_manager.radio_seeds is None
+
+    def test_set_and_read_back(self, queue_manager):
+        seeds = [{"title": "Song A"}, {"title": "Song B"}]
+        queue_manager.radio_seeds = seeds
+        assert queue_manager.radio_seeds is seeds
+
+    def test_clear_resets_to_none(self, queue_manager, sample_track):
+        queue_manager.radio_seeds = [{"title": "Song A"}]
+        queue_manager.add(sample_track)
+        queue_manager.clear()
+        assert queue_manager.radio_seeds is None

@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from textual.events import Click, MouseDown, MouseMove, MouseUp
 from textual.geometry import Size
 from textual.message import Message
+from textual.timer import Timer
 from textual.widgets import DataTable
 from textual.widgets.data_table import Column, RowKey
 
 from ytm_player.config import Action
 from ytm_player.config.settings import get_settings
+from ytm_player.ui.selection_info_bar import SelectionChanged
 from ytm_player.utils.formatting import extract_artist, extract_duration, format_duration
 
 logger = logging.getLogger(__name__)
@@ -68,6 +71,12 @@ class TrackTable(DataTable):
             self.track = track
             self.index = index
 
+    class FilterRequested(Message):
+        """Emitted when the user presses / to start filtering."""
+
+    class FilterClosed(Message):
+        """Emitted when the filter is dismissed."""
+
     def __init__(
         self,
         *,
@@ -81,32 +90,51 @@ class TrackTable(DataTable):
         super().__init__(
             cursor_type="row",
             zebra_stripes=zebra_stripes,
+            cursor_foreground_priority="renderable",
             name=name,
             id=id,
             classes=classes,
         )
         self._show_index = show_index
         self._show_album = show_album
+        self._all_tracks: list[dict] = []
         self._tracks: list[dict] = []
+        self._filtered_map: list[int] = []
         self._row_keys: list[RowKey] = []
         self._playing_video_id: str | None = None
         self._playing_index: int | None = None
         self._right_clicked: bool = False
+        self._suppress_select_on_refocus: bool = False
         self._sort_column: str | None = None
         self._sort_reverse: bool = False
+        self._filter_text: str = ""
+        self._filter_active: bool = False
+        self._filter_timer: Timer | None = None
         # Column resize drag state.
         self._resize_col: Column | None = None
         self._resize_start_x: int = 0
         self._resize_start_width: int = 0
         self._title_manual_width: bool = False
+        # Set up columns at construction time, not on_mount. Otherwise a
+        # caller that mounts the table and immediately calls load_tracks()
+        # synchronously (e.g. context._build_artist's nested-mount chain)
+        # hits add_row() before on_mount runs, and add_row raises because
+        # there are 0 columns.
+        self._setup_columns()
 
     @property
     def tracks(self) -> list[dict]:
+        """Return ALL tracks regardless of filter (for queue integration)."""
+        return list(self._all_tracks)
+
+    @property
+    def visible_tracks(self) -> list[dict]:
+        """Return only visible (possibly filtered) tracks."""
         return list(self._tracks)
 
     @property
     def track_count(self) -> int:
-        return len(self._tracks)
+        return len(self._all_tracks)
 
     @property
     def selected_track(self) -> dict | None:
@@ -118,7 +146,20 @@ class TrackTable(DataTable):
     # -- Setup ------------------------------------------------------------
 
     def on_mount(self) -> None:
-        self._setup_columns()
+        # Pick up the currently-playing video_id from the app's player so
+        # the playing-row highlight survives navigating away and back.
+        try:
+            player = getattr(self.app, "player", None)
+            current = player.current_track if player else None
+            video_id = current.get("video_id", "") if current else ""
+            if video_id:
+                self._playing_video_id = video_id
+                # _highlight_playing runs after columns/rows are populated;
+                # load_tracks will trigger it. If the table is already empty,
+                # this is a no-op until tracks land.
+                self._highlight_playing()
+        except Exception:
+            logger.debug("Failed to pick up current playing track on mount", exc_info=True)
 
     def _setup_columns(self) -> None:
         """Add the standard track table columns."""
@@ -141,31 +182,53 @@ class TrackTable(DataTable):
         """Replace the table contents with a new list of tracks."""
         self.clear()
         # Stamp each track with its original playlist position.
+        self._all_tracks = []
         self._tracks = []
+        self._filtered_map = []
         for i, track in enumerate(tracks):
             t = dict(track)
             t["_original_index"] = i
+            self._all_tracks.append(t)
             self._tracks.append(t)
+            self._filtered_map.append(i)
         self._row_keys = []
         self._playing_index = None
         self._sort_column = None
         self._sort_reverse = False
+        self._filter_text = ""
+        self._filter_active = False
 
         for i, track in enumerate(self._tracks):
             row_key = self._add_track_row(i, track)
             self._row_keys.append(row_key)
 
+        # Reflow the title column now that rows (with row labels) exist
+        # — the row-label column eats ~3 cells, so the initial column
+        # widths from settings would push the rightmost column off-screen.
+        self._fill_title_column()
+        self._invalidate_table()
+
         self._highlight_playing()
 
     def append_tracks(self, tracks: list[dict]) -> None:
         """Append additional tracks without clearing existing ones."""
-        start_idx = len(self._tracks)
+        start_idx = len(self._all_tracks)
         for i, track in enumerate(tracks, start=start_idx):
             t = dict(track)
             t["_original_index"] = i
+            self._all_tracks.append(t)
+            # If filter is active, only add matching tracks to visible table.
+            if self._filter_active and self._filter_text:
+                if not self._matches_filter(t, self._filter_text):
+                    continue
             self._tracks.append(t)
-            row_key = self._add_track_row(i, t)
+            self._filtered_map.append(i)
+            row_key = self._add_track_row(len(self._tracks) - 1, t)
             self._row_keys.append(row_key)
+        # Same reflow as load_tracks — the row-label column may have been
+        # 0-width if append_tracks fires before any rows existed.
+        self._fill_title_column()
+        self._invalidate_table()
 
     def _add_track_row(self, index: int, track: dict) -> RowKey:
         """Add a single track as a row in the table."""
@@ -174,21 +237,24 @@ class TrackTable(DataTable):
         album = track.get("album") or ""
         duration = extract_duration(track)
 
-        from ytm_player.utils.bidi import reorder_rtl_line
+        from ytm_player.utils.bidi import isolate_bidi, reorder_rtl_line
 
         cells: list[str | int] = []
         if self._show_index:
             # Always show original playlist position, not current row number.
             orig = track.get("_original_index", index)
             cells.append(str(orig + 1))
-        cells.append(reorder_rtl_line(title))
-        cells.append(reorder_rtl_line(artist))
+        cells.append(isolate_bidi(reorder_rtl_line(title)))
+        cells.append(isolate_bidi(reorder_rtl_line(artist)))
         if self._show_album:
-            cells.append(reorder_rtl_line(album))
+            cells.append(isolate_bidi(reorder_rtl_line(album)))
         cells.append(format_duration(duration) if duration else "--:--")
 
         video_id = track.get("video_id", f"row_{index}")
-        return self.add_row(*cells, key=f"{video_id}_{index}")
+        # Pass label=" " on every row so Textual reserves the row-label
+        # column once any row has a non-None label. _highlight_playing
+        # mutates this slot to show ▶ on the playing row.
+        return self.add_row(*cells, key=f"{video_id}_{index}", label=" ")
 
     # -- Playing state ----------------------------------------------------
 
@@ -197,14 +263,51 @@ class TrackTable(DataTable):
         self._playing_video_id = video_id
         self._highlight_playing()
 
+    def _jump_to_current(self) -> None:
+        """Move cursor to the currently playing track if visible."""
+        if not self._tracks:
+            return
+        # Prefer the app's current track over our cached _playing_video_id
+        # because a freshly-mounted page won't have received set_playing yet.
+        video_id = self._playing_video_id
+        try:
+            queue = self.app.queue  # type: ignore[attr-defined]
+            current = queue.current_track if queue else None
+            if current and current.get("video_id"):
+                video_id = current["video_id"]
+        except Exception:
+            pass
+        if not video_id:
+            return
+        for i, track in enumerate(self._tracks):
+            if track.get("video_id") == video_id:
+                self.move_cursor(row=i)
+                return
+
     def _highlight_playing(self) -> None:
-        """Update the index column to show the playing indicator.
+        """Style the now-playing row across its full width.
 
         Only touches the previously-playing and newly-playing rows
-        instead of iterating every row.
+        instead of iterating every row. Every cell of the playing row
+        gets bold + accent-color styling so the row stays visually
+        distinct even when the cursor is elsewhere \u2014 without competing
+        with the cursor-row CSS background.
         """
         if not self._show_index:
             return
+
+        from rich.text import Text
+
+        from ytm_player.utils.bidi import isolate_bidi, reorder_rtl_line
+        from ytm_player.utils.formatting import (
+            extract_artist as _extract_artist,
+        )
+        from ytm_player.utils.formatting import (
+            extract_duration as _extract_duration,
+        )
+        from ytm_player.utils.formatting import (
+            format_duration as _format_duration,
+        )
 
         # Find the new playing index by matching video_id.
         new_index: int | None = None
@@ -220,22 +323,80 @@ class TrackTable(DataTable):
         if old_index == new_index:
             return
 
-        # Restore the old row's original playlist number.
-        if old_index is not None and old_index < len(self._row_keys):
-            try:
-                orig = self._tracks[old_index].get("_original_index", old_index) + 1
-                self.update_cell(self._row_keys[old_index], "index", str(orig))
-            except Exception:
-                logger.debug("Failed to restore row number for index %d", old_index, exc_info=True)
+        def _plain_cells(track: dict, row_index: int) -> dict[str, Any]:
+            """Restore-cells: original (un-styled) values for a row."""
+            title = track.get("title", "Unknown")
+            artist = _extract_artist(track)
+            album = track.get("album") or ""
+            duration = _extract_duration(track)
+            cells: dict[str, Any] = {}
+            cells["index"] = str(track.get("_original_index", row_index) + 1)
+            cells["title"] = isolate_bidi(reorder_rtl_line(title))
+            cells["artist"] = isolate_bidi(reorder_rtl_line(artist))
+            if self._show_album:
+                cells["album"] = isolate_bidi(reorder_rtl_line(album))
+            cells["duration"] = _format_duration(duration) if duration else "--:--"
+            return cells
 
-        # Set the play indicator on the new row.
-        if new_index is not None and new_index < len(self._row_keys):
+        def _styled_cells(track: dict, row_index: int, style: str) -> dict[str, Any]:
+            """Active-cells: same data values wrapped in Rich Text with *style*.
+
+            Unlike before, we do NOT overload the # column with a play
+            glyph — the playing indicator now lives in Textual's row-label
+            column (left of #). The # column keeps its original number.
+            """
+            plain = _plain_cells(track, row_index)
+            return {key: Text(value, style=style) for key, value in plain.items()}
+
+        def _set_row_label(row_key: RowKey, label_text: Text) -> None:
+            """Mutate Textual's per-row label slot. Internal access
+            wrapped so any breaking change degrades to a debug log."""
             try:
-                self.update_cell(self._row_keys[new_index], "index", "\u25b6")
+                row = self.rows[row_key]
+                row.label = label_text
+                self._update_count += 1
+                self.refresh()
             except Exception:
-                logger.debug(
-                    "Failed to set playing indicator for index %d", new_index, exc_info=True
-                )
+                logger.debug("Failed to set row label", exc_info=True)
+
+        # Resolve the theme's text color for the ▶ glyph. Normalize to
+        # #rrggbb so Rich always parses (Textual may emit rgb(...) form).
+        from textual.color import Color
+
+        from ytm_player.ui.theme import get_theme
+
+        # Restore the old row: plain data cells + blank label.
+        if old_index is not None and old_index < len(self._row_keys):
+            row_key = self._row_keys[old_index]
+            try:
+                cells = _plain_cells(self._tracks[old_index], old_index)
+                for col_key, value in cells.items():
+                    self.update_cell(row_key, col_key, value)
+            except Exception:
+                logger.debug("Failed to restore row %d cells", old_index, exc_info=True)
+            _set_row_label(row_key, Text(" "))
+
+        # Mark the new row: bold (no color) on data cells + ▶ label.
+        # Why no color: the user's theme can have $primary close to
+        # $selected-item (the cursor bg), so any colored foreground on the
+        # playing row's data cells produces unreadable monochrome blocks
+        # when the cursor lands on it. The ▶ glyph in the row-label column
+        # is the unambiguous primary signal — it lives in its own render
+        # path so it's always visible. Bold on the data cells is the
+        # secondary cue for at-a-glance recognition without color clash.
+        if new_index is not None and new_index < len(self._row_keys):
+            row_key = self._row_keys[new_index]
+            try:
+                cells = _styled_cells(self._tracks[new_index], new_index, "bold")
+                for col_key, value in cells.items():
+                    self.update_cell(row_key, col_key, value)
+            except Exception:
+                logger.debug("Failed to style row %d cells", new_index, exc_info=True)
+            try:
+                text_hex = Color.parse(get_theme().text or "#ffffff").hex
+            except Exception:
+                text_hex = "#ffffff"
+            _set_row_label(row_key, Text("▶", style=f"bold {text_hex}"))
 
         self._playing_index = new_index
 
@@ -264,10 +425,7 @@ class TrackTable(DataTable):
             return
         if self.size.width == 0:
             return
-        try:
-            title_col = self.columns.get("title")
-        except Exception:
-            return
+        title_col = next((c for c in self.ordered_columns if c.key == "title"), None)
         if title_col is None:
             return
 
@@ -361,15 +519,56 @@ class TrackTable(DataTable):
         if self._right_clicked:
             self._right_clicked = False
             return
+        # Suppress the spurious RowSelected that fires when a modal popup
+        # (e.g. ActionsPopup) dismisses and focus returns to this table.
+        # The flag is set on right-click and consumed here once.
+        if self._suppress_select_on_refocus:
+            self._suppress_select_on_refocus = False
+            return
         row_idx = event.cursor_row
         if 0 <= row_idx < len(self._tracks):
-            self.post_message(self.TrackSelected(self._tracks[row_idx], row_idx))
+            original_idx = self._filtered_map[row_idx] if self._filtered_map else row_idx
+            self.post_message(self.TrackSelected(self._tracks[row_idx], original_idx))
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
-        """Forward row highlight as a TrackHighlighted message."""
+        """Forward row highlight as a TrackHighlighted message and update SelectionInfoBar.
+
+        Only posts SelectionChanged when this table is actually focused —
+        otherwise a freshly-mounted table fires RowHighlighted at row 0
+        on init and stomps the sidebar's selection in the info bar.
+        """
         row_idx = event.cursor_row
         track = self._tracks[row_idx] if 0 <= row_idx < len(self._tracks) else None
         self.post_message(self.TrackHighlighted(track, row_idx))
+
+        if not self.has_focus:
+            return
+
+        try:
+            if track is None:
+                self.post_message(SelectionChanged(""))
+                return
+            title = track.get("title", "") or ""
+            artist = extract_artist(track) or ""
+            label = f"{title} — {artist}" if artist else title
+            self.post_message(SelectionChanged(label))
+        except Exception:
+            self.post_message(SelectionChanged(""))
+
+    def on_focus(self) -> None:
+        """When focus moves to this table, push the current row into the bar."""
+        try:
+            row_idx = self.cursor_row
+            if row_idx is None or not (0 <= row_idx < len(self._tracks)):
+                self.post_message(SelectionChanged(""))
+                return
+            track = self._tracks[row_idx]
+            title = track.get("title", "") or ""
+            artist = extract_artist(track) or ""
+            label = f"{title} — {artist}" if artist else title
+            self.post_message(SelectionChanged(label))
+        except Exception:
+            self.post_message(SelectionChanged(""))
 
     def on_click(self, event: Click) -> None:
         """Handle right-click to emit TrackRightClicked."""
@@ -377,6 +576,7 @@ class TrackTable(DataTable):
             event.stop()
             event.prevent_default()
             self._right_clicked = True
+            self._suppress_select_on_refocus = True
             meta = event.style.meta
             row_idx = meta.get("row") if meta else None
             if row_idx is not None and 0 <= row_idx < len(self._tracks):
@@ -388,6 +588,56 @@ class TrackTable(DataTable):
         key = event.column_key.value
         if key in self._SORTABLE_KEYS:
             self.sort_by(key)
+
+    # -- Filtering --------------------------------------------------------
+
+    def apply_filter(self, query: str) -> None:
+        """Filter visible rows by query. Empty string restores all tracks."""
+        self._filter_text = query.strip().lower()
+        if self._filter_timer is not None:
+            try:
+                self._filter_timer.stop()
+            except Exception:
+                pass
+        if not self._filter_text:
+            self._tracks = list(self._all_tracks)
+            self._filtered_map = list(range(len(self._all_tracks)))
+            self._reload_sorted()
+            return
+        self._filter_timer = self.set_timer(0.15, self._execute_filter)
+
+    def _execute_filter(self) -> None:
+        """Rebuild the table with only matching tracks (debounced)."""
+        self._filter_timer = None
+        self._tracks = []
+        self._filtered_map = []
+        for i, track in enumerate(self._all_tracks):
+            if self._matches_filter(track, self._filter_text):
+                self._tracks.append(track)
+                self._filtered_map.append(i)
+        self._reload_sorted()
+
+    @staticmethod
+    def _matches_filter(track: dict, query: str) -> bool:
+        """Check if a track matches the filter (title + artist + album)."""
+        title = (track.get("title") or "").lower()
+        artist = extract_artist(track).lower()
+        album = (track.get("album") or "").lower()
+        return query in title or query in artist or query in album
+
+    def show_filter(self) -> None:
+        """Signal that filter mode should begin."""
+        self._filter_active = True
+        self.post_message(self.FilterRequested())
+
+    def clear_filter(self) -> None:
+        """Remove the filter, restoring all tracks."""
+        self._filter_text = ""
+        self._filter_active = False
+        self._tracks = list(self._all_tracks)
+        self._filtered_map = list(range(len(self._all_tracks)))
+        self._reload_sorted()
+        self.post_message(self.FilterClosed())
 
     # -- Sorting ----------------------------------------------------------
 
@@ -415,6 +665,7 @@ class TrackTable(DataTable):
 
         current_track = self.selected_track
         self._tracks.sort(key=key_fn, reverse=self._sort_reverse)
+        self._filtered_map = [t["_original_index"] for t in self._tracks]
         self._reload_sorted()
 
         if current_track:
@@ -459,9 +710,18 @@ class TrackTable(DataTable):
                     self.move_cursor(row=self.row_count - 1)
             case Action.SELECT:
                 if self.cursor_row is not None and 0 <= self.cursor_row < len(self._tracks):
-                    self.post_message(
-                        self.TrackSelected(self._tracks[self.cursor_row], self.cursor_row)
+                    original_idx = (
+                        self._filtered_map[self.cursor_row]
+                        if self._filtered_map
+                        else self.cursor_row
                     )
+                    self.post_message(
+                        self.TrackSelected(self._tracks[self.cursor_row], original_idx)
+                    )
+            case Action.FILTER:
+                self.show_filter()
+            case Action.JUMP_TO_CURRENT:
+                self._jump_to_current()
             case Action.SORT_TITLE:
                 self.sort_by("title")
             case Action.SORT_ARTIST:
@@ -475,6 +735,7 @@ class TrackTable(DataTable):
                     self._sort_reverse = not self._sort_reverse
                     current_track = self.selected_track
                     self._tracks.reverse()
+                    self._filtered_map = [t["_original_index"] for t in self._tracks]
                     self._reload_sorted()
                     if current_track:
                         vid = current_track.get("video_id")

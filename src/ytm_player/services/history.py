@@ -188,11 +188,13 @@ class HistoryManager:
         if self._db is None:
             raise RuntimeError("Database not initialized")
 
+        from ytm_player.utils.formatting import extract_duration
+
         video_id = track["video_id"]
         title = track.get("title", "")
         artist = track.get("artist", "")
         album = track.get("album", "")
-        duration = track.get("duration_seconds", 0)
+        duration = extract_duration(track)
 
         try:
             await self._db.execute(
@@ -222,7 +224,7 @@ class HistoryManager:
 
             await self._db.commit()
         except OSError as exc:
-            logger.warning("Failed to log play to history database: %s", exc)
+            logger.exception("Failed to log play (video_id=%r)", video_id)
             raise RuntimeError(f"Failed to write to history database: {exc}") from exc
 
     async def get_play_history(self, limit: int = 100) -> list[dict]:
@@ -270,15 +272,21 @@ class HistoryManager:
             raise RuntimeError("Database not initialized")
 
         async with self._db.execute("SELECT COUNT(*) AS total_plays FROM play_history") as cur:
-            total_plays = (await cur.fetchone())["total_plays"]
+            row = await cur.fetchone()
+            assert row is not None  # COUNT(*) always returns one row
+            total_plays = row["total_plays"]
 
         async with self._db.execute(
             "SELECT COALESCE(SUM(listened_seconds), 0) AS s FROM play_history"
         ) as cur:
-            total_listen_time = (await cur.fetchone())["s"]
+            row = await cur.fetchone()
+            assert row is not None  # SUM(...) always returns one row
+            total_listen_time = row["s"]
 
         async with self._db.execute("SELECT COUNT(*) AS c FROM play_stats") as cur:
-            unique_tracks = (await cur.fetchone())["c"]
+            row = await cur.fetchone()
+            assert row is not None  # COUNT(*) always returns one row
+            unique_tracks = row["c"]
 
         top_tracks = await self.get_top_tracks(limit=10)
         top_artists = await self.get_top_artists(limit=10)

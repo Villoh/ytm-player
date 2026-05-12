@@ -1,6 +1,7 @@
 """Tests for _save_youtube_cookies multi-account selection."""
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -52,7 +53,7 @@ def test_single_account_at_index_1_is_found(tmp_path):
     cookies = [_make_cookie("SAPISID", "secret")]
 
     def _ytmusic_factory(path):
-        saved = json.loads(open(path).read())
+        saved = json.loads(Path(path).read_text())
         idx = int(saved["x-goog-authuser"])
         m = MagicMock()
         m.get_account_info.return_value = _account("Bob") if idx == 1 else {}
@@ -120,7 +121,7 @@ def test_multiple_accounts_prompts_user_and_picks_choice(tmp_path, monkeypatch):
     accounts = {0: _account("Alice"), 1: _account("Bob")}
 
     def _ytmusic_factory(path):
-        saved = json.loads(open(path).read())
+        saved = json.loads(Path(path).read_text())
         idx = int(saved["x-goog-authuser"])
         m = MagicMock()
         m.get_account_info.return_value = accounts.get(idx, {})
@@ -149,7 +150,7 @@ def test_multiple_accounts_user_picks_first(tmp_path, monkeypatch):
     accounts = {0: _account("Alice"), 1: _account("Bob")}
 
     def _ytmusic_factory(path):
-        saved = json.loads(open(path).read())
+        saved = json.loads(Path(path).read_text())
         idx = int(saved["x-goog-authuser"])
         m = MagicMock()
         m.get_account_info.return_value = accounts.get(idx, {})
@@ -177,7 +178,7 @@ def test_multiple_accounts_retries_on_invalid_input(tmp_path, monkeypatch):
     accounts = {0: _account("Alice"), 1: _account("Bob")}
 
     def _ytmusic_factory(path):
-        saved = json.loads(open(path).read())
+        saved = json.loads(Path(path).read_text())
         idx = int(saved["x-goog-authuser"])
         m = MagicMock()
         m.get_account_info.return_value = accounts.get(idx, {})
@@ -209,7 +210,7 @@ def test_always_probes_all_five_indices(tmp_path):
     probed = []
 
     def _ytmusic_factory(path):
-        saved = json.loads(open(path).read())
+        saved = json.loads(Path(path).read_text())
         probed.append(int(saved["x-goog-authuser"]))
         m = MagicMock()
         # Only index 2 is a valid account — the rest return empty.
@@ -244,7 +245,7 @@ def test_auto_refresh_preserves_existing_preferred_index(tmp_path):
     accounts = {0: _account("Alice"), 1: _account("Bob")}
 
     def _ytmusic_factory(path):
-        saved = json.loads(open(path).read())
+        saved = json.loads(Path(path).read_text())
         idx = int(saved["x-goog-authuser"])
         m = MagicMock()
         m.get_account_info.return_value = accounts.get(idx, {})
@@ -270,7 +271,7 @@ def test_auto_refresh_falls_back_to_first_valid_when_no_prior_auth(tmp_path):
     accounts = {0: _account("Alice"), 1: _account("Bob")}
 
     def _ytmusic_factory(path):
-        saved = json.loads(open(path).read())
+        saved = json.loads(Path(path).read_text())
         idx = int(saved["x-goog-authuser"])
         m = MagicMock()
         m.get_account_info.return_value = accounts.get(idx, {})

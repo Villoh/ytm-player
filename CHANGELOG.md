@@ -6,6 +6,382 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [Unreleased]
+
+### v1.9.3 (2026-05-04)
+
+A small follow-up release: two crash fixes caught by manual smoke after v1.9.2, two CLI/utility fixes, plus three community PRs.
+
+**New features**
+
+- **Configurable default theme** — set `theme` under `[ui]` in `config.toml` to control which Textual theme loads on startup (default `ytm-dark`). Changing theme via `Ctrl+P` → `Theme` updates the current session only; the startup default is no longer overwritten by session state. To persist the active theme as the new default, use `Ctrl+P` → `Theme: Set Current as Default`. Thanks @Villoh (#85).
+- **`Theme: Set Current as Default` command palette action** — saves the currently active theme to `config.toml` so it becomes the startup default. Includes rollback on save failure (e.g. read-only filesystem) with an error toast.
+- **Discovery round-robin** — `D` now cycles deterministically through Charts → Trending → For You → Liked → Artist → Recently Played (was random source selection). Charts sub-rotates through its shelves between presses, and the Discovery label shows the active source (e.g. `Discovery (US Daily Top 100)`). Mood source dropped (the Moods & Genres tab was removed in v1.9.1 due to upstream crashes). Thanks @wgordon17 (#75).
+- **Radio queues prepend their seed tracks** — radio playback now starts with the seed before suggestions, matching YouTube Music's native behaviour. Append-mode background refill is unchanged. Thanks @wgordon17 (#75).
+- **Persistent queue source header** — Queue page shows `Generated from: …` beneath Now Playing for radio and discovery queues, with up to three seed titles inline and a tooltip for the full list. Toggle via `[ui] show_queue_source` (default on). Thanks @wgordon17 (#75).
+
+**Fixes**
+
+- **Crash on Go to Artist / Album / Playlist** — `TrackTable` and `_ArtistAlbumList` set up their columns in `on_mount`, but `context._build_artist`'s nested-mount chain calls `load_tracks` / `load_albums` synchronously before `on_mount` fires, so `add_row` ran with 0 columns and raised `ValueError: More values provided than there are columns`. Both widgets now eager-init columns in `__init__`, eliminating the mount-order race.
+- **Update check version comparison** — `_is_newer` now uses `packaging.version.Version` for proper PEP 440 comparison. The hand-rolled tuple parser dropped non-numeric chunks and got post-releases (e.g. `1.6.0.post1`) wrong.
+- **`ytm config` with multi-arg `$EDITOR`** — `EDITOR="code -w"` and similar now work; previously the whole string was passed as a single argv entry, so subprocess looked for an executable literally named `code -w` and failed. Malformed quoting (e.g. unbalanced quotes) now exits cleanly via the existing error path instead of crashing.
+- **Search race conditions** — fixed four interacting bugs that caused searches to require a second Enter, the suggestion overlay to re-appear on top of incoming results, and selecting a suggestion to cancel the in-flight search worker. Thanks @wgordon17 (#84).
+
+**Changed**
+
+- **Theme persistence model** — `config.toml` is now the authoritative source for the startup theme; `session.json` stores runtime state only and no longer restores the theme on launch. This separates user-authored configuration from app-managed session state.
+- **Command palette provider architecture** — app-specific commands moved from `get_system_commands()` to a dedicated `YTMCommandProvider` registered in `App.COMMANDS`. Isolates command definitions in `src/ytm_player/app/_commands.py` and keeps `_app.py` focused on app logic.
+
+**Infrastructure**
+
+- **Pre-commit hooks + pyright in CI + `dbus-fast` migration** — new `.pre-commit-config.yaml` runs ruff-format / ruff / pyright on commit and pytest on push (`pre-commit install` to activate). New CI job runs pyright at standard strictness. The Linux MPRIS service migrates from the unmaintained `dbus-next` to the maintained `dbus-fast` fork (identical API). Thanks @wgordon17 (#83).
+- **Settings save Windows fallback** — `Settings.save()` now falls back to a direct `path.write_text()` when `os.replace()` raises `PermissionError` (e.g. when `config.toml` is held open by an external editor on Windows).
+
+### v1.9.2 (2026-05-01)
+
+A focused fix release. The Charts page region selector was effectively non-functional — three structural bugs in how we read YouTube's chart response made a global event playlist appear regardless of region. Also includes a TrackTable migration that retires three hand-rolled `DataTable` pages and two related bug fixes.
+
+**Charts** — bug report thanks @dmnmsc (#73)
+
+- **Events visually separated from country charts.** YouTube injects a global event playlist (currently `"Coachella 2026: Daily Top 100 Songs"` — same playlist ID worldwide) at position 0 of every country's response. Previously the Charts page default-loaded that slot, so picking a country still showed the global Coachella playlist. The Charts page now renders two stacked pill rows: a `Featured globally:` strip for any shelves whose title carries a brand prefix (`": "` separator) and a country-charts row for the actual regional shelves. Country charts sort by priority — `Top 100 Songs` → `Weekly Top Songs on Shorts` → `Trending 20` → rest — and the default-loaded pill is the first country chart, never an event. The event row hides automatically on narrow terminals (< 80 cols) to reclaim a row of vertical space.
+- **Now reads `daily + weekly + videos` from the API.** Previously only `daily` was consulted, which silently dropped Spain (returns its data under `videos`) and missed the Top 100 Songs / Top 100 Music Videos shelves under `weekly` for premium-supported regions. All three keys are now concatenated, then split into events vs charts.
+- **Region picker expanded 17 → 68 entries.** Global (`ZZ`) is the new default. The list now mirrors YouTube's full advertised set (62 codes from `countries.options`) plus six historically-supported codes outside that list (Hong Kong, Malaysia, Singapore, Taiwan, Thailand, Vietnam). Settings default flips `region = "GB"` → `region = "ZZ"`.
+- **Locale-style configs auto-normalise.** New `services/regions.normalise_region()` helper strips locale tails — `"ES-ES"`, `"en-GB"`, `"es_ES"` now resolve to bare two-letter codes (`ES`, `EN`, `ES`) before hitting the API. YouTube's chart endpoint silently falls back to Global for any locale-shaped input; this prevents existing configs from being broken by that quirk.
+- **`_clean_shelf_title` no longer strips brand prefixes.** Coachella keeps its `"Coachella 2026:"` prefix on the pill so users can tell an event from a country chart at a glance.
+
+**New**
+
+- **TrackTable migration on Queue, Liked Songs, Recently Played.** Three pages migrated from raw `DataTable` to `TrackTable`. Gains right-click context menus, play indicators, column resize, filtering, and sorting — for free, on three pages that previously rolled those manually. Also retires the `on_mouse_down` right-click workaround we added to QueuePage in v1.9.0 (TrackTable already wires this up). Thanks @wgordon17 (#74).
+- **`[▶ Start Radio]` button** added to Liked Songs and Recently Played page headers — seeds a radio from 5 random tracks in the collection. Thanks @wgordon17 (#74).
+- **Shuffle-lock integration** on Liked Songs and Recently Played — selecting a track applies the per-collection shuffle preference. Thanks @wgordon17 (#74).
+- Discovery mix now cycles sources in fixed order (Charts → Trending → For You → Your Liked Songs → Artist → Recently Played) instead of random selection — guarantees variety across consecutive presses of `D`
+- Radio notifications now list all seed track names as a bulleted list instead of showing only the first seed or a generic label
+- Playlist radio notification now includes the playlist name (e.g. "Playing: Radio from My Playlist")
+
+**Changed**
+
+- Mood source removed from discovery mix — upstream removed Moods & Genres tab; the source was failing silently
+- `clean_shelf_title` and `get_chart_shelf_tracks` added as shared utilities for reuse in discovery mix
+
+**Fixes**
+
+- **Radio track durations no longer show `--:--`** — ytmusicapi's `get_watch_playlist` returns duration under a `length` key (e.g. `"3:07"`), not `duration`. `extract_duration()` now checks `duration_seconds` → `duration` → `length` in priority order. Thanks @wgordon17 (#74).
+- **Play history no longer stores duration as 0** — `log_play` was reading raw `track.get("duration_seconds", 0)`, but normalized tracks store the value under `duration`. Switched to `extract_duration()` so the value is always correct regardless of source. Thanks @wgordon17 (#74).
+- **TrackTable Duration column no longer cut off on first paint.** The row-label column (which carries the `▶` playing indicator) reserves ~3 cells of width that the original column-fit pass didn't account for, so the rightmost column ("Duratio…") got pushed past the visible viewport on initial render. `_fill_title_column` now runs after `load_tracks` and `append_tracks` so the Title column shrinks to compensate as soon as rows exist.
+- **Sidebar gains a bottom separator under the Playlists panel** — the existing top separator (a `Rule` widget between the pinned-nav block and the LibraryPanel) is now mirrored below the LibraryPanel, so the `Playlists` panel sits between two matching `$border`-coloured horizontal rules instead of just one.
+
+### v1.9.1 (2026-04-30)
+
+This is the third and final wave of major updates in a rapid release cycle — quieter cadence ahead.
+
+A community-PR-driven feature release. Six PRs from @wgordon17 plus user-reported UX work, an AUR auto-publish pipeline, and a per-collection shuffle memory system. Distribution data milestone — crossed 10,000 lifetime PyPI downloads on the day this release was assembled.
+
+> Supersedes the same-day v1.9.0 tag, which shipped two small regressions: the browser forward-stack got clobbered when clicking the current page's footer entry a second time, and the playback-bar Shuffle-lock dimming didn't refresh when starting a radio from the sidebar. Both are fixed in this release — install v1.9.1 directly.
+
+**New features**
+
+- **"Start Radio" from playlist** — context-menu entry in the sidebar plus a `[▶ Start Radio]` header button on the Library and Context pages. Backed by ytmusicapi's `RDAMPL` watch-playlist convention. New service method `YTMusicService.get_playlist_radio(playlist_id)`. Six unit tests covering VL-prefix stripping, normal flow, exceptions, empty results, non-dict responses. Thanks @wgordon17 (#70).
+- **Proactive radio refill** — when ≤3 tracks remain in queue with autoplay on and repeat off, the app silently fetches more tracks in the background, seeded from up to 5 already-played items in the current queue. New methods `_maybe_extend_queue` / `_extend_queue` on PlaybackMixin. Thanks @wgordon17 (#71).
+- **Multi-seed `get_radio`** — service method now accepts a list of seeds, fetches in parallel via `asyncio.gather`, dedups by `videoId`, shuffles, and trims to limit. Backward-compatible at the signature level (single string still accepted). 8 dedicated tests. Thanks @wgordon17 (#71).
+- **Single-seed shuffle guard** — `get_radio` only shuffles the result pool when `len(video_ids) > 1`. Single-seed callers (the existing "Start Radio on track X" flow) keep their seed-first ordering. Two new tests covering single-seed-deterministic and multi-seed-shuffled behavior.
+- **Discovery roulette** — random mix from one of seven sources (trending, mood, charts, home, liked songs, library artist, recent history) with last-source-exclusion rotation to avoid repeats. New service method `get_discovery_mix() -> tuple[list[dict], str]`. 6 dedicated tests. Bound to the **`D`** keybinding (added by us alongside the merge — PR description had mentioned the binding but it didn't ship). Discovery is also reachable via the new "♫ Discovery Mix" item in the playlist sidebar's pinned-nav block. Help page lists the new action. Thanks @wgordon17 (#71).
+- **Shuffle lock** (per-playlist) — explicit toggle in the Library page playlist header (`Shuffle lock: ON` / `Shuffle lock: off`). When ON: opening that playlist forces shuffle, and the playback-bar shuffle button is dimmed and rejects clicks (with a toast pointing the user back to the lock toggle). When OFF: normal global shuffle behaviour. Persists per-playlist-ID to `~/.config/ytm-player/shuffle_prefs.json` (LRU-capped at 1000 entries; thread-safe atomic JSON writes). Replaces the originally-planned implicit "remember last shuffle state" behaviour, which was un-discoverable and didn't actually persist via the playback-bar click path. New `QueueManager.current_context_id` + `set_context()` underpin the lookup. Session restore preserves `queue_context_id` so the lock identity survives a restart.
+- **Configurable home shelf count** — set `home_shelves` under `[ui]` in `config.toml` to control how many recommendation shelves are fetched on the Browse > For You tab (default 3, range 1–25). Shelves now scroll as a single section instead of independently, with subtle separators (`$border`) and theme-primary section titles for readability. Thanks @wgordon17 (#69).
+- **Sidebar overflow config** (`[ui] sidebar_overflow`) — `"truncate"` (default) guarantees exactly 1 row per playlist with a `…` ellipsis on overflow, or `"wrap"` to let names span multiple lines naturally. Implementation via a `truncate-items` CSS class on `LibraryPanel` plus a `_render_text` helper that picks the right strategy per mode.
+- **Selection info bar** — a 1-row strip mounted between the page body and the playback bar, displays the full name of the currently-focused item (sidebar playlist or TrackTable row). Toggleable via `[ui] show_selection_info: bool = True`. Replaces the old marquee/bouncing-text animation in playlist sidebars. The bar is gated on widget focus so it shows only what the user is actively navigating, not whatever auto-highlighted in a freshly-mounted panel.
+- **Now-playing row indicator** — every TrackTable now uses Textual's row-label feature to show a `▶` glyph in a dedicated 1-char column to the left of the index, marking the playing row independently of cursor state. Bold (no color) on data cells of the playing row provides a secondary at-a-glance signal. The glyph survives navigation away and back via `cursor_foreground_priority="renderable"` and an `on_mount` lookup of the app's current playing track. This pattern follows the canonical approach used by spotify-tui, ncmpcpp, and cmus.
+- **Charts country support** — `get_charts(country=)` now defaults to `"GB"` instead of YouTube's empty-data `"ZZ"` placeholder. New `[ui] region` config field (ISO 3166-1 alpha-2) lets users pin Charts to their preferred country without code changes. The Charts page now resolves the top daily chart playlist into a track table (ytmusicapi's `get_charts` no longer returns a flat songs list — daily/weekly/genres/artists chart playlists is the new shape).
+
+**Fixes**
+
+- **macOS built-in keyboard media keys (prev/next)** — built-in MacBook keyboards send key codes 19/20 (FAST/REWIND) instead of 17/18 (NEXT/PREVIOUS) that external keyboards use. The Quartz event tap now maps both sets. Verified against Apple's IOKit constants and Rogue Amoeba's canonical reference. Thanks @wgordon17 (#67).
+- **Browse tab bar visibility** — was rendering at `height: 1` with `border-bottom: solid` on the active tab clipping its label. Now uses `height: 4`, `border-bottom: tall`, `width: auto` for content-sized tabs, hover state, `$surface` background, `$border` separator, plus 1-row top padding for breathing room from the page edge. Thanks @wgordon17 (#68).
+- **yt-dlp android client fallback** — madeForKids content (e.g., children's music tracks) was failing with "Video unavailable" on the default web client. yt-dlp now also tries the android client which falls through to a non-PoT legacy format that succeeds. Empirically validated: Baby Shark goes from broken to playing format-18 m4a audio. Normal songs unaffected. The line carries a `# WHY:` comment explaining the rationale so a future audit doesn't strip it as cargo-cult config. Thanks @wgordon17 (#72).
+- **Moods & Genres sub-tab removed entirely** — clicking a mood was producing a silent process-exit traceable past every Python-level handler in the audit (see `docs/superpowers/specs/2026-04-30-mood-crash-findings.md`). The remaining suspects are sub-Python (libmpv segfault, finaliser raise, etc.) and require runtime data we don't have. Pulled the tab rather than ship a feature that crashes the app on click. Tab order is now (For You, Charts, New Releases). The unused `YTMusicService.get_mood_categories` / `get_mood_playlists` wrappers were dropped at the same time — Discovery Mix calls the underlying ytmusicapi client directly, so the wrappers had no remaining callers.
+- **`KeyError` from ytmusicapi parsers no longer counted as "unexpected"** — added `KeyError` to `_EXPECTED_API_EXCEPTIONS` so `_call` treats parser drift as a recoverable API-side failure instead of letting it propagate as a "programming error." This was masking real upstream issues and surfacing crash files for routine YouTube response-shape changes.
+- **Sidebar playlist track count now updates immediately after add** — was reading the cached `count` field from the library payload and never bumping it after `add_playlist_items` succeeded, so the `(N tracks)` suffix stayed stale until the next library reload. New `LibraryPanel.update_item_count(playlist_id, delta)` primitive optimistically updates the cached count and rebuilds the affected row's label text. Wired into both `_do_add` and `_do_create_and_add` in playlist_picker. Tolerates VL-prefix mismatches in either direction. Leaves `count = None` (unknown) untouched rather than fabricating.
+- **Queue right-click now opens the actions popup** — previously did nothing because the Queue page uses a raw `DataTable` (not `TrackTable`), so the `TrackRightClicked` handler never fired. Added `on_mouse_down` on `QueuePage` that forwards button-3 clicks to `_open_actions_for_track` using the cursor row.
+- **Track actions popup conditionally swaps "Add to Queue" ↔ "Remove from Queue"** — when the track being right-clicked is currently in the playback queue, the menu shows "Remove from Queue" (action_id `remove_from_queue`) instead of "Add to Queue". Same menu slot, different label and action based on queue state. Detection happens at popup-open time by scanning `queue.tracks` for the track's `video_id`.
+- **Forward stack no longer clobbered by same-page footer clicks** (post-v1.9.0) — clicking the current page's footer entry a second time intentionally pops the previous page off the back stack, but the navigation path was treating it as a fresh forward navigation and clearing the forward stack along with it. Added a `same_page_back` flag so the forward stack survives the round-trip.
+- **Sidebar Start Radio refreshes the Shuffle-lock visual state** (post-v1.9.0) — starting a radio from the sidebar correctly applied the Shuffle-lock force-shuffle behaviour, but the playback-bar shuffle button's dim/non-dim state wasn't repainted to match. Added an explicit `refresh_shuffle_lock_state()` call on the playback bar from the sidebar Start-Radio path.
+
+**Diagnostic infrastructure**
+
+- **`faulthandler.enable(all_threads=True)`** — fatal-signal capture wired in `cli.py` after `setup_logging`. SIGSEGV/SIGBUS/SIGFPE/SIGILL/SIGABRT now leave a Python traceback for every thread in `~/.config/ytm-player/crashes/faulthandler.log` before the kernel delivers the signal. Critical for catching libmpv/python-mpv C-side crashes that bypass `sys.excepthook` entirely.
+- **asyncio loop exception handler** — `App.on_mount` installs `_asyncio_exception_handler` via `loop.set_exception_handler`. Funnels "Task exception was never retrieved" warnings and any orphan-task errors into `crashes/ytm-crash-*.log` instead of the invisible-stderr default that Textual's alt-screen swallows.
+- **`sys.unraisablehook`** — `install_excepthooks` now also captures `__del__` / weakref-callback / generator-close errors, labels them `Unraisable in <obj>`, and writes a crash file before chaining to `sys.__unraisablehook__`. Fixes a class of silent finaliser failures that were previously lost.
+- **mpv `log_handler` + `loglevel="warn"`** — Player constructs `mpv.MPV(log_handler=...)` so libmpv's internal warnings/errors hit the Python logger as `mpv[<area>]: <message>`. `ytm doctor` greps these out of `ytm.log` so libmpv issues are surface-level visible.
+- **`ytm doctor` v2 — eight sections** — version, paths, process status, recent ERROR/WARNING (filtered, last 20), recent mpv warnings, latest faulthandler trace, latest crash file, active-hooks summary. All output passes through a redaction layer that scrubs `Authorization`, `Cookie`, `Bearer`, `token`, `x-goog-pageid`, `SAPISID` so issue pastes never leak auth.
+- **App-level `_handle_exception` override** — the YTMPlayerApp overrides Textual's `App._handle_exception` (documented "Always results in the app exiting") to write a crash file via `write_crash_file()`, surface a toast, and **not** call `super()`. Keeps the TUI alive on otherwise-fatal worker / render / event errors so the user doesn't lose their queue position to a transient failure.
+- **`write_crash_file` self-bootstraps** — falls back to `paths.CRASH_DIR` when `install_excepthooks` was never called, and logs `OSError` instead of silently returning `None`. Fixes the "crashes dir empty after a real crash" diagnostic black hole.
+
+**Charts**
+
+- **Country picker (`c`)** — press `c` on Browse → Charts to open a filterable region modal. Type to filter on ISO code or country name; Enter to select; Esc to cancel. Selection persists to `[ui] region` in `config.toml` and triggers a chart refetch. New `Action.PICK_COUNTRY` enum entry, default binding `c`.
+- **Region list trimmed to 17** empirically-verified working countries (Australia, Brazil, Canada, France, Germany, Hong Kong, Japan, Malaysia, Mexico, Singapore, South Korea, Taiwan, Thailand, UAE, UK, US, Vietnam). YouTube's `countries.options` advertises 62 but most return no daily-chart data even with auth; trimmed to the subset that actually displays tracks.
+- **Daily-shelf pills** — clickable pill row above the track table shows all available daily chart shelves for the selected country (typically `Daily Top 100` / `Trending 20` / `Daily Top Videos` / `Daily Top Songs (Shorts)` — labels stripped of brand prefixes like `Coachella 2026:` and country suffixes). Click a pill to swap the table to that shelf's playlist. `HorizontalScroll` container keeps pills usable on narrow terminals.
+- **OLAK5 playlist fallback** — Trending shelves use OLAK5-prefixed auto-generated playlist IDs that ytmusicapi's `get_playlist` chokes on (`tracks[0]['album']` is `None` → TypeError). `ChartsSection._load_active_daily` detects the prefix and uses `get_watch_playlist` instead, which calls a different endpoint and parses correctly. Service-layer `YTMusicService.get_watch_playlist` extended to accept a `playlist_id`-only call shape (was video-only before).
+- **Empty-region UX** — a region picked with no chart data now shows `"No chart data available for <country>. YouTube Music coverage varies by region — press 'c' to pick a different one."` instead of the previous catch-all `"Failed to load charts."`.
+
+**Navigation**
+
+- **Browser-style back / forward** — `← Back` and `Forward →` buttons in the header bar (next to `☰ Playlists`). Auto-hide on root pages and at the front of history. Keys: `Backspace` (back), `Shift+Backspace` (forward). Forward stack invalidates on any non-back/forward navigation, matching every browser/file-explorer.
+- **Click bubbling fix** — `Action.PICK_COUNTRY` was missing from `app/_keys.py:_handle_action`'s page-delegation allowlist, so `c` silently no-op'd when first shipped. Added the entry; same `_app-header` ID-based HeaderBar lookup as the rest of the codebase.
+
+**UI / theming**
+
+- **Marquee removed from sidebars** — `_BouncingLabel` (the bouncing-text animation that fired on highlighted playlist names that overflowed) deleted entirely (~60 lines). Replaced with static truncate-with-ellipsis. Long names show `Some long playlist nam…`; the full name surfaces in the new selection info bar when the item is highlighted.
+- **Bottom-stack layout reflow** — `SelectionInfoBar`, `PlaybackBar`, and `FooterBar` are now wrapped in a single `Vertical(id="bottom-stack")` docked to the bottom. Order top-to-bottom: info bar (1 row) → playback bar (4 rows) → footer (1 row). Replaces the previous three-sibling-dock-bottom approach which produced inconsistent stacking.
+- **`truncate()` uses Unicode `…`** instead of three ASCII dots. Frees 2 chars of visible content space; matches every modern UI's truncation idiom.
+- **CONTRIBUTING.md "Theming & UI" section** — documents the rule that all widget colors flow through `theme.py` variables (`$primary`, `$text`, `$surface`, `$border`, `$accent`, `$secondary`, `$text-muted`) and that hardcoded hex colors in widget CSS are forbidden because they break custom `theme.toml` files. Closes a contributor-docs gap surfaced during PR #69 review.
+
+**Refactors / internal**
+
+- **`type: ignore[attr-defined]` removed** in PR #70's `_start_playlist_radio` call sites in `context.py` and `library.py`. Replaced with the project-standard `cast("YTMHostBase", self.app)._start_playlist_radio(...)` pattern. Added stub method to `_base.py:YTMHostBase` (CLEANUP-1).
+- **`_fetch_and_play_radio`, `_start_discovery_mix`, `_start_playlist_radio`, `shuffle_prefs`, `home_shelves`, `region`, `show_selection_info`, `sidebar_overflow`** — all added as TYPE_CHECKING stubs / config fields with the project's existing patterns.
+- **`_BouncingLabel` and timing constants (`_BOUNCE_INTERVAL`, `_BOUNCE_PAUSE`) removed.**
+
+**Infrastructure / release engineering**
+
+- **AUR auto-publish workflow** — new `.github/workflows/aur-publish.yml` triggered after the `Publish` workflow succeeds. Clones the AUR `ytm-player-git` repository via SSH key (stored in `secrets.AUR_SSH_PRIVATE_KEY`), copies `aur/PKGBUILD`, regenerates `.SRCINFO` via the new `scripts/regenerate_srcinfo.py` helper, commits, and pushes. Gated on `event.workflow_run.event == 'push'` so TestPyPI dry-runs don't trigger a real AUR push.
+- **`scripts/regenerate_srcinfo.py`** — pure-Python `.SRCINFO` generator that parses `aur/PKGBUILD` (handles scalar fields, array fields, multi-line arrays, single/double quotes, shell-variable expansion via `_expand_vars`, and emits the canonical key-value format consumed by AUR). Runs on Ubuntu CI runners without requiring Arch Linux base-devel. 6 unit tests covering parser primitives, repo-PKGBUILD round-trip, and emit format.
+- **`RELEASING.md`** — repo-root release procedure. Documents the tag-driven flow (bump `__version__` → tag `vX.Y.Z` → push), what each automated workflow does (`publish.yml`, `aur-publish.yml`), the manual fallback for the AUR push if the action fails, the one-time setup for AUR SSH keys + GitHub secrets + PyPI trusted publishing, the dry-run path via TestPyPI, and the distribution-channel matrix (PyPI/AUR/GitHub Release automated; NixOS flake manual; Gentoo GURU community-maintained by @dsafxP).
+- **`AUR_SSH_PRIVATE_KEY` and `AUR_KNOWN_HOSTS` repo secrets** configured (one-time setup).
+
+**Coming next**
+
+- **UX polish (4-8 from the in-session UX review)** — Library track-count subtitle, Search panel border deduplication + mode-toggle markup cleanup, Browse active-tab visual weight, Queue "Now Playing" header hierarchy.
+
+**Session note — release engineering**
+
+This release was assembled across one long session that pushed 50+ commits to public master, including ~14 UI-iteration commits that should have lived on a feature branch. Going forward: UI-iteration sagas land on `dev`, get squash-merged into `master` as one clean commit per saga.
+
+---
+
+### v1.8.0 (2026-04-28)
+
+A reliability and quality release driven by a multi-agent expert audit. Hardens error handling across the service/UI cascade so silent-failure UX is replaced with actionable feedback, fixes several latent runtime bugs, and brings the codebase to zero non-exempted Pyright errors (down from 218).
+
+**New**
+
+- **First-run discoverability toast** — on first launch, a 1.5s-delayed toast reads "Press ? for help · vim-style keys" (8s timeout). State persists in `session.json` so the hint shows once. Legacy session files without the field upgrade cleanly.
+- **Per-cause mutation-failure toasts** — like/playlist-add operations now distinguish auth-required, auth-expired, network-down, and server-error failures with specific messages (e.g. "Sign in again — run `ytm setup`" vs "Check your connection") instead of a single generic "Couldn't update". The classifier inspects ytmusicapi's exception types and parses HTTP status from `YTMusicServerError` messages.
+- **Page error-fallback states** — Recently Played and Context (album/artist/playlist) pages used to show "Loading…" forever on API/disk failure. Now they replace the loading indicator with a clear error message pointing at `~/.config/ytm-player/logs/ytm.log`.
+- **9 new integration tests** in `tests/test_integration/` covering the search→queue→play flow, track-change fan-out, cache-bypass behaviour, session round-trip, search cancellation, and the mutation cascade. Coverage floor raised 10 % → 47 %.
+
+**Fixed**
+
+- **Album art crashed on Pillow ≥ 10.** `Image.LANCZOS` was removed in Pillow 10. Switched to `Image.Resampling.LANCZOS`. Pyproject pins `Pillow>=10`, so this had been shipping broken for every modern install.
+- **Spotify single/multi import would have ImportError.** The popup imported `_get_video_id` from `services.spotify_import`, but that symbol does not exist (the function is `get_video_id` in `utils/formatting.py`). Renamed all call sites.
+- **`gg` / `G` in browse and playlist sidebar would crash.** Code called `ListView.action_first()` / `action_last()` — neither method exists on Textual's ListView. Replaced with the standard cursor-index assignment.
+- **New Releases tab in Browse silently empty.** `YTMusicService.get_new_releases` called `client.get_new_releases` which doesn't exist on `YTMusic`. The wrapping broad-except swallowed the AttributeError. Switched to `get_explore()['new_releases']` per the actual ytmusicapi surface.
+- **Session-save errors disappeared into the void.** `_save_session_state` now narrows its catch to `(OSError, TypeError)` and surfaces a toast on failure instead of silently dropping the user's volume / queue / playback position.
+- **Mutation methods now return `MutationResult`** — `rate_song`, `add_playlist_items`, `remove_playlist_items`, plus `add_to_library`, `remove_album_from_library`, `unsubscribe_artist`, and `delete_playlist`. A Literal: success / auth_required / auth_expired / network / server_error. Previously returned `None` (or `bool`) whether the server accepted or not — UI showed "Liked!" or "Added!" toasts even when the API failed silently. Worst case was the Spotify import "Created with N tracks" toast firing when every batch failed. All UI cascade sites now show a per-cause toast suffix via `mutation_failure_suffix`.
+- **Spotify multi-import partial-failure track count was off by up to 99.** When a 350-track import had only the last batch fail, the toast reported "~300/350 added" because the formula assumed every successful batch was a full 100. Now tracks `added_total` cumulatively by summing `len(batch)` on success, so the count is exact.
+- **Read-side `logger.debug` → `logger.exception` (~18 sites in `ytmusic.py`).** Search, library-list, get_album/artist/playlist/song/lyrics/history etc. previously caught broad exceptions and logged at debug level, so post-mortem of "library page came up empty" required `--debug`. Now they land in the log file at default level.
+- **`YTMusicService._call` outer catch narrowed.** Programming-error exceptions (TypeError, AttributeError) now propagate instead of being swallowed and mistakenly counted toward the consecutive-failure threshold.
+- **Thread-safety on lazy `YTMusicService.client` init.** Concurrent first-access from `asyncio.to_thread` workers is now guarded by a `threading.Lock` with double-checked locking.
+- **Credential file writes use `O_NOFOLLOW`.** `auth.json` (`services/auth.py`) and `spotify.json` (`services/spotify_import.py`) now refuse to follow a symlink at the target path — defense-in-depth matching the existing pattern in `utils/logging.py`.
+
+**Internal**
+
+- **Comprehensive broad-except audit** at `docs/broad-except-audit.md` — categorizes all 263 `except Exception:` sites in the codebase as KEEP / NARROW / PROMOTE with a cross-cutting cascade map. Referenced from `CLAUDE.md` so future contributors check the audit before adding new broad catches.
+- **Pyright clean-up: 218 → 93 errors,** with the remaining 93 entirely in `services/mpris.py` (D-Bus magic, exempted in CLAUDE.md ruff rules) and `services/macos_eventtap.py` (macOS-only AppKit/Quartz). Fixed real bugs along the way: `playback_bar._FooterButton.__init__` typed `kwargs` as `object` (rejecting all forwarded params), `_RepeatButton.repeat_mode` typed as `str` while assigned an `int`-typed enum value, `track_table._filter_timer` typed as `object | None` so `.stop()` didn't type-check, and several Optional-access defensive gaps.
+- **Codebase-wide `self.app.X` typing** — UI widgets/pages now cast `self.app` to `YTMHostBase` at access points so Pyright can see the host's services. ~42 sites across 6 files.
+- **README polish** — badges, tagline, Contributors section.
+- **Audit-driven follow-up plans** at `docs/superpowers/plans/2026-04-28-audit-driven-error-handling-cleanup.md` and `docs/superpowers/plans/2026-04-28-audit-driven-followup.md` — written via the superpowers writing-plans + subagent-driven-development workflow.
+
+---
+
+### v1.7.2 (2026-04-27)
+
+A combined release covering broader Python compatibility, a monthly Python release watcher, a full README restructure into a landing page + dedicated docs, and the 3.10 backport shims required to support Ubuntu 22.04.
+
+**New**
+
+- README has been split into a 64-line landing page plus seven dedicated docs (`docs/installation.md`, `docs/configuration.md`, `docs/keybindings.md`, `docs/cli-reference.md`, `docs/spotify-import.md`, `docs/troubleshooting.md`, `docs/architecture.md`). The README is now purely an index — every topic lives in exactly one file with full detail.
+- New monthly workflow `check-python-versions.yml` opens a maintenance issue when CPython releases a new stable major.minor version newer than our CI matrix ceiling. Idempotent — won't reopen if an issue is already open. Defensive regex guard rejects RC/beta strings to avoid bogus issues.
+
+**Project**
+
+- Python floor lowered from 3.12 to 3.10. Ubuntu 22.04 LTS users can now `pip install ytm-player` against the system `python3` without installing a newer Python first. Verified locally on Python 3.10 (545/545 tests passing) and via the new CI matrix `[3.10, 3.14]`.
+- Note on Python 3.10 lifecycle: CPython 3.10 reaches end-of-life October 2026. Ubuntu 22.04 keeps shipping 3.10 until April 2027 (standard support) or 2032 (Pro), so 22.04 users stay covered well past CPython's EOL. We'll bump the floor when usage data shows nobody on 3.10.
+- CI matrix shifted from `[3.12, 3.13]` to `[3.10, 3.14]` — testing the supported floor + the latest stable. Same 6 jobs as before (3 OSes × 2 Pythons), better-targeted coverage.
+- Lint job + Python release watcher updated to use Python 3.14 (was 3.12), aligning auxiliary tooling with the test matrix ceiling.
+- Pyright + ruff configured to type-check and lint against `py310` so accidentally-introduced 3.11+ syntax fails locally and in CI.
+- Classifiers updated: now lists Python 3.10, 3.11, 3.12, 3.13, 3.14.
+- `flake.nix` Python pin bumped from 3.12 to 3.13 (a stable middle of the supported range).
+- `CLAUDE.md` updated to document v1.7.x additions: 3.10 backport shims, the new watcher workflow, and the `DEFAULT_LYRIC_CURRENT` constant.
+- `CONTRIBUTING.md` gained a "Python version compatibility" section explaining the `sys.version_info` shim pattern and the `YTMHostBase` mixin attribute typing pattern for new contributors.
+- AUR PKGBUILD maintainer email replaced (was a placeholder).
+- Replaced hero screenshot (v4 → v5).
+- New `publish.yml` workflow automates the PyPI release. Pushing a `vX.Y.Z` tag now builds wheel + sdist, smoke-tests the wheel by installing it into a fresh venv and running `ytm --version`, uploads to PyPI via OIDC trusted publishing (no API tokens stored anywhere), and creates the matching GitHub Release with the CHANGELOG section attached. A manual `workflow_dispatch` with `target=testpypi` is wired for paranoid dry-runs against test.pypi.org. AUR is still updated by hand afterward.
+- Dependabot now opens major-version bumps in their own grouped PR (previously suppressed by `update-types: [minor, patch]`). Both `pip` and `github-actions` ecosystems split into `*-minor-patch` (auto-merge candidates) and `*-major` (review carefully), so security-relevant majors no longer require manual intervention to surface.
+
+**Fixes**
+
+- Theme cache (`_read_theme_toml_cached`) was silently returning `{}` on Python 3.10 because its function-local `import tomllib` was caught by a broad except clause. The bug was masked on 3.12 (where tomllib is stdlib) but would have shipped a non-functional theme cache to 3.10 users. Caught during the 3.10 verification gate; fixed by moving the import to module-level with a `sys.version_info` shim.
+- Stale comments cleaned up: `pyproject.toml` Pyright comment now reads as past tense; `services/player.py` Windows note no longer claims a 3.12+ requirement that was never accurate (ucrtbase has been the default since 3.5).
+- Sweep findings absorbed into the new docs: `l` keybinding documented (`docs/keybindings.md`), `[playback] resume_on_launch` documented (`docs/configuration.md`), corrected `lyrics_current = "#ff4e45"` in the theme.toml example (was stale `#2ecc71`), `app/_base.py` added to the architecture file tree, full CLI subcommand reference now lists every `ytm` command (was missing `ytm dislike`, `ytm now`, `ytm doctor`, `ytm config`, etc.).
+
+**Compatibility shims**
+
+To support Python 3.10 (where several stdlib symbols don't exist), backport shims were added using `sys.version_info >= (3, 11)` checks (which type-checkers narrow correctly):
+
+- `tomllib` (3.11+) → falls back to `tomli` (PyPI) on 3.10. Files: `config/keymap.py`, `config/settings.py`, `ui/theme.py`, `app/_app.py`, `tests/test_config/test_settings.py`.
+- `typing.Self` (3.11+) → falls back to `typing_extensions.Self` on 3.10. Same first 3 files.
+- `enum.StrEnum` (3.11+) → falls back to a `(str, Enum)` polyfill that mirrors stdlib's `auto()` lowercase-name behavior. Files: `services/queue.py`, `services/player.py`.
+- `tomli` and `typing_extensions` added as conditional dependencies (`python_version < "3.11"` markers) so 3.11+ users don't pull them.
+
+---
+
+### v1.7.0 (2026-04-27)
+
+A polish release focused on resume-on-launch, lyric metadata cleanup, theming
+correctness, and a typing overhaul that silences Pyright noise across the
+mixin-based App. 30 commits, 545 tests (was 491).
+
+**New**
+
+- Heart toggle on the playback bar — visible `❤` indicator between the track info and volume, filled in the theme accent when the current track is liked, muted when not. Press `l` (or click) to toggle. Backed by `ytmusicapi.rate_song(LIKE/INDIFFERENT)` so the change syncs to your YouTube Music account in real time. Toast confirms ("Added to Liked songs" / "Removed from Liked songs"); pressing `l` while not signed in surfaces a "Sign in to like songs" warning instead of feeling like a dead key. (Closes [#62](https://github.com/peternaame-boop/ytm-player/issues/62), thanks @valkyrieglasc.)
+- Last-playing track is remembered across launches — the track + queue + position are saved on every exit (not just unclean ones). Relaunch ytm-player and the playback bar shows the same track you were on, ready to go. Default-on; opt out with `[playback] resume_on_launch = false` in `config.toml`. Two safety guards: tracks paused for under 1 second are no longer saved (avoids a startup-crash overwriting a perfectly good prior resume), and the pending slot survives if you start playing a different track first.
+- Artist context page now fetches ALL top songs — `ytmusicapi.get_artist()` returns only ~5 by default with the full list at a separate browseId. ytm-player fetches the first 300 in the background after the page renders, then chains `get_playlist_remaining` for anything beyond. No more silent truncation at 100. (Closes [#55](https://github.com/peternaame-boop/ytm-player/issues/55), thanks @dmnmsc.)
+- Search input auto-focuses on fresh entry — pressing `g s` from a fresh state focuses the search bar so you can type immediately. Returning to the page with a cached query leaves focus on the results table so you can keep browsing without re-typing.
+- Search Escape now does the right thing — when the input is focused or the predictive-suggestions dropdown is showing, Escape hides the dropdown and moves focus to the songs results table (or blurs entirely if no results yet). Typing a new query also clears the previous results so a subsequent Escape doesn't strand you on stale rows.
+- Lyric title sanitization — strips a wide set of YouTube-style noise patterns (`(Official Music Video)`, `[Audio]`, `(HD)`, `(feat. Bob)` / `(ft. Bob)` / `(featuring Bob)`, `(Remix)` / `(Extended Remix)` / `(Radio Remix)`, `(Remastered)` / `(Remastered 2009)`, `(Deluxe)` / `(Deluxe Edition)`, `(Live)` / `(Live at Wembley)`, `(Acoustic)` / `(Acoustic Version)`, etc.) and the `Artist - ` prefix before LRCLIB lookup. Handles nested parens correctly (`(feat. Bob (Junior))` → strips cleanly). Improves match rate for tracks played from YouTube proper (where titles are noisy) without affecting clean YouTube Music tracks. (Closes [#62](https://github.com/peternaame-boop/ytm-player/issues/62), thanks @valkyrieglasc.)
+- Notifications match the active theme — toast border colors now use `$primary` / `$warning` / `$error` from the theme instead of Textual's hardcoded green default. Notifications no longer stick out on a custom theme.
+- Notifications shift left when the lyrics sidebar is open — toast rack offsets so notifications don't cover the lyrics.
+- Lyric line colors derive from theme tokens — current line uses the theme accent (was hardcoded green); upcoming lines are normal foreground (clearly distinct from the dimmed played lines instead of all looking grey-on-grey).
+- Now Playing header in the queue + repeat/shuffle "active" state in the playback bar use the theme accent (`$primary`) instead of the hardcoded `$success` (green).
+
+**Fixes**
+
+- Search "Searching..." indicator no longer sticks forever when the worker is cancelled. `asyncio.CancelledError` inherits from `BaseException` in Python 3.8+, so the existing `except Exception:` block didn't catch it; the loading-text-clear was outside the try/finally and never ran on cancel. Now an explicit handler clears the indicator before re-raising.
+- Queue footer no longer duplicates the repeat/shuffle state from the playback bar. Footer now just shows `Tracks: N`. (Closes [#62](https://github.com/peternaame-boop/ytm-player/issues/62), thanks @valkyrieglasc.)
+- Sidebar play-from-double-click no longer passes a possibly-`None` track to `play_track` — surfaced when the new typing infrastructure (below) tightened the signature. The `None` case now early-returns gracefully.
+
+**Project**
+
+- Allow textual 8.x — `pyproject.toml` upper bound bumped from `<8.0` to `<9.0`. (Closes [#63](https://github.com/peternaame-boop/ytm-player/pull/63).) All tests pass on textual 8.2.4.
+- Mixin attribute typing — new `src/ytm_player/app/_base.py` declares `YTMHostBase`, a `TYPE_CHECKING`-only stub class that mirrors `YTMPlayerApp`'s full attribute and cross-mixin method surface. All eight mixins now extend it. At runtime `YTMHostBase = object` (zero behaviour change); under Pyright/Pylance the editor sees a fully typed `App[None]` subclass and stops emitting "Cannot access attribute X for class FooMixin" noise. Net Pyright count in `src/ytm_player/app/`: **0 errors** (was 52 before this release).
+- A new `PageWidget` Protocol replaces bare `Widget` returns where pages are looked up — `_get_current_page()` now returns `PageWidget | None` so `handle_action` and `get_nav_state` calls type-check correctly without `cast()` at every site.
+- Pyright now finds the project venv — added `[tool.pyright]` to `pyproject.toml` so editor IDEs (VS Code / Pylance / basedpyright) resolve `textual`, `pytest`, `ytmusicapi` etc. without flooding the Problems panel with false-positive "Import could not be resolved" errors.
+- Lyric-current default color is now a single `DEFAULT_LYRIC_CURRENT = "#ff4e45"` constant in `theme.py`, referenced by the dataclass default and both fallback paths in `_app.py`. Previously the three sites disagreed (green vs red) — would have surfaced for users who wrote stripped-down custom themes that defined neither `accent` nor `primary`.
+
+**Tests**
+
+- 545 passing (up from 491 in v1.6). New coverage:
+  - Lyric title sanitizer — 29 tests covering original noise patterns + the new feat/ft/featuring/remix/remastered/deluxe/live/acoustic patterns + nested parens + negative passthroughs (`Remix Culture`, `Live and Let Die`, `Acoustic Sessions Vol 1` stay untouched).
+  - Resume-on-launch flow — restore + position-guard boundaries + pending-resume match/non-match.
+  - `_toggle_like_current` — LIKE↔INDIFFERENT, DISLIKE→LIKE, no-op-with-notify when not signed in, no-op when no current track.
+- Cleaned up several pre-existing test `ResourceWarning`s (unclosed file handles in `test_auth_multi_account.py`).
+
+---
+
+### v1.6.0 (2026-04-17)
+
+A polish release focused on diagnostics, stability, security, and performance.
+51 commits, 65 new tests (491 total), no headline user-facing features — but a
+lot of friction removed from "what do I do when something breaks?"
+
+**New**
+
+- `ytm doctor` command — prints a one-paste diagnostic report (version, Python, mpv, OS, recent log lines, most recent crash trace). Drop the output into a bug report and you've given me everything I need to triage.
+- File-based logging — logs now go to `~/.config/ytm-player/logs/ytm.log` (rotated, 5×1MB by default). Previously, log output disappeared into Textual's alt-screen and was unrecoverable. New `[logging]` config section exposes level + rotation knobs. New `--debug` CLI flag enables verbose tracing.
+- Crash file capture — unhandled exceptions from any thread now write a full traceback to `~/.config/ytm-player/crashes/` so you have something to attach to issues even when the app is dead.
+- Local audio cache now serves replays — previously the `CacheManager` indexed downloaded tracks but `play_track()` never asked it. Cached files (downloads + replayed tracks under your `[cache] max_size_gb`) now bypass yt-dlp entirely for instant playback with no network round-trip.
+- Update notifications on startup — a background worker checks PyPI once per 24 hours and surfaces a one-time toast when a newer version is available. Silent on network failure, cache lives at `~/.config/ytm-player/update_check.json`. Opt out by setting `check_for_updates = false` in `[general]`.
+- Session.json schema versioning — `schema_version` field lets future format changes detect-and-discard incompatible state instead of silently misbehaving.
+
+**Fixes — security**
+
+- IPC socket is now created owner-only via `umask(0o077)` around `bind()`, in addition to the existing `chmod 0600`.
+
+**Fixes — concurrency / stability**
+
+- Player no longer races on track changes — `_current_track` writes during `play()` and `stop()` are now under `_skip_lock`, preventing torn reads from MPRIS, Discord, Last.fm, and the end-of-track callback during rapid skips (C1).
+- mpv crash recovery no longer silently breaks subsequent playback — when `_play_sync` catches `mpv.ShutdownError` and `_try_recover` succeeds, `_current_track` and the `TRACK_CHANGE` event payload now stay consistent. (Two issues here: an initial fix went too far and cleared `_current_track` mid-`play()`, breaking MPRIS/Discord/Last.fm and stopping auto-advance after recovery — caught in final review and reverted.)
+- `ytmusic.get_playlist(order=...)` is now safe under concurrent calls — the function monkey-patches ytmusicapi's internal `_send_request` to inject the `order` parameter, but two concurrent calls would corrupt the patch state. Now serialized with an `asyncio.Lock` (C3).
+- Settings.toml and session.json writes are now atomic — uses `os.replace` after writing to a `.tmp` sibling, so power loss / `kill -9` mid-write can no longer leave you with a half-written file that crashes startup.
+- Session.json corruption no longer crashes startup — bad JSON or schema mismatch falls back to defaults silently. First launch (file absent) stays silent; format mismatch on existing files logs a warning.
+- Play failures no longer block retry within 1 second — the double-click debounce stamp now clears on stream-resolution failure or `player.play()` exception, so clicking the same track again after a failure isn't silently swallowed.
+- Update check no longer pins users to a stale "latest" if the system clock ever ran fast — negative cache age now triggers a re-fetch.
+- Bare `except:` swallows promoted to `logger.exception` in 6 high-impact spots (player callbacks, ytmusic API failures, MPRIS/Discord/Last.fm errors, history logging) — failures that previously vanished now show up in `~/.config/ytm-player/logs/ytm.log` with a stack trace.
+
+**Performance**
+
+- Theme switches feel instant — `theme.toml` is now mtime-cached in `get_css_variables` instead of being parsed from disk on every CSS variable lookup. Edits to `theme.toml` still pick up automatically (mtime invalidates the cache).
+- Queue page play-indicator update is O(1) instead of O(n) — switching tracks no longer rewrites every row in queues with hundreds of tracks; only the changed cells are touched.
+- Album art rendering moved off the event loop — `_image_to_half_blocks` (PIL resize + per-pixel iteration) now runs in `asyncio.to_thread`, so loading a thumbnail never blocks input handling.
+- Library page background workers cancel on page removal — the "fetch remaining tracks" worker for large libraries no longer keeps running after you've navigated away.
+
+**Project**
+
+- Multi-OS CI — workflow now runs on Ubuntu / macOS / Windows × Python 3.12 / 3.13 (was Ubuntu / 3.12 only). Pip cache enabled. `dev` branch now triggers CI too.
+- Dependabot configured for weekly grouped pip + GitHub Actions updates.
+- Issue templates (bug + feature) — bug template requires `ytm doctor` output; feature template asks contributors to bundle related ideas.
+- PR template, CODEOWNERS, SECURITY.md (private vulnerability reporting), CONTRIBUTING.md (dev setup, ruff order, logging conventions, RTL guard, PR norms).
+- `.gitattributes` enforces LF line endings; `.gitignore` expanded for IDE/OS junk, `result` (Nix), `*.log`, etc.
+- Repo metadata: description, homepage, 9 topics (`tui`, `textual`, `music-player`, `youtube-music`, `terminal`, `mpv`, `python`, `vim-keybindings`, `cli`), GitHub Discussions enabled.
+
+**Tests**
+
+- 65 new tests, 491 total (was 426). New coverage areas: logging + excepthook setup, doctor diagnostics, cache contract, session restore resilience, schema versioning, update check + clock skew, IPC dispatch + seek parsing, key normalization, navigation back-stack invariants, playback debounce + cache-hit path, atomic writes, settings load.
+- Help-page coverage enforcement test — fails CI if any `Action` enum member is missing from `ACTION_DESCRIPTIONS` or `ACTION_CATEGORIES` in `ui/pages/help.py`. Catches the "added a new keybind, forgot to document it" drift forever.
+
+---
+
+### v1.5.9 (2026-04-16)
+
+**Fixes**
+- Fixed `gc` (jump to current track) crashing on Queue and Liked Songs — `scroll_to_cursor()` doesn't exist on Textual's `DataTable`. Removed the bogus calls; `move_cursor()` already scrolls by default (fixes [#52](https://github.com/peternaame-boop/ytm-player/issues/52), thanks @dmnmsc)
+- Fixed Queue "Now Playing" header not updating on track change — `call_from_thread()` raises `RuntimeError` when called from the same thread as the app, and the bare `except` was silently swallowing it. Player events are already on the main thread, so we now call the update method directly (fixes [#56](https://github.com/peternaame-boop/ytm-player/issues/56), thanks @dmnmsc)
+
+---
+
+### v1.5.8 (2026-04-16)
+
+**New**
+- Track filter (`/`) extended to Queue and Liked Songs pages — search by title or artist, debounced, queue/reorder/delete operations correctly map filtered indices to real positions (fixes [#48](https://github.com/peternaame-boop/ytm-player/issues/48), thanks @dmnmsc)
+- Liked Songs loading status — footer now shows "loading more…" while background fetch runs for libraries beyond 300 tracks (fixes [#51](https://github.com/peternaame-boop/ytm-player/issues/51), thanks @dmnmsc)
+
+**Fixes**
+- Fixed RTL text bleed across visual boundaries — RTL track titles were appearing duplicated at row edges and bleeding into the playback bar's volume/repeat/shuffle area. All user text fragments are now wrapped with Unicode FSI/PDI isolation marks. Includes a regression test that mechanically prevents the bug from reappearing
+- Fixed app crash on artist→album→album navigation — `DuplicateIds` race when navigating between two ContextPages with the same widget ID. Each ContextPage instance now uses a unique sequence-based ID (fixes [#47](https://github.com/peternaame-boop/ytm-player/issues/47), thanks @dmnmsc)
+- Fixed `g c` (jump to current track) doing nothing — action was wired to the keymap but no page implemented it. Now works on Library, Context, Browse, Search, Queue, Liked Songs, and Recently Played (fixes [#49](https://github.com/peternaame-boop/ytm-player/issues/49), thanks @dmnmsc)
+- Fixed `g space` (current context) crashing — was navigating to ContextPage without required `context_type`/`context_id`. Now extracts album info from the currently playing track, or shows a notification if unavailable (fixes [#50](https://github.com/peternaame-boop/ytm-player/issues/50), thanks @dmnmsc)
+
+---
+
+### v1.5.7 (2026-04-15)
+
+**New**
+- Track filter on Library and Context pages — press `/` to filter tracks by title, artist, or album in real-time. Enter keeps filtered view, Escape clears it. Queue integration preserved (fixes [#43](https://github.com/peternaame-boop/ytm-player/issues/43), thanks @dmnmsc; fixes [#46](https://github.com/peternaame-boop/ytm-player/issues/46), thanks @valkyrieglasc)
+- Optimistic sidebar updates — creating or deleting a playlist updates the sidebar instantly without an API round-trip or delay (thanks @Villoh, PR [#41](https://github.com/peternaame-boop/ytm-player/pull/41))
+
+**Fixes**
+- Fixed app crash when opening album from artist page — `DuplicateIds` caused by uncancelled background workers on page navigation. Workers now cancelled on page removal (fixes [#44](https://github.com/peternaame-boop/ytm-player/issues/44), thanks @dmnmsc)
+- Fixed like/unlike toggle always showing "Like" — `likeStatus` was stripped during track normalization and not updated after rating. Now preserved and updated in real-time (fixes [#45](https://github.com/peternaame-boop/ytm-player/issues/45), thanks @dmnmsc)
+- Fixed `album_art = false` and `progress_style = "line"` config options being ignored (fixes [#42](https://github.com/peternaame-boop/ytm-player/issues/42), thanks @valkyrieglasc)
+- Fixed `theme.toml` base color overrides (background, primary, etc.) not applying after Textual theme integration — user customizations now override the active theme (fixes [#42](https://github.com/peternaame-boop/ytm-player/issues/42))
+
+---
+
+### v1.5.6 (2026-04-10)
+
+**New**
+- Bouncing playlist names — long playlist titles in the sidebar now bounce (scroll back and forth) when highlighted, so you can read the full name (thanks @dmnmsc, [#32](https://github.com/peternaame-boop/ytm-player/issues/32))
+
+**Fixes**
+- Fixed "Add to Queue" / "Play Next" doing nothing — popup dismissal was triggering a spurious track selection that cleared the queue immediately after adding. Now suppressed with a refocus guard (fixes [#30](https://github.com/peternaame-boop/ytm-player/issues/30), thanks @dmnmsc)
+- Fixed sidebar "Add to Queue" only showing a notification without actually adding tracks — now fetches the playlist and queues all tracks (fixes [#30](https://github.com/peternaame-boop/ytm-player/issues/30))
+- Fixed theme colors not updating in header bar when switching themes — migrated toggle labels from Rich Text to CSS classes (fixes [#37](https://github.com/peternaame-boop/ytm-player/issues/37), thanks @Villoh)
+- Fixed progress bar colors not updating on theme switch — colors now read at render time instead of construction time (fixes [#39](https://github.com/peternaame-boop/ytm-player/issues/39), thanks @Villoh)
+- Fixed hover backgrounds making text invisible — all hover states now use `$accent 30%` instead of `$border`
+- Removed 500-track limit on session queue restore — full queue now persists regardless of size (fixes [#31](https://github.com/peternaame-boop/ytm-player/issues/31), thanks @dmnmsc)
+
+---
+
 ### v1.5.5 (2026-04-09)
 
 **New**

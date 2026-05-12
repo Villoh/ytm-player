@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from textual.app import ComposeResult
 from textual.containers import Container
 from textual.widget import Widget
 from textual.widgets import Static
 
+from ytm_player.app._base import YTMHostBase
 from ytm_player.config import Action
 from ytm_player.ui.playback_bar import FooterBar
+
+if TYPE_CHECKING:
+    from ytm_player.app._base import PageWidget
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +65,7 @@ class _PlaceholderPage(Widget):
         pass
 
 
-class NavigationMixin:
+class NavigationMixin(YTMHostBase):
     """Page navigation: navigate_to, _create_page, _get_current_page."""
 
     @property
@@ -73,28 +77,58 @@ class NavigationMixin:
 
         Extra *kwargs* are forwarded to the page constructor (e.g.
         ``context_type`` and ``context_id`` for ContextPage).
-        Pass ``page_name="back"`` to pop from the navigation stack.
+
+        Pass ``page_name="back"`` to pop from the back stack (and push the
+        current page onto the forward stack), or ``page_name="forward"``
+        to do the reverse.
         """
-        # Handle "back" navigation via stack.
+        # Handle "back" / "forward" navigation via stacks.
         is_back = page_name == "back"
+        is_forward = page_name == "forward"
         if is_back:
             if self._nav_stack:
                 prev_page, prev_kwargs = self._nav_stack.pop()
+                # Push the page we're leaving onto the forward stack so
+                # the user can come back to it via forward.
+                if self._current_page:
+                    cur_kwargs = dict(self._current_page_kwargs)
+                    cur_kwargs.update(self._page_state_cache.get(self._current_page, {}))
+                    self._forward_stack.append((self._current_page, cur_kwargs))
+                    if len(self._forward_stack) > _MAX_NAV_STACK:
+                        self._forward_stack = self._forward_stack[-_MAX_NAV_STACK:]
                 page_name = prev_page
                 kwargs = prev_kwargs
             else:
                 page_name = "library"
+        elif is_forward:
+            if self._forward_stack:
+                next_page, next_kwargs = self._forward_stack.pop()
+                # Push the page we're leaving back onto the nav stack so
+                # the user can return via back.
+                if self._current_page:
+                    cur_kwargs = dict(self._current_page_kwargs)
+                    cur_kwargs.update(self._page_state_cache.get(self._current_page, {}))
+                    self._nav_stack.append((self._current_page, cur_kwargs))
+                    if len(self._nav_stack) > _MAX_NAV_STACK:
+                        self._nav_stack = self._nav_stack[-_MAX_NAV_STACK:]
+                page_name = next_page
+                kwargs = next_kwargs
+            else:
+                # No forward history — silently no-op.
+                return
 
         if page_name not in PAGE_NAMES:
             logger.warning("Unknown page: %s", page_name)
             return
 
+        same_page_back = False
         if page_name == self._current_page and not kwargs:
             # Clicking the same page again goes back to the previous page.
             if self._nav_stack:
                 prev_page, prev_kwargs = self._nav_stack.pop()
                 page_name = prev_page
                 kwargs = prev_kwargs
+                same_page_back = True
             else:
                 return
 
@@ -102,21 +136,30 @@ class NavigationMixin:
         # This allows forward navigation (footer/sidebar clicks) to restore state.
         if self._current_page:
             current_page = self._get_current_page()
-            if current_page and hasattr(current_page, "get_nav_state"):
+            if current_page is not None and hasattr(current_page, "get_nav_state"):
                 page_state = current_page.get_nav_state()
                 if page_state:
                     self._page_state_cache[self._current_page] = page_state
 
         # Push current page onto the nav stack before switching.
-        # Skip for back navigation -- we already popped the target, don't push
-        # the current page or the stack ping-pongs between two pages.
-        if not is_back and self._current_page and self._current_page != page_name:
+        # Skip for back / forward / same-page-back — those already managed
+        # the stacks above (or popped, in the same-page case).
+        if (
+            not is_back
+            and not is_forward
+            and not same_page_back
+            and self._current_page
+            and self._current_page != page_name
+        ):
             nav_kwargs = dict(self._current_page_kwargs)
             nav_kwargs.update(self._page_state_cache.get(self._current_page, {}))
             self._nav_stack.append((self._current_page, nav_kwargs))
             # Cap stack size.
             if len(self._nav_stack) > _MAX_NAV_STACK:
                 self._nav_stack = self._nav_stack[-_MAX_NAV_STACK:]
+            # Browser semantics: any non-back/forward navigation invalidates
+            # the forward history (you can't redo a future you didn't take).
+            self._forward_stack.clear()
 
         # Restore cached state for forward navigation when no explicit kwargs given.
         if not kwargs and page_name in self._page_state_cache:
@@ -137,6 +180,16 @@ class NavigationMixin:
             footer.set_active_page(page_name)
         except Exception:
             logger.debug("Failed to update footer active page indicator", exc_info=True)
+
+        # Show/hide the header back/forward buttons based on stack state.
+        try:
+            from ytm_player.ui.header_bar import HeaderBar
+
+            header = self.query_one("#app-header", HeaderBar)
+            header.set_back_visible(bool(self._nav_stack))
+            header.set_forward_visible(bool(self._forward_stack))
+        except Exception:
+            logger.exception("Failed to update header back/forward button visibility")
 
         # Apply per-page playlist sidebar visibility.
         sidebar_visible = self._sidebar_per_page.get(page_name, self._sidebar_default)
@@ -171,14 +224,28 @@ class NavigationMixin:
         page_cls = page_map.get(page_name)
         if page_cls is None:
             return _PlaceholderPage(page_name, id=f"page-{page_name}")
+        # ContextPage uses unique IDs because back-to-back navigation between
+        # contexts (e.g. album → album) can race the previous instance's
+        # removal, causing DuplicateIds when the new one mounts.
+        if page_name == "context":
+            self._context_seq = getattr(self, "_context_seq", 0) + 1
+            return page_cls(id=f"page-context-{self._context_seq}", **kwargs)
         return page_cls(id=f"page-{page_name}", **kwargs)
 
-    def _get_current_page(self) -> Widget | None:
-        """Return the currently mounted page widget, or None."""
+    def _get_current_page(self) -> PageWidget | None:
+        """Return the currently mounted page widget, or None.
+
+        Returned as a ``PageWidget`` (Protocol) so callers can invoke
+        ``handle_action`` and ``get_nav_state`` without ``hasattr``
+        gymnastics for the type-checker.  All concrete pages mounted
+        in ``#main-content`` implement this protocol.
+        """
         try:
             container = self.query_one("#main-content", Container)
             children = list(container.children)
-            return children[0] if children else None
+            if not children:
+                return None
+            return cast("PageWidget", children[0])
         except Exception:
             logger.debug("Failed to get current page", exc_info=True)
             return None

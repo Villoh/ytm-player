@@ -7,6 +7,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
+from typing import Any
 
 from ytm_player.config.settings import get_settings
 from ytm_player.services.yt_dlp_options import apply_configured_yt_dlp_options
@@ -54,7 +55,8 @@ class StreamResolver:
         self._cache: dict[str, StreamInfo] = {}
         self._cache_lock = threading.Lock()
         self._pending: dict[str, asyncio.Future[StreamInfo | None]] = {}
-        self._ydl: object | None = None
+        # yt_dlp.YoutubeDL — typed Any because yt-dlp ships no stubs.
+        self._ydl: Any | None = None
         self._ydl_lock = threading.Lock()
 
     @property
@@ -83,16 +85,21 @@ class StreamResolver:
             # Avoid writing any files to disk.
             "writeinfojson": False,
             "writethumbnail": False,
+            # Android client provides a non-PoT fallback path (legacy format 18)
+            # that unblocks madeForKids content which the default web client refuses.
+            "extractor_args": {"youtube": {"player_client": ["default", "android"]}},
         }
         return apply_configured_yt_dlp_options(opts, settings)
 
-    def _get_ydl(self):  # noqa: ANN201
+    def _get_ydl(self) -> Any:
         """Return a reusable YoutubeDL instance, creating it lazily."""
         import yt_dlp  # Lazy import
 
         with self._ydl_lock:
             if self._ydl is None:
-                self._ydl = yt_dlp.YoutubeDL(self._build_ydl_opts())
+                # yt-dlp's _Params TypedDict is internal; the dict we build
+                # is a plain options dict that yt-dlp accepts at runtime.
+                self._ydl = yt_dlp.YoutubeDL(self._build_ydl_opts())  # type: ignore[arg-type]
             return self._ydl
 
     def _reset_ydl(self) -> None:
@@ -169,7 +176,7 @@ class StreamResolver:
                 thumbnail_url=thumbnail,
             )
 
-        except yt_dlp.utils.DownloadError as exc:
+        except yt_dlp.utils.DownloadError as exc:  # type: ignore[attr-defined]
             logger.warning(
                 "yt-dlp download error for video_id=%s (attempt %d): %s",
                 video_id,

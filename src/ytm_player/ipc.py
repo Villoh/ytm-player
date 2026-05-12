@@ -132,19 +132,31 @@ class IPCServer:
             await self._start_unix()
 
     async def _start_unix(self) -> None:
+        import os
+
         from ytm_player.config.paths import SOCKET_PATH
 
         # Remove stale socket.
         SOCKET_PATH.unlink(missing_ok=True)
-        self._server = await asyncio.start_unix_server(
-            self._client_connected, path=str(SOCKET_PATH)
-        )
+        # Tighten umask so the socket is created owner-only from the kernel's
+        # perspective — closes the race between bind() and the secure_chmod()
+        # below where another local user could otherwise connect.
+        prev_umask = os.umask(0o077)
+        try:
+            self._server = await asyncio.start_unix_server(
+                self._client_connected, path=str(SOCKET_PATH)
+            )
+        finally:
+            os.umask(prev_umask)
         secure_chmod(SOCKET_PATH, 0o600)
         logger.info("IPC server listening on %s", SOCKET_PATH)
 
     async def _start_tcp(self) -> None:
         from ytm_player.config.paths import IPC_PORT_FILE
 
+        # _start_tcp is only invoked on Windows where IPC_PORT_FILE is set;
+        # on Unix start_unix_server is used instead and IPC_PORT_FILE is None.
+        assert IPC_PORT_FILE is not None
         # Bind to localhost with a random available port.
         self._server = await asyncio.start_server(self._client_connected, host="127.0.0.1", port=0)
         # Save the port so the client can find us.

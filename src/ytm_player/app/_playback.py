@@ -7,25 +7,30 @@ import logging
 import time
 from typing import Any
 
+from ytm_player.app._base import YTMHostBase
 from ytm_player.ui.header_bar import HeaderBar
 from ytm_player.ui.playback_bar import PlaybackBar
 from ytm_player.ui.widgets.track_table import TrackTable
-from ytm_player.utils.formatting import get_video_id
+from ytm_player.utils.formatting import get_video_id, normalize_tracks
 
 logger = logging.getLogger(__name__)
 
 _MAX_CONSECUTIVE_FAILURES = 5
 
 
-class PlaybackMixin:
+class PlaybackMixin(YTMHostBase):
     """Playback coordination, player event callbacks, history logging, download."""
 
-    async def play_track(self, track: dict) -> None:
+    async def play_track(self, track: dict | None) -> None:
         """Resolve a stream URL and start playback for a track.
 
         This is the main entry point for initiating playback from any
-        page or action.
+        page or action.  ``track`` may be ``None`` when callers pass
+        ``QueueManager.current_track`` on an empty queue — in that case
+        we simply no-op.
         """
+        if track is None:
+            return
         if not self.player or not self.stream_resolver:
             self.notify(
                 "Player is still starting up. Please try again in a moment.", severity="error"
@@ -73,14 +78,44 @@ class PlaybackMixin:
         except Exception:
             logger.debug("Playback bar not ready during play_track", exc_info=True)
 
-        # Resolve the stream URL.
-        try:
-            stream_info = await self.stream_resolver.resolve(video_id)
-        except Exception:
-            logger.debug("Stream resolution raised for %s", video_id, exc_info=True)
-            stream_info = None
+        # Try local audio cache first (previously downloaded or replayed track).
+        stream_info = None
+        if self.cache:
+            try:
+                cached_path = await self.cache.get(video_id)
+            except Exception:
+                logger.debug("Cache lookup failed for %s", video_id, exc_info=True)
+                cached_path = None
+
+            if cached_path is not None:
+                # Build a minimal StreamInfo pointing at the local file.
+                # Downstream code (Discord, Last.fm, MPRIS) only reads
+                # .url and .duration — duration comes from the track dict.
+                from ytm_player.services.stream import StreamInfo
+
+                stream_info = StreamInfo(
+                    url=str(cached_path),
+                    video_id=video_id,
+                    format=cached_path.suffix.lstrip(".") or "opus",
+                    bitrate=0,  # unknown for cached files
+                    duration=track.get("duration") or 0,
+                    expires_at=float("inf"),  # local files don't expire
+                    thumbnail_url=track.get("thumbnail_url"),
+                )
+                logger.info("Cache hit for %s — playing from %s", video_id, cached_path)
+
+        # Resolve via yt-dlp if no cache hit.
+        if stream_info is None:
+            try:
+                stream_info = await self.stream_resolver.resolve(video_id)
+            except Exception:
+                logger.debug("Stream resolution raised for %s", video_id, exc_info=True)
+                stream_info = None
 
         if stream_info is None:
+            # Stream resolve failed — clear debounce so user can retry.
+            self._last_play_video_id = ""
+            self._last_play_time = 0.0
             self._consecutive_failures += 1
             title = track.get("title", video_id)
             self.notify(
@@ -117,6 +152,9 @@ class PlaybackMixin:
             await self.player.play(stream_info.url, track)
         except Exception:
             logger.debug("player.play() failed for %s", video_id, exc_info=True)
+            # play() failed — clear debounce so user can retry.
+            self._last_play_video_id = ""
+            self._last_play_time = 0.0
             self._consecutive_failures += 1
             if self._consecutive_failures < _MAX_CONSECUTIVE_FAILURES:
                 next_track = self.queue.next_track()
@@ -136,6 +174,20 @@ class PlaybackMixin:
                 self._consecutive_failures = 0
             return
         self._track_start_position = 0.0
+
+        # Apply pending resume position if this play matches the resumed track.
+        # Only clear on a match — if the user plays a different track first,
+        # leave pending state intact so they can come back to the resumed
+        # track later.
+        if self._pending_resume_video_id is not None and self._pending_resume_video_id == video_id:
+            if self._pending_resume_position > 0:
+                try:
+                    await self.player.seek_absolute(self._pending_resume_position)
+                    self._track_start_position = self._pending_resume_position
+                except Exception:
+                    logger.debug("Failed to seek to resume position", exc_info=True)
+            self._pending_resume_video_id = None
+            self._pending_resume_position = 0.0
 
         # Update Discord Rich Presence.
         if self.discord and self.discord.is_connected:
@@ -195,7 +247,12 @@ class PlaybackMixin:
             # is already None (cleared by _on_end_file before we get here).
             seed = ended_track or (self.player.current_track if self.player else None)
             if seed:
-                await self._fetch_and_play_radio(seed_track=seed)
+                await self._fetch_and_play_radio(seed_track=seed, append=True)
+                first = self.queue.next_track()
+                if first:
+                    await self.play_track(first)
+                else:
+                    self.notify("End of queue.", timeout=2)
             else:
                 self.notify("End of queue.", timeout=2)
         else:
@@ -212,38 +269,65 @@ class PlaybackMixin:
         if track:
             await self.play_track(track)
 
-    async def _fetch_and_play_radio(self, seed_track: dict | None = None) -> None:
-        """Fetch radio suggestions and continue playback.
+    async def _fetch_and_play_radio(
+        self,
+        seed_track: dict | list[dict],
+        *,
+        label: str | None = None,
+        append: bool = False,
+    ) -> None:
+        """Fetch radio for one or more seed tracks and load into queue.
 
-        *seed_track* is used as the radio seed.  Falls back to the player's
-        current track if not provided.
+        When *append* is False (default), clears the queue first and starts
+        playback — used for user-initiated "Start Radio" / discovery mix.
+        When *append* is True, silently adds tracks — used for background
+        queue refill.
         """
         if not self.ytmusic:
             return
-
-        track = seed_track or (self.player.current_track if self.player else None)
-        if not track:
+        seeds = [seed_track] if isinstance(seed_track, dict) else seed_track
+        video_ids = [get_video_id(t) for t in seeds if get_video_id(t)]
+        if not video_ids:
             return
 
-        video_id = track.get("video_id", "")
-        if not video_id:
-            return
+        if not append:
+            self.notify("Loading radio...", timeout=3)
 
-        self.notify("Loading radio suggestions...", timeout=3)
         try:
-            from ytm_player.utils.formatting import normalize_tracks
-
-            radio_tracks = normalize_tracks(await self.ytmusic.get_radio(video_id))
-            if radio_tracks:
-                self.queue.set_radio_tracks(radio_tracks)
-                next_track = self.queue.next_track()
-                if next_track:
-                    await self.play_track(next_track)
-                    return
+            tracks = await self.ytmusic.get_radio(video_ids)
         except Exception:
-            logger.exception("Failed to fetch radio tracks")
+            logger.exception("Failed to fetch radio")
+            tracks = []
 
-        self.notify("No more suggestions available. Add more tracks to your queue.", timeout=3)
+        if not tracks:
+            if not append:
+                self.notify("No radio suggestions available.", severity="warning", timeout=3)
+            return
+
+        if append:
+            self.queue.set_radio_tracks(tracks)
+            self.queue.radio_seeds = seeds
+            self._refresh_queue_page()
+            return
+
+        self.queue.clear()
+        normalized_seeds = normalize_tracks(seeds)
+        if normalized_seeds:
+            self.queue.add_multiple(normalized_seeds)
+        self.queue.set_radio_tracks(tracks)
+        self.queue.radio_seeds = seeds
+        # Track-seeded radio and discovery mix are ephemeral — clear any
+        # prior context so a later shuffle toggle is not persisted to
+        # the wrong key (TP-7).  Playlist-seeded radio uses its own
+        # set_context() in _start_playlist_radio.
+        self.queue.set_context(None)
+        self._refresh_queue_page()
+        if not label:
+            label = f"Radio from {seeds[0].get('title', 'Unknown')}"
+        first = self.queue.next_track()
+        if first:
+            await self.play_track(first)
+        self.notify(f"Playing: {label}", timeout=4)
 
     # ── Player event callbacks ───────────────────────────────────────
 
@@ -290,13 +374,13 @@ class PlaybackMixin:
             try:
                 self.mpris.update_position(int(self.player.position * 1_000_000))
             except Exception:
-                logger.debug("Failed to update MPRIS position", exc_info=True)
+                logger.exception("MPRIS position update failed")
 
         if self.mac_media and self.player.is_playing:
             try:
                 self.mac_media.update_position(int(self.player.position * 1_000_000))
             except Exception:
-                logger.debug("Failed to update macOS media position", exc_info=True)
+                logger.exception("macOS Now Playing position update failed")
 
         # Check Last.fm scrobble threshold.
         if self.lastfm and self.lastfm.is_connected and self.player.is_playing:
@@ -307,19 +391,28 @@ class PlaybackMixin:
                     exclusive=True,
                 )
             except Exception:
-                logger.debug("Failed to check Last.fm scrobble", exc_info=True)
+                logger.exception("Last.fm scrobble check failed")
 
     def _on_track_change(self, track: dict) -> None:
         """Handle track change event from the player.
 
         Called on the event loop via call_soon_threadsafe -- safe to touch widgets.
         """
+        self._refill_queue()
+
         try:
             bar = self.query_one("#playback-bar", PlaybackBar)
             bar.update_track(track)
             bar.update_playback_state(is_playing=True, is_paused=False)
         except Exception:
             logger.debug("Failed to update playback bar on track change", exc_info=True)
+
+        # Reflect the new track's like state on the playback bar's heart.
+        try:
+            bar = self.query_one("#playback-bar", PlaybackBar)
+            bar.update_like_status(track.get("likeStatus"))
+        except Exception:
+            logger.debug("Failed to update like status on track change", exc_info=True)
 
         # Un-dim the header lyrics toggle.
         try:
@@ -376,6 +469,49 @@ class PlaybackMixin:
                     exclusive=True,
                 )
 
+    def _refill_queue(self) -> None:
+        """Refill the queue in the background when tracks are running low."""
+        if self.queue.repeat_mode != "off":
+            return
+        if not self.settings.playback.autoplay:
+            return
+        if self.queue.remaining_tracks > 3:
+            return
+        for worker in self.workers:
+            if worker.group == "queue_extend" and worker.is_running:
+                return
+
+        all_tracks = self.queue.tracks
+        current_idx = self.queue.real_index
+        played = list(all_tracks[: current_idx + 1]) if current_idx >= 0 else []
+        seeds = played[-5:]
+        if not seeds:
+            track = self.player.current_track if self.player else None
+            if track:
+                seeds = [track]
+        if not seeds:
+            return
+
+        self.run_worker(
+            self._fetch_and_play_radio(seeds, append=True),
+            group="queue_extend",
+            exclusive=True,
+        )
+
+    async def _start_discovery_mix(self) -> None:
+        """Fetch a random discovery mix, replace the queue, and start playing."""
+        if not self.ytmusic:
+            return
+        self.notify("Loading discovery mix...", timeout=3)
+        seeds, source = await self.ytmusic.get_discovery_mix()
+        if not seeds:
+            self.notify("Discovery failed — no content available", severity="warning")
+            return
+        label = f"Discovery ({source})" if source else None
+        await self._fetch_and_play_radio(seeds, label=label)
+        if self._current_page != "queue":
+            await self.navigate_to("queue")
+
     def _on_volume_change(self, volume: int) -> None:
         """Handle volume change events."""
         try:
@@ -400,7 +536,7 @@ class PlaybackMixin:
                     lambda s=status, svc=mpris: self.run_worker(svc.update_playback_status(s))
                 )
             except Exception:
-                logger.debug("Failed to update MPRIS playback status", exc_info=True)
+                logger.exception("MPRIS playback status update failed")
 
         if self.mac_media:
             status = "Paused" if paused else "Playing"
@@ -410,27 +546,29 @@ class PlaybackMixin:
                     lambda s=status, svc=mac_media: self.run_worker(svc.update_playback_status(s))
                 )
             except Exception:
-                logger.debug("Failed to update macOS media status", exc_info=True)
+                logger.exception("macOS Now Playing playback status update failed")
 
         # Update Discord presence on pause/resume.
-        if self.discord and self.discord.is_connected:
+        discord = self.discord
+        if discord and discord.is_connected:
             try:
                 if paused:
-                    self.call_later(lambda: self.run_worker(self.discord.clear()))
+                    self.call_later(lambda d=discord: self.run_worker(d.clear()))
                 elif self.player and self.player.current_track:
                     t = self.player.current_track
+                    player = self.player
                     self.call_later(
-                        lambda: self.run_worker(
-                            self.discord.update(
-                                title=t.get("title", ""),
-                                artist=t.get("artist", ""),
-                                album=t.get("album", ""),
-                                position=self.player.position if self.player else 0,
+                        lambda d=discord, p=player, track=t: self.run_worker(
+                            d.update(
+                                title=track.get("title", ""),
+                                artist=track.get("artist", ""),
+                                album=track.get("album", ""),
+                                position=p.position,
                             )
                         )
                     )
             except Exception:
-                logger.debug("Failed to update Discord presence", exc_info=True)
+                logger.exception("Discord RPC presence update failed")
 
     # ── History logging ──────────────────────────────────────────────
 
@@ -469,6 +607,53 @@ class PlaybackMixin:
                 )
             except Exception:
                 logger.exception("Failed to log play history")
+
+    # ── Like toggle ──────────────────────────────────────────────────
+
+    async def _toggle_like_current(self) -> None:
+        """Toggle the like state on the currently-playing track.
+
+        Cycles between LIKE and INDIFFERENT (no rating). Pressing this
+        on a disliked track switches it to LIKE (clearing the dislike).
+        Dislike state is left to the existing track-actions popup.
+        """
+        if not self.player or not self.player.current_track:
+            return
+        track = self.player.current_track
+        video_id = track.get("video_id", "")
+        if not video_id:
+            return
+        if not self.ytmusic:
+            self.notify("Sign in to like songs", severity="warning", timeout=2)
+            return
+
+        current_status = (track.get("likeStatus") or "INDIFFERENT").upper()
+        new_status = "INDIFFERENT" if current_status == "LIKE" else "LIKE"
+
+        result = await self.ytmusic.rate_song(video_id, new_status)
+        if result != "success":
+            from ytm_player.services.ytmusic import mutation_failure_suffix
+
+            self.notify(
+                f"Couldn't update like — {mutation_failure_suffix(result)}",
+                severity="error",
+                timeout=3,
+            )
+            return
+
+        # Update the track dict so subsequent reads reflect the new state.
+        track["likeStatus"] = new_status
+        # Notify the user of the change.
+        msg = "Added to Liked songs" if new_status == "LIKE" else "Removed from Liked songs"
+        self.notify(msg, timeout=2)
+        # Push the new state to the playback bar.
+        try:
+            from ytm_player.ui.playback_bar import PlaybackBar
+
+            bar = self.query_one("#playback-bar", PlaybackBar)
+            bar.update_like_status(new_status)
+        except Exception:
+            logger.debug("Failed to push like status to playback bar", exc_info=True)
 
     # ── Download ─────────────────────────────────────────────────────
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING, Any, cast
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -17,6 +18,9 @@ from ytm_player.ui.theme import get_theme
 from ytm_player.ui.widgets.album_art import AlbumArt
 from ytm_player.ui.widgets.progress_bar import PlaybackProgress
 from ytm_player.utils.formatting import extract_artist, truncate
+
+if TYPE_CHECKING:
+    from ytm_player.app._base import YTMHostBase
 
 logger = logging.getLogger(__name__)
 
@@ -72,25 +76,25 @@ class _TrackInfo(Widget):
             artist_w = min(len(self.artist), max_w // 3)
             album_w = max_w - title_w - artist_w - 8
 
-            # LRI (U+2066) ... PDI (U+2069) isolates the track info so
-            # RTL titles don't pull adjacent widgets (volume, etc.) into
-            # the RTL BiDi context.
-            from ytm_player.utils.bidi import reorder_rtl_line
+            # FSI...PDI isolates each fragment so RTL titles don't pull
+            # adjacent widgets (volume, repeat, shuffle) into the RTL BiDi
+            # context.  Apply isolate AFTER truncate (PDI must not be cut).
+            from ytm_player.utils.bidi import isolate_bidi, reorder_rtl_line
 
             result.append(
-                truncate(reorder_rtl_line(self.title), title_w),
+                isolate_bidi(truncate(reorder_rtl_line(self.title), title_w)),
                 style=f"bold {theme.foreground}",
             )
             if self.artist:
                 result.append(" \u2014 ", style=theme.muted_text)
                 result.append(
-                    truncate(reorder_rtl_line(self.artist), artist_w),
+                    isolate_bidi(truncate(reorder_rtl_line(self.artist), artist_w)),
                     style=theme.secondary,
                 )
             if self.album:
                 result.append(" \u2014 ", style=theme.muted_text)
                 result.append(
-                    truncate(reorder_rtl_line(self.album), max(0, album_w)),
+                    isolate_bidi(truncate(reorder_rtl_line(self.album), max(0, album_w))),
                     style=theme.muted_text,
                 )
         else:
@@ -120,14 +124,14 @@ class _VolumeDisplay(Widget):
 
     async def on_mouse_scroll_up(self, event: MouseScrollUp) -> None:
         event.stop()
-        app = self.app
-        if hasattr(app, "player") and app.player:
+        app = cast("YTMHostBase", self.app)
+        if app.player is not None:
             await app.player.change_volume(5)
 
     async def on_mouse_scroll_down(self, event: MouseScrollDown) -> None:
         event.stop()
-        app = self.app
-        if hasattr(app, "player") and app.player:
+        app = cast("YTMHostBase", self.app)
+        if app.player is not None:
             await app.player.change_volume(-5)
 
 
@@ -142,35 +146,39 @@ class _RepeatButton(Widget):
         padding: 0 1;
     }
     _RepeatButton:hover {
-        background: $border;
+        background: $accent 30%;
     }
     """
 
-    repeat_mode: reactive[str] = reactive("off")
+    repeat_mode: reactive[RepeatMode] = reactive(RepeatMode.OFF)
 
     def render(self) -> Text:
         theme = get_theme()
-        if self.repeat_mode == "all":
-            return Text(f"{_ICON_REPEAT_ALL} all", style=f"bold {theme.success}")
-        elif self.repeat_mode == "one":
+        if self.repeat_mode == RepeatMode.ALL:
+            return Text(f"{_ICON_REPEAT_ALL} all", style=f"bold {theme.primary}")
+        elif self.repeat_mode == RepeatMode.ONE:
             return Text(f"{_ICON_REPEAT_ONE} one", style=f"bold {theme.warning}")
         return Text(f"{_ICON_REPEAT_OFF} off", style=theme.muted_text)
 
     async def on_click(self, event: Click) -> None:
         event.stop()
-        app = self.app
-        if hasattr(app, "queue"):
-            mode = app.queue.cycle_repeat()
-            try:
-                bar = app.query_one("#playback-bar", PlaybackBar)
-                bar.update_repeat(mode)
-                app.notify(f"Repeat: {mode.value}", timeout=2)
-            except Exception:
-                logger.debug("Failed to update repeat mode display on click", exc_info=True)
+        app = cast("YTMHostBase", self.app)
+        mode = app.queue.cycle_repeat()
+        try:
+            bar = app.query_one("#playback-bar", PlaybackBar)
+            bar.update_repeat(mode)
+            app.notify(f"Repeat: {mode.value}", timeout=2)
+        except Exception:
+            logger.debug("Failed to update repeat mode display on click", exc_info=True)
 
 
 class _ShuffleButton(Widget):
-    """Clickable shuffle indicator."""
+    """Clickable shuffle indicator.
+
+    Disabled when the current playback context has Shuffle lock on (set
+    from the Library page playlist header). Visually dimmed and ignores
+    clicks; toggle the lock off in the playlist header to re-enable.
+    """
 
     DEFAULT_CSS = """
     _ShuffleButton {
@@ -180,31 +188,95 @@ class _ShuffleButton(Widget):
         padding: 0 1;
     }
     _ShuffleButton:hover {
-        background: $border;
+        background: $accent 30%;
+    }
+    _ShuffleButton.locked {
+        text-style: dim;
+    }
+    _ShuffleButton.locked:hover {
+        background: transparent;
     }
     """
 
     shuffle_on: reactive[bool] = reactive(False)
+    locked: reactive[bool] = reactive(False)
 
     def render(self) -> Text:
         theme = get_theme()
         if self.shuffle_on:
-            return Text(f"{_ICON_SHUFFLE_ON} on ", style=f"bold {theme.success}")
+            return Text(f"{_ICON_SHUFFLE_ON} on ", style=f"bold {theme.primary}")
         return Text(f"{_ICON_SHUFFLE_OFF} off", style=theme.muted_text)
+
+    def watch_locked(self, locked: bool) -> None:
+        """Apply / remove the .locked class so CSS can dim the widget."""
+        if locked:
+            self.add_class("locked")
+        else:
+            self.remove_class("locked")
 
     async def on_click(self, event: Click) -> None:
         event.stop()
-        app = self.app
-        if hasattr(app, "queue"):
-            app.queue.toggle_shuffle()
-            enabled = app.queue.shuffle_enabled
+        if self.locked:
+            # Shuffle is locked on for this playlist — point the user at the
+            # toggle in the playlist header instead of silently no-oping.
             try:
-                bar = app.query_one("#playback-bar", PlaybackBar)
-                bar.update_shuffle(enabled)
-                state = "on" if enabled else "off"
-                app.notify(f"Shuffle: {state}", timeout=2)
+                self.app.notify(
+                    "Shuffle is locked for this playlist — toggle Shuffle lock in the playlist header.",
+                    severity="warning",
+                    timeout=4,
+                )
             except Exception:
-                logger.debug("Failed to update shuffle state display on click", exc_info=True)
+                pass
+            return
+        app = cast("YTMHostBase", self.app)
+        app.queue.toggle_shuffle()
+        enabled = app.queue.shuffle_enabled
+        try:
+            bar = app.query_one("#playback-bar", PlaybackBar)
+            bar.update_shuffle(enabled)
+            state = "on" if enabled else "off"
+            app.notify(f"Shuffle: {state}", timeout=2)
+        except Exception:
+            logger.debug("Failed to update shuffle state display on click", exc_info=True)
+
+
+# Heart icon for the like indicator. Same character, styled differently
+# based on like state (filled accent when liked, muted when not).
+_ICON_HEART = "\u2764"  # Heavy Black Heart
+
+
+class _HeartButton(Widget):
+    """Like-state indicator and click-toggle for the currently-playing track."""
+
+    DEFAULT_CSS = """
+    _HeartButton {
+        height: 1;
+        width: 3;
+        margin: 0 1;
+        content-align: center middle;
+    }
+    _HeartButton:hover {
+        background: $accent 30%;
+    }
+    """
+
+    # likeStatus value: "LIKE", "DISLIKE", "INDIFFERENT", or "" (unknown).
+    like_status: reactive[str] = reactive("")
+
+    def render(self) -> Text:
+        theme = get_theme()
+        if self.like_status == "LIKE":
+            return Text(f" {_ICON_HEART} ", style=f"bold {theme.accent}")
+        return Text(f" {_ICON_HEART} ", style=theme.muted_text)
+
+    def on_click(self, event: Click) -> None:
+        """Click toggles like via the app's _toggle_like_current."""
+        event.stop()
+        app = cast("YTMHostBase", self.app)
+        try:
+            self.run_worker(app._toggle_like_current(), exclusive=True)
+        except Exception:
+            logger.debug("Failed to toggle like from heart click", exc_info=True)
 
 
 # ── Main playback bar ─────────────────────────────────────────────
@@ -262,26 +334,33 @@ class PlaybackBar(Widget):
     """
 
     def compose(self) -> ComposeResult:
+        from ytm_player.config.settings import get_settings
+
+        settings = get_settings()
         with Horizontal(id="pb-outer"):
-            yield AlbumArt(id="pb-art")
+            art = AlbumArt(id="pb-art")
+            if not settings.ui.album_art:
+                art.display = False
+            yield art
             with Vertical(id="pb-content"):
                 with Horizontal(id="pb-top-row"):
                     yield _TrackInfo(id="pb-track-info")
+                    yield _HeartButton(id="pb-heart")
                     yield _VolumeDisplay(id="pb-volume")
                     yield _RepeatButton(id="pb-repeat")
                     yield _ShuffleButton(id="pb-shuffle")
                 with Horizontal(id="pb-bottom-row"):
-                    yield PlaybackProgress(bar_style="block", id="pb-progress")
+                    yield PlaybackProgress(bar_style=settings.ui.progress_style, id="pb-progress")
 
     def on_click(self, event: Click) -> None:
         """Right-click on the playback bar opens track actions."""
         if event.button != 3:
             return
-        app = self.app
+        app = cast("YTMHostBase", self.app)
         track = None
-        if hasattr(app, "player") and app.player and app.player.current_track:
+        if app.player is not None and app.player.current_track:
             track = app.player.current_track
-        elif hasattr(app, "queue") and app.queue.current_track:
+        elif app.queue.current_track:
             track = app.queue.current_track
         if track:
             self.post_message(self.TrackRightClicked(track))
@@ -326,12 +405,38 @@ class PlaybackBar(Widget):
     def update_repeat(self, mode: RepeatMode) -> None:
         """Update the repeat mode display."""
         rep = self.query_one("#pb-repeat", _RepeatButton)
-        rep.repeat_mode = mode.value
+        rep.repeat_mode = mode
 
     def update_shuffle(self, enabled: bool) -> None:
         """Update the shuffle state display."""
         shuf = self.query_one("#pb-shuffle", _ShuffleButton)
         shuf.shuffle_on = enabled
+
+    def refresh_shuffle_lock_state(self) -> None:
+        """Re-read shuffle_prefs for the current queue context and dim/un-dim
+        the shuffle button accordingly. Called from the Library page when the
+        user toggles Shuffle lock or enters a different playlist."""
+        try:
+            app = cast("YTMHostBase", self.app)
+            ctx = app.queue.current_context_id
+            locked = bool(app.shuffle_prefs.get(ctx)) if ctx else False
+            shuf = self.query_one("#pb-shuffle", _ShuffleButton)
+            shuf.locked = locked
+        except Exception:
+            logger.debug("Failed to refresh shuffle lock state", exc_info=True)
+
+    def update_like_status(self, status: str | None) -> None:
+        """Update the heart icon based on the track's likeStatus.
+
+        Accepts 'LIKE', 'DISLIKE', 'INDIFFERENT', None, or an unknown
+        string. Anything other than 'LIKE' shows the muted (not-liked)
+        state.
+        """
+        try:
+            heart = self.query_one("#pb-heart", _HeartButton)
+            heart.like_status = (status or "").upper()
+        except Exception:
+            logger.debug("Failed to update heart like_status display", exc_info=True)
 
 
 # ── Interactive footer bar ────────────────────────────────────────
@@ -347,14 +452,14 @@ class _FooterButton(Widget):
         padding: 0 1;
     }
     _FooterButton:hover {
-        background: $border;
+        background: $accent 30%;
     }
     """
 
     is_active: reactive[bool] = reactive(False)
     is_dimmed: reactive[bool] = reactive(False)
 
-    def __init__(self, label: str, action: str, **kwargs: object) -> None:
+    def __init__(self, label: str, action: str, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._label = label
         self._action = action
@@ -369,7 +474,7 @@ class _FooterButton(Widget):
 
     async def on_click(self, event: Click) -> None:
         event.stop()
-        app = self.app
+        app = cast("YTMHostBase", self.app)
         match self._action:
             case (
                 "help"
@@ -380,14 +485,13 @@ class _FooterButton(Widget):
                 | "liked_songs"
                 | "recently_played"
             ):
-                await app.navigate_to(self._action)  # type: ignore[attr-defined]
+                await app.navigate_to(self._action)
             case "play_pause":
-                if hasattr(app, "_toggle_play_pause"):
-                    await app._toggle_play_pause()
+                await app._toggle_play_pause()
             case "prev":
-                await app._play_previous()  # type: ignore[attr-defined]
+                await app._play_previous()
             case "next":
-                await app._play_next()  # type: ignore[attr-defined]
+                await app._play_next()
             case "spotify_import":
                 from ytm_player.ui.popups.spotify_import import SpotifyImportPopup
 

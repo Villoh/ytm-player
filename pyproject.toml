@@ -7,7 +7,7 @@ name = "ytm-player"
 dynamic = ["version"]
 description = "A full-featured YouTube Music TUI client for the terminal"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 license = "MIT"
 authors = [{ name = "Peter", email = "peternaame@gmail.com" }]
 keywords = ["youtube-music", "tui", "music-player", "terminal", "textual", "mpv"]
@@ -19,21 +19,27 @@ classifiers = [
     "Operating System :: POSIX :: Linux",
     "Operating System :: MacOS",
     "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Multimedia :: Sound/Audio :: Players",
 ]
 dependencies = [
-    "textual>=7.0,<8.0",
+    "textual>=7.0,<9.0",
     "ytmusicapi>=1.11.0",
     "yt-dlp>=2025.1.0",
     "python-mpv>=1.0.0",
     "aiosqlite>=0.20.0",
     "click>=8.1.0",
+    "packaging>=21.0",
     "Pillow>=10.0",
     "pynput>=1.7.6; sys_platform == 'win32'",
     "pyobjc-framework-MediaPlayer>=11.0; sys_platform == 'darwin'",
     "pyobjc-framework-Quartz>=11.0; sys_platform == 'darwin'",
+    "tomli>=2.0; python_version < '3.11'",
+    "typing_extensions>=4.4; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
@@ -43,7 +49,7 @@ spotify = [
     "thefuzz>=0.22.0",
 ]
 mpris = [
-    "dbus-next>=0.2.3",
+    "dbus-fast>=4.0.0",
 ]
 images = []  # Pillow is now a default dependency; kept for backwards compat.
 discord = [
@@ -59,12 +65,15 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
     "pytest-cov",
+    "responses>=0.25.0",
     "ruff",
     "anyascii>=0.3.0",
+    "pre-commit>=4.6",
+    "pyright>=1.1",
 ]
 
 [project.urls]
-Homepage = "https://github.com/peternaame-boop/ytm-player"
+Homepage = "https://ytm-player.com"
 Repository = "https://github.com/peternaame-boop/ytm-player"
 "Bug Tracker" = "https://github.com/peternaame-boop/ytm-player/issues"
 "AUR Package" = "https://aur.archlinux.org/packages/ytm-player-git"
@@ -81,7 +90,7 @@ packages = ["src/ytm_player"]
 path = "src/ytm_player/__init__.py"
 
 [tool.ruff]
-target-version = "py312"
+target-version = "py310"
 line-length = 100
 
 [tool.ruff.lint]
@@ -100,7 +109,7 @@ asyncio_mode = "auto"
 source = ["ytm_player"]
 
 [tool.coverage.report]
-fail_under = 10
+fail_under = 47
 show_missing = true
 exclude_lines = [
     "pragma: no cover",
@@ -111,3 +120,17 @@ omit = [
     "src/ytm_player/ui/*",
     "src/ytm_player/__main__.py",
 ]
+
+[tool.pyright]
+# Point Pyright at the project's venv so editor IDEs (VS Code / Pylance)
+# can resolve textual / pytest / ytmusicapi etc. without flooding the
+# Problems panel with false-positive "Import could not be resolved"
+# errors. Mixin-attribute typing was addressed in v1.7 via app/_base.py —
+# the YTMHostBase TYPE_CHECKING-only stub class declares the full
+# attribute surface mixins inherit at runtime.
+# pythonVersion pinned to the supported floor (matches requires-python)
+# so accidental 3.11+ syntax is flagged at type-check time.
+typeCheckingMode = "standard"
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.10"

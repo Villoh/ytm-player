@@ -29,9 +29,9 @@ def truncate(text: str, max_len: int) -> str:
         return ""
     if len(text) <= max_len:
         return text
-    if max_len <= 3:
+    if max_len <= 1:
         return text[:max_len]
-    return text[: max_len - 3] + "..."
+    return text[: max_len - 1] + "…"
 
 
 def format_count(n: int) -> str:
@@ -73,22 +73,27 @@ def extract_artist(track: dict) -> str:
 
 
 def extract_duration(track: dict) -> int:
-    """Extract duration in seconds from various track dict formats."""
+    """Extract duration in seconds from various track dict formats.
+
+    Checks ``duration_seconds``, ``duration``, and ``length``
+    (ytmusicapi's get_watch_playlist uses ``length`` for "M:SS" strings).
+    """
     dur = track.get("duration_seconds")
     if dur is not None:
         return int(dur)
-    dur = track.get("duration")
-    if isinstance(dur, int):
-        return dur
-    if isinstance(dur, str) and ":" in dur:
-        parts = dur.split(":")
-        try:
-            if len(parts) == 2:
-                return int(parts[0]) * 60 + int(parts[1])
-            if len(parts) == 3:
-                return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
-        except ValueError:
-            pass
+    for key in ("duration", "length"):
+        dur = track.get(key)
+        if isinstance(dur, int):
+            return dur
+        if isinstance(dur, str) and ":" in dur:
+            parts = dur.split(":")
+            try:
+                if len(parts) == 2:
+                    return int(parts[0]) * 60 + int(parts[1])
+                if len(parts) == 3:
+                    return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+            except ValueError:
+                pass
     return 0
 
 
@@ -111,10 +116,9 @@ def normalize_tracks(raw_tracks: list[dict]) -> list[dict]:
         album_info = t.get("album")
         album = album_info.get("name", "") if isinstance(album_info, dict) else (album_info or "")
         album_id = album_info.get("id") if isinstance(album_info, dict) else t.get("album_id")
-        raw_dur = (
-            t.get("duration_seconds")
-            if t.get("duration_seconds") is not None
-            else t.get("duration")
+        raw_dur = next(
+            (t[k] for k in ("duration_seconds", "duration", "length") if t.get(k) is not None),
+            None,
         )
         duration = extract_duration(t) if raw_dur is not None else None
         thumbnail = None
@@ -133,11 +137,38 @@ def normalize_tracks(raw_tracks: list[dict]) -> list[dict]:
                 "duration": duration,
                 "thumbnail_url": thumbnail,
                 "is_video": t.get("isVideo", t.get("is_video", False)),
+                "likeStatus": t.get("likeStatus"),
             }
         )
     if skipped:
         logger.debug("normalize_tracks: dropped %d tracks without video_id", skipped)
     return normalized
+
+
+def clean_shelf_title(raw: str) -> str:
+    """Normalise a YouTube chart shelf title for compact display.
+
+    Strips country suffixes and applies preferred short labels.
+    Does NOT strip brand prefixes (e.g. "Coachella 2026:") —
+    event pills need the prefix to stay visually distinguishable
+    from country chart pills.
+    """
+    from ytm_player.services.regions import CHART_REGIONS
+
+    s = raw.strip()
+    if " - " in s:
+        head, tail = s.rsplit(" - ", 1)
+        if any(tail.strip() == name for _, name in CHART_REGIONS):
+            s = head.strip()
+    for _, name in CHART_REGIONS:
+        suffix = " " + name
+        if s.endswith(suffix):
+            s = s[: -len(suffix)].strip()
+            break
+    s = re.sub(r"\bDaily Top 100 Songs\b", "Daily Top 100", s)
+    s = re.sub(r"\bDaily Top Music Videos\b", "Daily Top Videos", s)
+    s = re.sub(r"\bDaily Top Songs on Shorts\b", "Daily Top Songs (Shorts)", s)
+    return s
 
 
 def format_ago(timestamp: datetime) -> str:
@@ -212,3 +243,75 @@ def copy_to_clipboard(text: str) -> bool:
             except Exception:
                 continue
     return False
+
+
+# Patterns commonly found in YouTube/YouTube Music titles that aren't
+# part of the actual song name. Consolidated into a single compiled regex
+# so sanitisation is one pass rather than N.
+#
+# The body alternation matches everything *inside* one set of brackets
+# (round or square). `[^)\]]*` keeps each alternative from gobbling
+# across nested closing brackets.
+_LYRIC_NOISE_RE = re.compile(
+    r"""
+    \s*                                  # leading whitespace
+    [\(\[]\s*                            # opening bracket
+    (?:
+        # ── "Official"-style descriptors ──
+        official\s*(?:music\s*)?(?:video|audio|lyric|lyrics)
+      | lyrics?\s*video
+      | official
+      | audio
+      | video
+      | hd
+      | 4k
+
+        # ── Featured-artist annotations ──
+        # (feat. X), (ft. X), (featuring X) — bounded by the closing
+        # bracket. The body alternation explicitly excludes `(` from the
+        # plain-char branch so a nested `(...)` MUST be consumed by the
+        # second alternative, leaving the outer `)` available for the
+        # bracket close. This handles things like "feat. Bob (Junior)"
+        # and "feat. Bob (of Band X)" without leaving an orphan `)`.
+      | (?:feat\.?|ft\.?|featuring)\b(?:[^()\]]|\([^)]*\))*
+
+        # ── Versions / re-releases / editions ──
+      | remaster(?:ed)?(?:\s+\d{4})?     # Remastered, Remastered 2009
+      | (?:[^)\]]+\s+)?remix(?:\s+[^)\]]*)?   # Remix, Extended/Radio/Club Remix
+      | deluxe(?:\s+edition)?            # Deluxe, Deluxe Edition
+
+        # ── Performance / arrangement annotations ──
+      | live(?:\s+[^)\]]*)?              # Live, Live at X
+      | acoustic(?:\s+[^)\]]*)?          # Acoustic, Acoustic Version, Acoustic Mix
+    )
+    \s*[\)\]]                            # closing bracket
+    \s*                                  # trailing whitespace
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def sanitize_title_for_lyric_lookup(title: str, artist: str = "") -> str:
+    """Strip common noise from a track title for better LRCLIB matching.
+
+    Removes parenthesized/bracketed annotations like "(Official Music Video)",
+    "[Lyrics]", "(Audio)", "(HD)", "(feat. Bob)", "(Remastered 2020)",
+    "(Live)", "(Deluxe Edition)", and the "Artist - " prefix if *artist*
+    is provided. Preserves everything else untouched.
+
+    Returns the cleaned title. If sanitization would empty the title,
+    returns the original string unchanged.
+    """
+    if not title:
+        return title
+    # Replace each match with a single space, then collapse runs so that
+    # back-to-back annotations don't leave double spaces behind.
+    cleaned = _LYRIC_NOISE_RE.sub(" ", title)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    if artist:
+        cleaned_lower = cleaned.lower()
+        prefix_lower = f"{artist.lower()} - "
+        if cleaned_lower.startswith(prefix_lower):
+            cleaned = cleaned[len(prefix_lower) :]
+    cleaned = cleaned.strip()
+    return cleaned if cleaned else title

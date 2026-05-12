@@ -149,3 +149,33 @@ class TestGetStatus:
         assert status["file_count"] == 1
         assert status["total_size"] == 5
         await cache_manager.close()
+
+
+class TestCacheRoundTrip:
+    """Verify that put_file + get returns the same path (sanity check
+    for the cache wire-up in app/_playback.py)."""
+
+    async def test_put_file_then_get_returns_path(self, tmp_path):
+        cache_dir = tmp_path / "cache"
+        db_path = tmp_path / "cache.db"
+        cm = CacheManager(cache_dir=cache_dir, db_path=db_path, max_size_mb=10)
+        await cm.init()
+
+        # Create a fake source audio file.
+        src = tmp_path / "src.opus"
+        src.write_bytes(b"fake audio data")
+
+        # Put it into the cache.
+        cached_path = await cm.put_file(VID_A, src, "opus")
+        assert cached_path.exists()
+
+        # Get it back.
+        retrieved = await cm.get(VID_A)
+        assert retrieved == cached_path
+        assert retrieved.read_bytes() == b"fake audio data"
+
+        # Get for a missing id returns None.
+        missing = await cm.get("nonexistent01")
+        assert missing is None
+
+        await cm.close()

@@ -4,8 +4,20 @@ from __future__ import annotations
 
 import logging
 import random
+import sys
 import threading
-from enum import StrEnum, auto
+
+if sys.version_info >= (3, 11):
+    from enum import StrEnum, auto
+else:
+    # Python 3.10 backport — match StrEnum.auto() lowercase-name behavior
+    from enum import Enum, auto
+
+    class StrEnum(str, Enum):
+        @staticmethod
+        def _generate_next_value_(name, start, count, last_values):
+            return name.lower()
+
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +59,14 @@ class QueueManager:
         self._shuffle_order: list[int] = []
         self._shuffle_position: int = -1
 
+        # Stable ID of the collection (playlist/album/artist) the queue
+        # was populated from, or None for ephemeral queues (search,
+        # discovery roulette, single-track radio).  Used by the
+        # per-collection shuffle memory feature — see ShufflePreferences.
+        self._current_context_id: str | None = None
+
+        self.radio_seeds: list[dict] | None = None
+
     # -- Properties -------------------------------------------------------
 
     @property
@@ -86,6 +106,31 @@ class QueueManager:
     @property
     def shuffle_enabled(self) -> bool:
         return self._shuffle
+
+    @property
+    def real_index(self) -> int:
+        """Current index into _tracks regardless of shuffle mode."""
+        with self._lock:
+            return self._real_index()
+
+    @property
+    def current_context_id(self) -> str | None:
+        """ID of the collection this queue was populated from, or None."""
+        with self._lock:
+            return self._current_context_id
+
+    def set_context(self, context_id: str | None) -> None:
+        """Set (or clear with None) the collection ID backing this queue."""
+        with self._lock:
+            self._current_context_id = context_id
+
+    @property
+    def remaining_tracks(self) -> int:
+        """Number of tracks remaining after the current position (shuffle-aware)."""
+        with self._lock:
+            if self._shuffle:
+                return len(self._shuffle_order) - self._shuffle_position - 1
+            return len(self._tracks) - self._current_index - 1
 
     # -- Helpers ----------------------------------------------------------
 
@@ -217,6 +262,7 @@ class QueueManager:
             self._current_index = -1
             self._shuffle_order.clear()
             self._shuffle_position = -1
+            self.radio_seeds = None
 
     def move(self, from_idx: int, to_idx: int) -> None:
         """Move a track from one position to another in the visible order."""

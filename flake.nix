@@ -16,7 +16,9 @@
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        python = pkgs.python312;
+        # Pinned to a stable middle of the supported range (3.10..3.14).
+        # Bump along with nixpkgs releases.
+        python = pkgs.python313;
 
         # spotifyscraper is not in nixpkgs — build from PyPI.
         spotifyscraper = python.pkgs.buildPythonPackage rec {
@@ -85,7 +87,7 @@
           ];
 
           optional-dependencies = with python.pkgs; {
-            mpris = [ dbus-next ];
+            mpris = [ dbus-fast ];
             images = [ ];  # Pillow moved to core deps; kept for compat
             discord = [ pypresence ];
             lastfm = [ pylast ];
@@ -158,7 +160,7 @@
               ruff
 
               # Include all optional deps in the dev shell
-              dbus-next
+              dbus-fast
               pillow
               pypresence
               pylast

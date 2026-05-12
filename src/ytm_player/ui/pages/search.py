@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
@@ -25,6 +25,9 @@ from ytm_player.utils.formatting import (
     normalize_tracks,
     truncate,
 )
+
+if TYPE_CHECKING:
+    from ytm_player.app._base import YTMHostBase
 
 logger = logging.getLogger(__name__)
 
@@ -431,9 +434,10 @@ class SearchPage(Widget):
         mode_label.update(display)
 
         # Restore previous search results if navigating back.
-        if self._restore_results and any(self._restore_results.values()):
+        has_restored = bool(self._restore_results and any(self._restore_results.values()))
+        if has_restored:
             self._restoring = True
-            self._search_results = self._restore_results
+            self._search_results = self._restore_results  # type: ignore[assignment]
             self._last_query = self._restore_query or ""
             search_input = self.query_one("#search-input", Input)
             search_input.value = self._last_query
@@ -448,6 +452,17 @@ class SearchPage(Widget):
                     pass
             self._restore_results = None
             self._restore_cursor_row = None
+
+        # Auto-focus the search input ONLY on fresh entry. If we restored
+        # results from the page-state cache, leave focus on whatever the
+        # user might want to interact with (results table) so navigation
+        # back doesn't steal focus.
+        if not has_restored:
+            try:
+                search_input = self.query_one("#search-input", Input)
+                search_input.focus()
+            except Exception:
+                logger.debug("Failed to focus search input on fresh entry", exc_info=True)
 
     def on_unmount(self) -> None:
         """Clean up timers and release data references."""
@@ -494,9 +509,25 @@ class SearchPage(Widget):
             return
 
         query = event.value.strip()
+
+        # The displayed results are tied to ``_last_query``. Once the user
+        # types something different, those rows are stale — clear them so
+        # that pressing Escape (which focuses the songs-table when it has
+        # rows) doesn't strand the user on results from a previous query.
+        # Skip clearing while a search is in flight — the worker will
+        # populate fresh results when it finishes, and resetting _last_query
+        # mid-flight causes the "press Enter twice" bug.
+        if query != self._last_query and any(self._search_results.values()) and not self.is_loading:
+            self._clear_stale_results()
+
         if not query:
             self._hide_suggestions()
             self._show_recent_searches()
+            return
+
+        # Don't fetch suggestions while a search is already in flight —
+        # the overlay would cover incoming results.
+        if self.is_loading:
             return
 
         # Cancel any pending debounce.
@@ -516,9 +547,56 @@ class SearchPage(Widget):
         if not query:
             return
 
+        # Cancel any pending suggestion debounce so it doesn't re-show
+        # the overlay after we hide it.
+        if self._debounce_timer is not None:
+            self._debounce_timer.stop()
+            self._debounce_timer = None
         self._hide_suggestions()
         self._last_query = query
         self.run_worker(self._execute_search(query), name="search", exclusive=True)
+
+    def on_key(self, event: object) -> None:
+        """Handle Escape on the search input: hide suggestions + defocus."""
+        from textual.events import Key
+
+        if not isinstance(event, Key):
+            return
+        if event.key != "escape":
+            return
+
+        # Only act when the search input is focused OR the suggestions
+        # dropdown is visible. Otherwise let Escape bubble normally.
+        focused = self.app.focused
+        input_focused = focused is not None and getattr(focused, "id", None) == "search-input"
+
+        suggestions_visible = False
+        try:
+            overlay = self.query_one("#suggestion-overlay", SuggestionList)
+            suggestions_visible = overlay.has_class("visible")
+        except Exception:
+            pass
+
+        if not (input_focused or suggestions_visible):
+            return
+
+        event.stop()
+        event.prevent_default()
+        if suggestions_visible:
+            self._hide_suggestions()
+        # Move focus to the songs results table if it has rows; otherwise
+        # blur entirely so vim-style nav keys reach the app.
+        try:
+            songs_table = self.query_one("#songs-table", TrackTable)
+            if songs_table.row_count > 0:
+                songs_table.focus()
+            else:
+                self.app.set_focus(None)
+        except Exception:
+            try:
+                self.app.set_focus(None)
+            except Exception:
+                logger.debug("Failed to clear focus on Escape", exc_info=True)
 
     # ------------------------------------------------------------------
     # Suggestions
@@ -535,7 +613,13 @@ class SearchPage(Widget):
     async def _load_suggestions(self, query: str) -> None:
         """Fetch predictive suggestions from the API."""
         try:
-            suggestions = await self.app.ytmusic.get_search_suggestions(query)
+            ytmusic = cast("YTMHostBase", self.app).ytmusic
+            assert ytmusic is not None
+            suggestions = await ytmusic.get_search_suggestions(query)
+            # Don't show suggestions if a search was submitted while we
+            # were fetching — the overlay would cover the incoming results.
+            if self.is_loading:
+                return
             overlay = self.query_one("#suggestion-overlay", SuggestionList)
             overlay.show_suggestions(suggestions)
         except Exception:
@@ -555,9 +639,11 @@ class SearchPage(Widget):
     async def _load_recent_searches(self) -> None:
         """Load and display recent searches from history."""
         try:
-            history = await self.app.history.get_search_history(limit=10)
-            if history:
-                suggestions = [entry["query"] for entry in history]
+            history = cast("YTMHostBase", self.app).history
+            assert history is not None
+            entries = await history.get_search_history(limit=10)
+            if entries:
+                suggestions = [entry["query"] for entry in entries]
                 overlay = self.query_one("#suggestion-overlay", SuggestionList)
                 overlay.show_suggestions(suggestions)
         except Exception:
@@ -575,6 +661,12 @@ class SearchPage(Widget):
             idx = list_view.index
             if idx is not None and 0 <= idx < len(overlay.suggestions):
                 query = overlay.suggestions[idx]
+                # Cancel pending debounce and suppress the on_input_changed
+                # that fires from setting the input value programmatically.
+                if self._debounce_timer is not None:
+                    self._debounce_timer.stop()
+                    self._debounce_timer = None
+                self._restoring = True
                 search_input = self.query_one("#search-input", Input)
                 search_input.value = query
                 self._hide_suggestions()
@@ -597,12 +689,15 @@ class SearchPage(Widget):
                 results = await self._search_all(query)
 
             self._search_results = results
+            self._last_query = query
             self._populate_results(results)
 
             # Log the search to history.
             total_count = sum(len(v) for v in results.values())
             try:
-                await self.app.history.log_search(
+                history = cast("YTMHostBase", self.app).history
+                assert history is not None
+                await history.log_search(
                     query=query,
                     filter_mode=self.search_mode,
                     result_count=total_count,
@@ -610,14 +705,20 @@ class SearchPage(Widget):
             except Exception:
                 logger.debug("Failed to log search to history", exc_info=True)
 
+            self._update_loading("")
+        except asyncio.CancelledError:
+            # Worker was cancelled (exclusive collision, navigation away,
+            # focus-change side effect, etc). Clear the loading indicator
+            # so the UI doesn't lie about an in-flight search, then re-raise
+            # so the worker tears down properly.
+            logger.debug("search: worker cancelled for query=%r", query)
+            self._update_loading("")
+            raise
         except Exception:
             logger.exception("Search failed for query=%r", query)
             self._update_loading("Search failed. Try again.")
-            return
         finally:
             self.is_loading = False
-
-        self._update_loading("")
 
     async def _search_music(self, query: str) -> dict[str, list[dict[str, Any]]]:
         """Execute filtered searches for each category (music-only mode)."""
@@ -628,9 +729,11 @@ class SearchPage(Widget):
             "playlists": [],
         }
 
+        ytmusic = cast("YTMHostBase", self.app).ytmusic
+        assert ytmusic is not None
         # Run all four searches concurrently.
         tasks = {
-            category: self.app.ytmusic.search(query, filter=api_filter, limit=10)
+            category: ytmusic.search(query, filter=api_filter, limit=10)
             for category, api_filter in self._MUSIC_FILTERS.items()
         }
 
@@ -653,7 +756,9 @@ class SearchPage(Widget):
             "playlists": [],
         }
 
-        raw = await self.app.ytmusic.search(query, filter=None, limit=40)
+        ytmusic = cast("YTMHostBase", self.app).ytmusic
+        assert ytmusic is not None
+        raw = await ytmusic.search(query, filter=None, limit=40)
 
         for item in raw:
             result_type = item.get("resultType", "")
@@ -688,6 +793,25 @@ class SearchPage(Widget):
         playlists_panel = self.query_one("#playlists-panel", SearchResultPanel)
         playlists_panel.load_items(results.get("playlists", []))
 
+    def _clear_stale_results(self) -> None:
+        """Empty all result panels.
+
+        Called when the user types a query that no longer matches what's
+        on screen, so a follow-up Escape doesn't focus the songs-table on
+        results from a previous search.
+        """
+        self._search_results = {
+            "songs": [],
+            "albums": [],
+            "artists": [],
+            "playlists": [],
+        }
+        self._last_query = ""
+        try:
+            self._populate_results(self._search_results)
+        except Exception:
+            logger.debug("Failed to clear stale search results", exc_info=True)
+
     def _update_loading(self, text: str) -> None:
         try:
             label = self.query_one("#loading-msg", Static)
@@ -702,6 +826,8 @@ class SearchPage(Widget):
     def on_click(self, event: Click) -> None:
         """Toggle search mode when the mode label is clicked."""
         widget = event.widget
+        if widget is None:
+            return
         # Match the #search-mode Static or any child of it.
         try:
             if (
@@ -744,10 +870,15 @@ class SearchPage(Widget):
         video_id = get_video_id(track)
         if video_id:
             table = self.query_one("#songs-table", TrackTable)
-            self.app.queue.clear()
-            self.app.queue.add_multiple(table.tracks)
-            self.app.queue.jump_to_real(event.index)
-            await self.app.play_track(track)
+            host = cast("YTMHostBase", self.app)
+            host.queue.clear()
+            host.queue.add_multiple(table.tracks)
+            host.queue.jump_to_real(event.index)
+            # Search results are ephemeral — clear context so a later
+            # shuffle toggle isn't saved against whatever collection
+            # was previously playing (TP-7).
+            host.queue.set_context(None)
+            await host.play_track(track)
 
     async def on_search_result_panel_item_selected(
         self, event: SearchResultPanel.ItemSelected
@@ -756,21 +887,22 @@ class SearchPage(Widget):
         item = event.item_data
         panel_id = event.panel_id
         result_type = item.get("resultType", "")
+        host = cast("YTMHostBase", self.app)
 
         if panel_id == "albums-panel" or result_type == "album":
             browse_id = item.get("browseId") or item.get("album_id")
             if browse_id:
-                await self.app.navigate_to("context", context_type="album", context_id=browse_id)
+                await host.navigate_to("context", context_type="album", context_id=browse_id)
 
         elif panel_id == "artists-panel" or result_type == "artist":
             browse_id = item.get("browseId") or item.get("artist_id")
             if browse_id:
-                await self.app.navigate_to("context", context_type="artist", context_id=browse_id)
+                await host.navigate_to("context", context_type="artist", context_id=browse_id)
 
         elif panel_id == "playlists-panel" or result_type == "playlist":
             browse_id = item.get("browseId") or item.get("playlistId")
             if browse_id:
-                await self.app.navigate_to("context", context_type="playlist", context_id=browse_id)
+                await host.navigate_to("context", context_type="playlist", context_id=browse_id)
 
     def on_search_result_panel_item_right_clicked(
         self, event: SearchResultPanel.ItemRightClicked
@@ -780,6 +912,7 @@ class SearchPage(Widget):
 
         item = event.item_data
         panel_id = event.panel_id
+        host = cast("YTMHostBase", self.app)
 
         # Map panel ID to item type for ActionsPopup.
         type_map = {
@@ -799,8 +932,8 @@ class SearchPage(Widget):
                 )
                 ctx_type = item_type if item_type in ("album", "playlist") else None
                 if browse_id and ctx_type:
-                    self.app.run_worker(
-                        self.app.navigate_to("context", context_type=ctx_type, context_id=browse_id)
+                    host.run_worker(
+                        host.navigate_to("context", context_type=ctx_type, context_id=browse_id)
                     )
 
             elif action_id == "go_to_artist":
@@ -812,15 +945,15 @@ class SearchPage(Widget):
                 else:
                     artist_id = ""
                 if artist_id:
-                    self.app.run_worker(
-                        self.app.navigate_to("context", context_type="artist", context_id=artist_id)
+                    host.run_worker(
+                        host.navigate_to("context", context_type="artist", context_id=artist_id)
                     )
 
             elif action_id in ("play_top_songs", "start_radio", "view_albums", "view_similar"):
                 browse_id = item.get("browseId") or item.get("artist_id") or ""
                 if browse_id:
-                    self.app.run_worker(
-                        self.app.navigate_to("context", context_type="artist", context_id=browse_id)
+                    host.run_worker(
+                        host.navigate_to("context", context_type="artist", context_id=browse_id)
                     )
 
             elif action_id == "copy_link":
@@ -834,11 +967,11 @@ class SearchPage(Widget):
                 if browse_id:
                     link = f"https://music.youtube.com/browse/{browse_id}"
                     if copy_to_clipboard(link):
-                        self.app.notify("Link copied", timeout=2)
+                        host.notify("Link copied", timeout=2)
                     else:
-                        self.app.notify(link, timeout=5)
+                        host.notify(link, timeout=5)
 
-        self.app.push_screen(ActionsPopup(item, item_type=item_type), _handle_action)
+        host.push_screen(ActionsPopup(item, item_type=item_type), _handle_action)
 
     # ------------------------------------------------------------------
     # Vim-style action handler

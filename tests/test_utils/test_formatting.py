@@ -6,6 +6,7 @@ import pytest
 
 from ytm_player.utils.formatting import (
     VALID_VIDEO_ID,
+    clean_shelf_title,
     extract_artist,
     extract_duration,
     format_ago,
@@ -14,6 +15,7 @@ from ytm_player.utils.formatting import (
     format_size,
     get_video_id,
     normalize_tracks,
+    sanitize_title_for_lyric_lookup,
     truncate,
 )
 
@@ -50,9 +52,9 @@ class TestTruncate:
             ("", 10, ""),
             ("Hello", 10, "Hello"),
             ("Hello", 5, "Hello"),
-            ("Hello World", 8, "Hello..."),
-            ("Hello World", 3, "Hel"),
-            ("Hello World", 2, "He"),
+            ("Hello World", 8, "Hello W…"),
+            ("Hello World", 3, "He…"),
+            ("Hello World", 2, "H…"),
             ("Hello World", 1, "H"),
             ("Hello World", 0, ""),
             ("Hi", 4, "Hi"),
@@ -60,6 +62,27 @@ class TestTruncate:
     )
     def test_truncate(self, text, max_len, expected):
         assert truncate(text, max_len) == expected
+
+    def test_truncate_uses_unicode_ellipsis_on_overflow(self):
+        """When text exceeds max_len, the suffix is the single Unicode char '…' not '...'."""
+        result = truncate("Hello World", 8)
+        # Expect "Hello W…" — 7 chars + 1 ellipsis = 8 total
+        assert result == "Hello W…"
+        assert "…" in result
+        assert "..." not in result
+
+    def test_truncate_unicode_ellipsis_max_len_one(self):
+        """When max_len is 1, return single ellipsis char (or first char — match implementation)."""
+        result = truncate("abcdef", 1)
+        # max_len <= 1 falls into the small-buffer path; we accept either "a" or "…"
+        # as long as it's 1 char
+        assert len(result) == 1
+
+    def test_truncate_unicode_ellipsis_no_overflow(self):
+        """When text fits, no ellipsis added."""
+        result = truncate("short", 10)
+        assert result == "short"
+        assert "…" not in result
 
 
 # ── format_count ─────────────────────────────────────────────────────
@@ -172,6 +195,19 @@ class TestExtractDuration:
     def test_duration_seconds_zero(self):
         assert extract_duration({"duration_seconds": 0}) == 0
 
+    def test_length_string_mm_ss(self):
+        """get_watch_playlist returns duration as 'length' key."""
+        assert extract_duration({"length": "3:07"}) == 187
+
+    def test_length_string_hh_mm_ss(self):
+        assert extract_duration({"length": "1:00:00"}) == 3600
+
+    def test_duration_seconds_takes_priority_over_length(self):
+        assert extract_duration({"duration_seconds": 100, "length": "5:00"}) == 100
+
+    def test_duration_takes_priority_over_length(self):
+        assert extract_duration({"duration": 200, "length": "5:00"}) == 200
+
 
 # ── normalize_tracks ─────────────────────────────────────────────────
 
@@ -235,6 +271,11 @@ class TestNormalizeTracks:
     def test_duration_seconds_zero(self):
         result = normalize_tracks([{"videoId": "x", "duration_seconds": 0}])
         assert result[0]["duration"] == 0
+
+    def test_length_key_from_watch_playlist(self):
+        """get_watch_playlist returns 'length' instead of 'duration'."""
+        result = normalize_tracks([{"videoId": "x", "title": "Radio Track", "length": "3:07"}])
+        assert result[0]["duration"] == 187
 
     def test_album_as_string(self):
         result = normalize_tracks([{"videoId": "x", "album": "My Album"}])
@@ -361,3 +402,208 @@ class TestValidVideoId:
     )
     def test_invalid(self, vid):
         assert not VALID_VIDEO_ID.match(vid)
+
+
+# ── sanitize_title_for_lyric_lookup ──────────────────────────────────
+
+
+class TestSanitizeTitleForLyricLookup:
+    def test_passthrough_clean_title(self):
+        assert sanitize_title_for_lyric_lookup("Bohemian Rhapsody") == "Bohemian Rhapsody"
+
+    def test_strips_official_video(self):
+        assert (
+            sanitize_title_for_lyric_lookup("Bohemian Rhapsody (Official Video)")
+            == "Bohemian Rhapsody"
+        )
+
+    def test_strips_official_music_video_brackets(self):
+        assert (
+            sanitize_title_for_lyric_lookup("Bohemian Rhapsody [Official Music Video]")
+            == "Bohemian Rhapsody"
+        )
+
+    def test_strips_audio(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (Audio)") == "Song Name"
+
+    def test_strips_lyrics_video(self):
+        assert sanitize_title_for_lyric_lookup("Song Name [Lyrics Video]") == "Song Name"
+
+    def test_strips_hd(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (HD)") == "Song Name"
+
+    def test_strips_multiple_annotations(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (Audio) (HD)") == "Song Name"
+
+    def test_strips_artist_prefix_when_provided(self):
+        assert (
+            sanitize_title_for_lyric_lookup("Queen - Bohemian Rhapsody", artist="Queen")
+            == "Bohemian Rhapsody"
+        )
+
+    def test_no_artist_no_prefix_strip(self):
+        assert (
+            sanitize_title_for_lyric_lookup("Queen - Bohemian Rhapsody")
+            == "Queen - Bohemian Rhapsody"
+        )
+
+    def test_empty_input_returns_empty(self):
+        assert sanitize_title_for_lyric_lookup("") == ""
+
+    def test_returns_original_if_sanitization_empties_it(self):
+        # Pure noise — would become empty string. Return original instead.
+        assert sanitize_title_for_lyric_lookup("(Official Video)") == "(Official Video)"
+
+    def test_case_insensitive_match(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (OFFICIAL VIDEO)") == "Song Name"
+        assert sanitize_title_for_lyric_lookup("Song Name (official video)") == "Song Name"
+
+    # ── Featured-artist annotations ──
+
+    def test_strips_feat_dot(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (feat. Bob)") == "Song Name"
+
+    def test_strips_ft_dot(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (ft. Bob)") == "Song Name"
+
+    def test_strips_featuring(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (featuring Bob)") == "Song Name"
+
+    def test_strips_feat_brackets(self):
+        assert sanitize_title_for_lyric_lookup("Song Name [feat. Bob & Alice]") == "Song Name"
+
+    def test_strips_feat_multiple_artists(self):
+        assert (
+            sanitize_title_for_lyric_lookup("Song Name (feat. Bob, Alice & Carol)") == "Song Name"
+        )
+
+    # ── Versions / re-releases / editions ──
+
+    def test_strips_remix(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (Remix)") == "Song Name"
+
+    def test_strips_remastered(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (Remastered)") == "Song Name"
+
+    def test_strips_remastered_with_year(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (Remastered 2009)") == "Song Name"
+        assert sanitize_title_for_lyric_lookup("Song Name (Remastered 2020)") == "Song Name"
+
+    def test_strips_remaster_no_ed(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (Remaster)") == "Song Name"
+
+    def test_strips_deluxe(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (Deluxe)") == "Song Name"
+
+    def test_strips_deluxe_edition(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (Deluxe Edition)") == "Song Name"
+
+    # ── Performance / arrangement annotations ──
+
+    def test_strips_live(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (Live)") == "Song Name"
+
+    def test_strips_live_at_venue(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (Live at Wembley Stadium)") == "Song Name"
+
+    def test_strips_acoustic(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (Acoustic)") == "Song Name"
+
+    # ── Combined patterns ──
+
+    def test_strips_combined_feat_remastered_hd(self):
+        assert sanitize_title_for_lyric_lookup("Song (feat. Bob) (Remastered 2020) (HD)") == "Song"
+
+    def test_strips_combined_official_video_remix(self):
+        assert sanitize_title_for_lyric_lookup("Song Name (Official Video) [Remix]") == "Song Name"
+
+    def test_strips_combined_with_artist_prefix(self):
+        assert (
+            sanitize_title_for_lyric_lookup(
+                "Queen - Bohemian Rhapsody (Remastered 2011) (Official Video)",
+                artist="Queen",
+            )
+            == "Bohemian Rhapsody"
+        )
+
+    # ── Nested parens in feat. annotations ──
+
+    def test_strips_feat_with_nested_parens_junior(self):
+        # Inner `(Junior)` must not leave an orphan `)` behind.
+        assert sanitize_title_for_lyric_lookup("Track (feat. Bob (Junior))") == "Track"
+
+    def test_strips_feat_with_nested_parens_band(self):
+        assert sanitize_title_for_lyric_lookup("Song (feat. Bob (of Band X))") == "Song"
+
+    def test_strips_feat_then_remastered_bracket_boundary(self):
+        # Combined: feat. group followed by a separate [Remastered] group.
+        # Locks the bracket boundary — the feat. branch must stop at its
+        # own `)` and not eat across into the next bracketed annotation.
+        assert sanitize_title_for_lyric_lookup("Song (feat. Bob & Alice) [Remastered]") == "Song"
+
+    # ── Qualifier suffixes for Acoustic / Remix ──
+
+    def test_strips_acoustic_version(self):
+        assert sanitize_title_for_lyric_lookup("Song (Acoustic Version)") == "Song"
+
+    def test_strips_acoustic_mix(self):
+        assert sanitize_title_for_lyric_lookup("Song (Acoustic Mix)") == "Song"
+
+    def test_strips_acoustic_live(self):
+        assert sanitize_title_for_lyric_lookup("Song (Acoustic Live)") == "Song"
+
+    def test_strips_extended_remix(self):
+        assert sanitize_title_for_lyric_lookup("Song (Extended Remix)") == "Song"
+
+    def test_strips_radio_remix(self):
+        assert sanitize_title_for_lyric_lookup("Song (Radio Remix)") == "Song"
+
+    def test_strips_club_remix(self):
+        assert sanitize_title_for_lyric_lookup("Song (Club Remix)") == "Song"
+
+    # ── Negative passthroughs (bracket requirement) ──
+
+    def test_passthrough_remix_culture(self):
+        # No brackets — must NOT be mangled by the remix qualifier branch.
+        assert sanitize_title_for_lyric_lookup("Remix Culture") == "Remix Culture"
+
+    def test_passthrough_live_and_let_die(self):
+        assert sanitize_title_for_lyric_lookup("Live and Let Die") == "Live and Let Die"
+
+    def test_passthrough_acoustic_sessions(self):
+        assert (
+            sanitize_title_for_lyric_lookup("Acoustic Sessions Vol 1") == "Acoustic Sessions Vol 1"
+        )
+
+
+# ── clean_shelf_title ───────────────────────────────────────────────
+
+
+class TestCleanShelfTitle:
+    def test_strips_country_hyphen_suffix(self):
+        assert clean_shelf_title("Daily Top Music Videos - United Kingdom") == "Daily Top Videos"
+
+    def test_strips_country_space_suffix(self):
+        assert clean_shelf_title("Trending 20 United Kingdom") == "Trending 20"
+
+    def test_rewrites_daily_top_100_songs(self):
+        assert clean_shelf_title("Daily Top 100 Songs") == "Daily Top 100"
+
+    def test_rewrites_daily_top_songs_on_shorts(self):
+        assert clean_shelf_title("Daily Top Songs on Shorts") == "Daily Top Songs (Shorts)"
+
+    def test_preserves_brand_prefix(self):
+        """Brand prefixes must NOT be stripped — event pills need the
+        prefix to stay visually distinguishable from country chart pills."""
+        result = clean_shelf_title("Coachella 2026: Daily Top 100 Songs")
+        assert "Coachella 2026:" in result
+
+    def test_event_title_still_rewrites_generic_part(self):
+        result = clean_shelf_title("Coachella 2026: Daily Top 100 Songs")
+        assert result == "Coachella 2026: Daily Top 100"
+
+    def test_plain_title_without_country_passthrough(self):
+        assert clean_shelf_title("Top 100 Songs") == "Top 100 Songs"
+
+    def test_whitespace_handling(self):
+        assert clean_shelf_title("  Daily Top 100 Songs  ") == "Daily Top 100"
