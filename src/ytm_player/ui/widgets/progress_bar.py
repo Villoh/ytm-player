@@ -54,12 +54,21 @@ class PlaybackProgress(Widget):
         self,
         *,
         bar_style: str = "block",
+        filled_color: str | None = None,
+        empty_color: str | None = None,
+        time_color: str | None = None,
+        marker_color: str | None = None,
         name: str | None = None,
         id: str | None = None,
         classes: str | None = None,
     ) -> None:
         super().__init__(name=name, id=id, classes=classes)
         self._bar_style = bar_style
+        # None means "follow the active theme"; a value means explicit override.
+        self._filled_color = filled_color
+        self._empty_color = empty_color
+        self._time_color = time_color
+        self._marker_color = marker_color
 
         # Scroll-seek preview state.
         self._preview_position: float | None = None
@@ -91,10 +100,10 @@ class PlaybackProgress(Widget):
         empty_count = bar_width - filled_count
 
         theme = get_theme()
-        filled_color = theme.progress_filled
-        empty_color = theme.progress_empty
-        time_color = theme.secondary
-        marker_color = theme.foreground
+        filled_color = self._filled_color or theme.progress_filled
+        empty_color = self._empty_color or theme.progress_empty
+        time_color = self._time_color or theme.secondary
+        marker_color = self._marker_color or theme.foreground
 
         result = Text()
         result.append(time_prefix, style=time_color)

@@ -33,7 +33,7 @@
 - **Synced lyrics** — live-highlighted with LRCLIB fallback for tracks YouTube doesn't have, with title sanitization for better LRCLIB matches
 - **mpv backend** — gapless audio, stream prefetching, broad codec support
 - **Cross-platform native integrations** — MPRIS (Linux), Now Playing (macOS), media keys (Windows)
-- **Theming** — 18+ Textual themes plus per-app color overrides in `theme.toml`
+- **Theming** — 18+ Textual themes, per-app color overrides in `theme.toml`, and user-defined themes in `themes/`
 - **Spotify import** — pull playlists in via API or scraper fallback
 - **CLI + IPC** — control a running TUI from another terminal (`ytm play`, `ytm pause`, etc.)
 - **Free-tier support** — works without YouTube Music Premium

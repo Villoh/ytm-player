@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from dataclasses import dataclass, fields
 from pathlib import Path
@@ -20,7 +21,9 @@ else:
 
 from textual.theme import Theme
 
-from ytm_player.config.paths import THEME_FILE
+from ytm_player.config.paths import THEME_FILE, THEMES_DIR
+
+logger = logging.getLogger(__name__)
 
 # Default lyric-current color used when a theme defines no accent/primary.
 # Single source of truth: the dataclass default, the from_css_variables
@@ -76,7 +79,7 @@ class ThemeColors:
     """Resolved color values for Rich Text rendering in widget render() methods.
 
     Base colors come from the active Textual theme.  App-specific colors
-    can be overridden via ``theme.toml``.
+    can be overridden via ``theme.toml`` or a user theme's ``[variables]``.
     """
 
     # Base colors (populated from Textual theme at runtime).
@@ -93,7 +96,7 @@ class ThemeColors:
     muted_text: str = "#999999"
     text: str = "#ffffff"
 
-    # App-specific colors (customisable via theme.toml).
+    # App-specific colors.
     playback_bar_bg: str = "#1a1a1a"
     active_tab: str = "#ffffff"
     inactive_tab: str = "#999999"
@@ -106,11 +109,7 @@ class ThemeColors:
 
     @classmethod
     def from_css_variables(cls, variables: dict[str, str]) -> Self:
-        """Build ThemeColors from resolved Textual CSS variables.
-
-        Maps Textual's variable names to our field names and applies any
-        app-specific overrides from ``theme.toml``.
-        """
+        """Build ThemeColors from resolved Textual CSS variables."""
         tc = cls(
             background=variables.get("background", cls.background),
             foreground=variables.get("foreground", cls.foreground),
@@ -153,12 +152,11 @@ class ThemeColors:
             ),
         )
 
-        # Apply user overrides from theme.toml (app-specific vars only).
         tc._apply_toml_overrides()
         return tc
 
     def _apply_toml_overrides(self, path: Path = THEME_FILE) -> None:
-        """Load color overrides from theme.toml (any field, not just app-specific)."""
+        """Load color overrides from theme.toml."""
         if not path.exists():
             return
         try:
@@ -197,6 +195,57 @@ class ThemeColors:
             lines.append(f'{f_info.name} = "{value}"')
         lines.append("")
         path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def load_user_themes(themes_dir: Path = THEMES_DIR) -> list[Theme]:
+    """Load user-defined themes from the themes/ config directory.
+
+    Each TOML file must have at least ``name`` and ``primary``. An optional
+    ``[variables]`` section maps directly to Textual CSS variables, including
+    ytm-player-specific colors (playback bar, lyrics, etc.).
+    """
+    if not themes_dir.exists():
+        return []
+
+    themes: list[Theme] = []
+    for toml_file in sorted(themes_dir.glob("*.toml")):
+        try:
+            with open(toml_file, "rb") as f:
+                data = tomllib.load(f)
+        except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+            logger.warning("Could not load user theme %s — skipping", toml_file.name)
+            continue
+
+        if "name" not in data or "primary" not in data:
+            logger.warning(
+                "User theme %s is missing required fields 'name' and/or 'primary' — skipping",
+                toml_file.name,
+            )
+            continue
+
+        try:
+            theme = Theme(
+                name=data["name"],
+                primary=data["primary"],
+                secondary=data.get("secondary"),
+                warning=data.get("warning"),
+                error=data.get("error"),
+                success=data.get("success"),
+                accent=data.get("accent"),
+                foreground=data.get("foreground"),
+                background=data.get("background"),
+                surface=data.get("surface"),
+                panel=data.get("panel"),
+                dark=data.get("dark", True),
+                variables=data.get("variables", {}),
+            )
+            themes.append(theme)
+        except Exception:
+            logger.warning(
+                "Failed to build Theme from %s — skipping", toml_file.name, exc_info=True
+            )
+
+    return themes
 
 
 _theme: ThemeColors | None = None
