@@ -223,7 +223,7 @@ class LibraryPanel(Widget):
 
         current = target_item.get("count")
         if current is None:
-            return  # don't fabricate; wait for next library reload
+            return  # unknown count — wait for next library reload
         target_item["count"] = max(0, int(current) + delta)
 
         # Rebuild the list so the visible label reflects the new count.

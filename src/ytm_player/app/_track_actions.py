@@ -58,7 +58,7 @@ class TrackActionsMixin(YTMHostBase):
             self.notify("Track has no video ID.", severity="warning", timeout=2)
             return
 
-        self.push_screen(PlaylistPicker(video_ids=[video_id]))
+        self.push_screen(PlaylistPicker(video_ids=[video_id], tracks=[track]))
 
     async def _open_track_actions(self) -> None:
         """Open ActionsPopup for the focused track."""
@@ -84,7 +84,7 @@ class TrackActionsMixin(YTMHostBase):
             if action_id == "add_to_playlist":
                 video_id = get_video_id(track)
                 if video_id:
-                    self.push_screen(PlaylistPicker(video_ids=[video_id]))
+                    self.push_screen(PlaylistPicker(video_ids=[video_id], tracks=[track]))
                 return
 
             if action_id == "play":
