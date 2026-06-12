@@ -275,6 +275,49 @@ class TestMutationMethodsReturnTypedResult:
         result = await ytmusic_service.add_playlist_items("PL_test", ["v1", "v2"])
         assert result == "success"
 
+    async def test_add_playlist_items_returns_success_on_succeeded_dict(
+        self, ytmusic_service, monkeypatch
+    ):
+        async def fake_call(func, *_args, **_kwargs):
+            return {"status": "STATUS_SUCCEEDED", "playlistEditResults": []}
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.add_playlist_items("PL_test", ["v1"])
+        assert result == "success"
+
+    async def test_add_playlist_items_returns_duplicate_on_failed_status(
+        self, ytmusic_service, monkeypatch
+    ):
+        # YTM returns HTTP 200 + STATUS_FAILED when a duplicate add is rejected.
+        async def fake_call(func, *_args, **_kwargs):
+            return {"status": "STATUS_FAILED"}
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.add_playlist_items("PL_test", ["v1"])
+        assert result == "duplicate"
+
+    async def test_add_playlist_items_returns_server_error_on_unexpected_status(
+        self, ytmusic_service, monkeypatch
+    ):
+        # An exotic non-success status must not be mislabeled as a duplicate.
+        async def fake_call(func, *_args, **_kwargs):
+            return {"status": "STATUS_SOMETHING_ELSE"}
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.add_playlist_items("PL_test", ["v1"])
+        assert result == "server_error"
+
+    async def test_add_playlist_items_forwards_duplicates_flag(self, ytmusic_service, monkeypatch):
+        seen = {}
+
+        async def fake_call(func, *_args, **kwargs):
+            seen.update(kwargs)
+            return None
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        await ytmusic_service.add_playlist_items("PL_test", ["v1"], duplicates=True)
+        assert seen.get("duplicates") is True
+
     async def test_add_playlist_items_returns_network_on_connection_error(
         self, ytmusic_service, monkeypatch
     ):

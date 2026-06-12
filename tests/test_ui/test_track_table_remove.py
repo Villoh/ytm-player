@@ -106,3 +106,44 @@ class TestRemoveTrack:
         assert table._all_tracks[0]["video_id"] == "v1"
         assert table._all_tracks[1]["video_id"] == "v2"
         table.remove_row.assert_called_once_with("k2")
+
+    def test_filtered_map_correct_with_identical_dicts(self):
+        # Two tracks with identical content but distinct setVideoId. The
+        # _filtered_map rebuild must match by identity, not dict equality, or
+        # the surviving duplicate would be dropped/mismapped.
+        table = TrackTable.__new__(TrackTable)
+        table._show_index = True
+        table._show_album = True
+        table._playing_video_id = None
+        table._playing_index = None
+        table._sort_column = None
+        table._sort_reverse = False
+        table._filter_text = ""
+        table._filter_active = False
+        table._title_manual_width = False
+        table._resize_col = None
+        table._resize_start_x = 0
+        table._resize_start_width = 0
+        table.remove_row = MagicMock()
+        table._fill_title_column = MagicMock()
+        table._invalidate_table = MagicMock()
+        table._highlight_playing = MagicMock()
+
+        first = _make_track("v1")
+        first["setVideoId"] = "s1"
+        second = _make_track("v1")
+        second["setVideoId"] = "s2"
+        assert first == second or first["setVideoId"] != second["setVideoId"]
+
+        table._all_tracks = [first, second]
+        table._tracks = [first, second]
+        table._filtered_map = [0, 1]
+        table._row_keys = ["k0", "k1"]
+
+        assert table.remove_track("v1", set_video_id="s1") is True
+        assert len(table._tracks) == 1
+        # The surviving row is the second dict (identity-preserved).
+        assert table._tracks[0] is second
+        assert table._all_tracks == [second]
+        assert table._filtered_map == [0]
+        table.remove_row.assert_called_once_with("k0")

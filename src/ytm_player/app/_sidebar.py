@@ -435,7 +435,11 @@ class SidebarMixin(YTMHostBase):
             from ytm_player.ui.pages.library import LibraryPage
 
             active_pid = self._current_page_kwargs.get("playlist_id", "")
-            if self._current_page == "library" and active_pid in (playlist_id, raw_id):
+            if self._current_page == "library" and active_pid in (
+                playlist_id,
+                raw_id,
+                f"VL{raw_id}",
+            ):
                 library = self.query_one(LibraryPage)
                 await library.refresh_header(name, description, privacy)
         except Exception:

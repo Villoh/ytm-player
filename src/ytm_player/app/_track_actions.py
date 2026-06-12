@@ -200,7 +200,14 @@ class TrackActionsMixin(YTMHostBase):
         video_id = track.get("video_id", "")
         set_video_id = track.get("setVideoId", "")
         if not video_id or not set_video_id:
-            self.notify("Track missing required IDs", severity="error", timeout=2)
+            if track.get("_needs_reload_for_removal"):
+                self.notify(
+                    "Reload the playlist before removing a just-added track",
+                    severity="warning",
+                    timeout=3,
+                )
+            else:
+                self.notify("Track missing required IDs", severity="error", timeout=2)
             return
 
         from ytm_player.services.ytmusic import mutation_failure_suffix

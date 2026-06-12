@@ -58,7 +58,7 @@ class TestSubmit:
         popup._submit()
         assert dismissed == [("My Playlist", "Desc", "PUBLIC")]
 
-    def test_submit_does_nothing_when_name_empty(self):
+    def test_submit_warns_and_does_not_dismiss_when_name_empty(self):
         popup = CreatePlaylistPopup()
         dismissed = []
 
@@ -66,10 +66,12 @@ class TestSubmit:
             dismissed.append(value)
 
         popup.dismiss = fake_dismiss
+        popup.notify = MagicMock()
 
+        name_input = MagicMock(value="   ")
         popup.query_one = MagicMock(
             side_effect=lambda selector, _type=None: {
-                "#input-name": MagicMock(value="   "),
+                "#input-name": name_input,
                 "#input-description": MagicMock(value=""),
                 "#select-privacy": MagicMock(value="PRIVATE"),
             }[selector]
@@ -77,6 +79,9 @@ class TestSubmit:
 
         popup._submit()
         assert dismissed == []
+        popup.notify.assert_called_once()
+        assert popup.notify.call_args.kwargs.get("severity") == "warning"
+        name_input.focus.assert_called_once()
 
     def test_submit_strips_whitespace(self):
         popup = CreatePlaylistPopup()

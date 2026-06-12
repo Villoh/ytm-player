@@ -264,9 +264,14 @@ class TrackTable(DataTable):
                 for all_idx, t in enumerate(self._all_tracks):
                     if _matches(t):
                         self._all_tracks.pop(all_idx)
-                        # Rebuild filtered map from scratch — simplest correct approach.
+                        # Rebuild filtered map from scratch — simplest correct
+                        # approach. Match by identity (id()), not dict equality:
+                        # two genuinely identical track dicts would otherwise
+                        # mismatch the map, and `in` is O(n) per item (O(n²)
+                        # overall) on large playlists.
+                        visible_ids = {id(trk) for trk in self._tracks}
                         self._filtered_map = [
-                            i for i, trk in enumerate(self._all_tracks) if trk in self._tracks
+                            i for i, trk in enumerate(self._all_tracks) if id(trk) in visible_ids
                         ]
                         break
 

@@ -129,8 +129,11 @@ class CreatePlaylistPopup(ModalScreen[tuple[str, str, str] | None]):
             self.dismiss(None)
 
     def _submit(self) -> None:
-        name = self.query_one("#input-name", Input).value.strip()
+        name_input = self.query_one("#input-name", Input)
+        name = name_input.value.strip()
         if not name:
+            self.notify("Playlist name cannot be empty", severity="warning", timeout=3)
+            name_input.focus()
             return
         description = self.query_one("#input-description", Input).value.strip()
         privacy = str(self.query_one("#select-privacy", Select).value)

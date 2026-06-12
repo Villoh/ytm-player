@@ -746,10 +746,26 @@ class YTMusicService:
             )
             # ytmusicapi returns a dict with "status": "STATUS_SUCCEEDED" on
             # success.  When a duplicate is detected (and duplicates=False) the
-            # server returns an error dict without raising an exception.
-            if isinstance(result, dict) and "SUCCEEDED" not in result.get("status", ""):
-                logger.debug("add_playlist_items duplicate detected for playlist=%r", playlist_id)
-                return "duplicate"
+            # server returns HTTP 200 with "status": "STATUS_FAILED" — no
+            # exception is raised (genuine API errors raise YTMusicServerError
+            # and are handled below).  Any other non-success status is
+            # unexpected and classified as a server error so the duplicate
+            # confirm-prompt only fires for real duplicates.
+            if isinstance(result, dict):
+                status = result.get("status", "")
+                if "SUCCEEDED" in status:
+                    return "success"
+                if "FAILED" in status:
+                    logger.debug(
+                        "add_playlist_items duplicate detected for playlist=%r", playlist_id
+                    )
+                    return "duplicate"
+                logger.warning(
+                    "add_playlist_items unexpected status=%r for playlist=%r",
+                    status,
+                    playlist_id,
+                )
+                return "server_error"
             return "success"
         except _EXPECTED_MUTATION_EXCEPTIONS as exc:
             kind = _classify_mutation_failure(exc)
