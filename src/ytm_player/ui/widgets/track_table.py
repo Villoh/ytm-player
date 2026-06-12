@@ -56,7 +56,23 @@ class TrackTable(DataTable):
             self.index = index
 
     class TrackRightClicked(Message):
-        """Emitted when a track row is right-clicked."""
+        """Emitted when a track row is right-clicked (title or non-specific column)."""
+
+        def __init__(self, track: dict, index: int) -> None:
+            super().__init__()
+            self.track = track
+            self.index = index
+
+    class ArtistRightClicked(Message):
+        """Emitted when the Artist column of a track row is right-clicked."""
+
+        def __init__(self, track: dict, index: int) -> None:
+            super().__init__()
+            self.track = track
+            self.index = index
+
+    class AlbumRightClicked(Message):
+        """Emitted when the Album column of a track row is right-clicked."""
 
         def __init__(self, track: dict, index: int) -> None:
             super().__init__()
@@ -264,9 +280,14 @@ class TrackTable(DataTable):
                 for all_idx, t in enumerate(self._all_tracks):
                     if _matches(t):
                         self._all_tracks.pop(all_idx)
-                        # Rebuild filtered map from scratch — simplest correct approach.
+                        # Rebuild filtered map from scratch — simplest correct
+                        # approach. Match by identity (id()), not dict equality:
+                        # two genuinely identical track dicts would otherwise
+                        # mismatch the map, and `in` is O(n) per item (O(n²)
+                        # overall) on large playlists.
+                        visible_ids = {id(trk) for trk in self._tracks}
                         self._filtered_map = [
-                            i for i, trk in enumerate(self._all_tracks) if trk in self._tracks
+                            i for i, trk in enumerate(self._all_tracks) if id(trk) in visible_ids
                         ]
                         break
 
@@ -628,7 +649,7 @@ class TrackTable(DataTable):
             self.post_message(SelectionChanged(""))
 
     def on_click(self, event: Click) -> None:
-        """Handle right-click to emit TrackRightClicked."""
+        """Handle right-click — emit column-specific message."""
         if event.button == 3:
             event.stop()
             event.prevent_default()
@@ -637,7 +658,15 @@ class TrackTable(DataTable):
             meta = event.style.meta
             row_idx = meta.get("row") if meta else None
             if row_idx is not None and 0 <= row_idx < len(self._tracks):
-                self.post_message(self.TrackRightClicked(self._tracks[row_idx], row_idx))
+                track = self._tracks[row_idx]
+                col = self._column_at_x(int(event.x + self.scroll_x))
+                col_key = col.key.value if col and col.key else ""
+                if col_key == "artist":
+                    self.post_message(self.ArtistRightClicked(track, row_idx))
+                elif col_key == "album":
+                    self.post_message(self.AlbumRightClicked(track, row_idx))
+                else:
+                    self.post_message(self.TrackRightClicked(track, row_idx))
 
     def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
         """Sort by the clicked column header."""
