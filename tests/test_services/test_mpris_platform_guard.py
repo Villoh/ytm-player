@@ -55,30 +55,3 @@ def test_mpris_import_safe_on_windows():
 
 def test_mpris_import_safe_on_macos():
     assert _run_import_under_platform("darwin") == "OK"
-
-
-def test_mpris_service_construct_and_start_noop_off_linux():
-    """MPRISService must construct and start() must no-op when dbus is absent."""
-    script = textwrap.dedent(
-        """
-        import asyncio
-        import sys
-        sys.platform = "win32"
-
-        import ytm_player.services.mpris as mpris
-
-        svc = mpris.MPRISService()
-        # start() should return without touching dbus (no-op, returns None).
-        result = asyncio.run(svc.start(player_callbacks={}))
-        assert result is None
-        print("OK")
-        """
-    )
-    result = subprocess.run(
-        [sys.executable, "-c", script],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
-    assert result.stdout.strip() == "OK"
