@@ -52,3 +52,6 @@ broad-except-audit.local.md
 
 # Local website-brainstorm scratch (not part of the package)
 .superpowers/
+
+# Local-only reasoning / working notes for coord issues (never committed)
+reasoning/
