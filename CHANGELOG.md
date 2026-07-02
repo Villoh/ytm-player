@@ -6,6 +6,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+### Unreleased
+
+**Changes**
+
+- **Only one TUI instance at a time** — launching `ytm` while another instance is running now exits with "ytm is already running (PID …)" instead of letting two instances fight over the same session and IPC socket.
+
+**Fixes**
+
+- **MPRIS survives broken dbus-fast builds** — a dbus-fast that raises `TypeError` at import (dbus-fast 4.x on Python 3.14) now disables MPRIS with a notice instead of crashing at startup. Thanks @dsafxP (#113).
+- **Queue: `d`/`J`/`K` after sort or filter** — deleting or reordering on a sorted/filtered Queue page acted on the wrong underlying track; the row→track mapping is now correct.
+- **Playing a selected track works the same on every page** — Search and Browse now rebuild the queue the way Library and Context always did, fixing stale Queue-page contents and duplicate plays from double-fired events.
+- **Removing the playing track under shuffle** — the queue now advances to the next shuffled track, matching non-shuffle behaviour, instead of landing somewhere arbitrary.
+- **`playerctl` volume and position** — MPRIS `Volume` is wired in both directions and `Seeked` is emitted on jumps, so desktop applets can set the volume and track the playhead.
+- **Rapid track-switch race** — starting a track while another was still resolving could double-play or land on the wrong track; play requests are now serialized and the newest wins.
+- **IPC hardening** — CLI↔TUI messages are newline-framed, and the Windows TCP fallback now requires an auth token instead of trusting anything on localhost.
+- **Config resilience** — a corrupt `keymap.toml` is backed up and replaced with defaults instead of aborting startup, settings values are type-validated at load, and `cache_dir` accepts `~` paths.
+- **Navigation state stays fresh** — pages no longer restore stale cursor/content state, and deleting a playlist purges its cached pages instead of leaving ghost entries reachable via Back.
+- **Popup backdrop clicks** — clicking outside any popup now dismisses it consistently, across all popups.
+- **Database errors degrade gracefully** — SQLite errors at history/session write sites are caught alongside OS errors instead of crashing the operation.
+- **Player teardown races** — transport actions during mpv shutdown no longer raise, and a failed stream start no longer disturbs end-of-track handling for the track after it.
+
+**Internal**
+
+- The five per-page track-filter stacks are unified into one shared mixin, all popups sit on a shared base shell, and the ytmusicapi sort-parameter patch window no longer leaks into unrelated concurrent API calls.
+- First dedicated test coverage for the Spotify import service and the mpv player wrapper.
+
+---
+
 ### v1.9.5 (2026-06-28)
 
 **New features**
