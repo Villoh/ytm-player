@@ -47,28 +47,29 @@ class PlaybackMixin(YTMHostBase):
             self._last_play_video_id = video_id
             self._last_play_time = now
         if not video_id:
-            self._consecutive_failures += 1
             title = track.get("title", "Unknown")
             self.notify(
                 f'Skipping "{title}" — no video ID (AI-generated streams are not supported).',
                 severity="warning",
                 timeout=3,
             )
-            if self._consecutive_failures < _MAX_CONSECUTIVE_FAILURES:
-                next_track = self.queue.next_track()
-                if next_track:
-                    self.call_later(lambda: self.run_worker(self.play_track(next_track)))
-            else:
-                self.notify(
-                    "Multiple tracks unplayable — check if your account has access.",
-                    severity="error",
-                    timeout=6,
-                )
-                self._consecutive_failures = 0
+            self._handle_play_failure(
+                exhausted_message="Multiple tracks unplayable — check if your account has access.",
+                clear_debounce=False,
+            )
             return
+
+        # This call is committed — supersede any in-flight play_track.
+        # Older calls abort at their next generation check instead of
+        # stealing playback back or pushing stale metadata.
+        self._play_generation += 1
+        generation = self._play_generation
 
         # Log listen time for the previous track.
         await self._log_current_listen()
+
+        if generation != self._play_generation:
+            return
 
         # Update UI immediately -- show track info before stream resolves.
         try:
@@ -112,11 +113,14 @@ class PlaybackMixin(YTMHostBase):
                 logger.debug("Stream resolution raised for %s", video_id, exc_info=True)
                 stream_info = None
 
+        # A newer call may have landed while we awaited cache/resolve.
+        # Its failure tail must not run either — it would toast, advance
+        # the queue, or reset the resolver out from under the winner.
+        if generation != self._play_generation:
+            logger.debug("play_track for %s superseded during resolve", video_id)
+            return
+
         if stream_info is None:
-            # Stream resolve failed — clear debounce so user can retry.
-            self._last_play_video_id = ""
-            self._last_play_time = 0.0
-            self._consecutive_failures += 1
             title = track.get("title", video_id)
             self.notify(
                 f'Couldn\'t play "{title}" — track may be unavailable or region-locked. '
@@ -124,56 +128,38 @@ class PlaybackMixin(YTMHostBase):
                 severity="error",
                 timeout=4,
             )
-            # Auto-advance to the next track unless we've failed too many times.
-            if self._consecutive_failures < _MAX_CONSECUTIVE_FAILURES:
-                next_track = self.queue.next_track()
-                if next_track:
-                    self.call_later(lambda: self.run_worker(self.play_track(next_track)))
-            else:
-                # Likely a systemic issue (stale session, network) -- reset
-                # the yt-dlp instance so the next attempt gets a fresh one.
-                self.stream_resolver.clear_cache()
-                logger.warning(
-                    "Reset yt-dlp after %d consecutive stream failures",
-                    self._consecutive_failures,
-                )
-                self.notify(
-                    "Multiple tracks failed — stream resolver reset. Try playing again.",
-                    severity="error",
-                    timeout=6,
-                )
-                self._consecutive_failures = 0
+            self._handle_play_failure(
+                exhausted_message="Multiple tracks failed — stream resolver reset. Try playing again.",
+                failure_kind="stream",
+            )
             return
 
-        self._consecutive_failures = 0
-
-        # Start playback.
-        try:
-            await self.player.play(stream_info.url, track)
-        except Exception:
-            logger.debug("player.play() failed for %s", video_id, exc_info=True)
-            # play() failed — clear debounce so user can retry.
-            self._last_play_video_id = ""
-            self._last_play_time = 0.0
-            self._consecutive_failures += 1
-            if self._consecutive_failures < _MAX_CONSECUTIVE_FAILURES:
-                next_track = self.queue.next_track()
-                if next_track:
-                    self.call_later(lambda: self.run_worker(self.play_track(next_track)))
-            else:
-                self.stream_resolver.clear_cache()
-                logger.warning(
-                    "Reset yt-dlp after %d consecutive play failures",
-                    self._consecutive_failures,
+        # Start playback. The lock makes gen-check + mpv command atomic:
+        # without it a superseded call could still issue its (threaded)
+        # play command after the winner's, stealing playback at the mpv
+        # level while the app state says otherwise.
+        async with self._play_lock:
+            if generation != self._play_generation:
+                logger.debug("play_track for %s superseded before play()", video_id)
+                return
+            self._consecutive_failures = 0
+            try:
+                await self.player.play(stream_info.url, track)
+            except Exception:
+                logger.debug("player.play() failed for %s", video_id, exc_info=True)
+                # A newer call may have superseded us while play() awaited.
+                if generation != self._play_generation:
+                    return
+                self._handle_play_failure(
+                    exhausted_message="Multiple tracks failed — stream resolver reset. "
+                    "Try playing again.",
+                    failure_kind="play",
                 )
-                self.notify(
-                    "Multiple tracks failed — stream resolver reset. Try playing again.",
-                    severity="error",
-                    timeout=6,
-                )
-                self._consecutive_failures = 0
-            return
+                return
         self._track_start_position = 0.0
+
+        if generation != self._play_generation:
+            return
 
         # Apply pending resume position if this play matches the resumed track.
         # Only clear on a match — if the user plays a different track first,
@@ -189,6 +175,11 @@ class PlaybackMixin(YTMHostBase):
             self._pending_resume_video_id = None
             self._pending_resume_position = 0.0
 
+        # Metadata fan-out: re-check the generation between each block —
+        # every await below is a window for a newer play_track to land.
+        if generation != self._play_generation:
+            return
+
         # Update Discord Rich Presence.
         if self.discord and self.discord.is_connected:
             await self.discord.update(
@@ -199,6 +190,9 @@ class PlaybackMixin(YTMHostBase):
                 thumbnail_url=track.get("thumbnail_url") or "",
             )
 
+        if generation != self._play_generation:
+            return
+
         # Send Last.fm "Now Playing".
         if self.lastfm and self.lastfm.is_connected:
             await self.lastfm.now_playing(
@@ -207,6 +201,9 @@ class PlaybackMixin(YTMHostBase):
                 album=track.get("album") or "",
                 duration=stream_info.duration,
             )
+
+        if generation != self._play_generation:
+            return
 
         # Update MPRIS metadata.
         if self.mpris:
@@ -220,6 +217,9 @@ class PlaybackMixin(YTMHostBase):
             )
             await self.mpris.update_playback_status("Playing")
 
+        if generation != self._play_generation:
+            return
+
         # Update macOS Now Playing metadata.
         if self.mac_media:
             duration_us = int((stream_info.duration or 0) * 1_000_000)
@@ -230,6 +230,42 @@ class PlaybackMixin(YTMHostBase):
                 length_us=duration_us,
             )
             await self.mac_media.update_playback_status("Playing")
+
+    def _handle_play_failure(
+        self,
+        *,
+        exhausted_message: str,
+        failure_kind: str | None = None,
+        clear_debounce: bool = True,
+    ) -> None:
+        """Shared tail of play_track's failure paths.
+
+        Bumps the consecutive-failure counter, auto-advances to the next
+        queue track below the threshold, and escalates at it.
+        ``failure_kind`` names the failure in the resolver-reset warning;
+        ``None`` skips the resolver reset (no-video-id path).
+        """
+        if clear_debounce:
+            # Clear debounce so the user can immediately retry the track.
+            self._last_play_video_id = ""
+            self._last_play_time = 0.0
+        self._consecutive_failures += 1
+        if self._consecutive_failures < _MAX_CONSECUTIVE_FAILURES:
+            next_track = self.queue.next_track()
+            if next_track:
+                self.call_later(lambda: self.run_worker(self.play_track(next_track)))
+        else:
+            if failure_kind is not None and self.stream_resolver:
+                # Likely a systemic issue (stale session, network) — reset
+                # the yt-dlp instance so the next attempt gets a fresh one.
+                self.stream_resolver.clear_cache()
+                logger.warning(
+                    "Reset yt-dlp after %d consecutive %s failures",
+                    self._consecutive_failures,
+                    failure_kind,
+                )
+            self.notify(exhausted_message, severity="error", timeout=6)
+            self._consecutive_failures = 0
 
     async def _toggle_play_pause(self) -> None:
         """Toggle play/pause, starting playback from queue if player is idle."""

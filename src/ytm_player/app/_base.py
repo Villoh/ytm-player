@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    import asyncio
     from typing import Any, Protocol
 
     from textual.app import App
@@ -106,6 +107,8 @@ if TYPE_CHECKING:
         _advancing: bool
         _last_play_video_id: str
         _last_play_time: float
+        _play_generation: int
+        _play_lock: asyncio.Lock
 
         # ── Pending resume from prior session ──────────────────────────
         _pending_resume_video_id: str | None

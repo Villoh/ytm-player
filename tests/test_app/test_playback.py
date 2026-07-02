@@ -9,6 +9,7 @@ Three bug classes guarded against:
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 from ytm_player.app._playback import PlaybackMixin
@@ -47,6 +48,8 @@ def _fresh_playback_host():
     p._advancing = False
     p._pending_resume_video_id = None
     p._pending_resume_position = 0.0
+    p._play_generation = 0
+    p._play_lock = asyncio.Lock()
     return p
 
 
@@ -451,3 +454,147 @@ class TestFetchAndPlayRadioSeedFirst:
         assert tracks[0]["video_id"] == "existing"
         assert tracks[1]["video_id"] == "r1"
         host.play_track.assert_not_called()
+
+
+class TestCrossTrackRace:
+    """T11: a later play_track call must supersede an in-flight one —
+    the older call may not steal playback back or push stale metadata."""
+
+    def _track(self, video_id: str, title: str) -> dict:
+        return {"video_id": video_id, "title": title, "artist": "", "album": ""}
+
+    async def test_slow_resolve_loses_to_later_click(self):
+        import asyncio
+
+        host = _fresh_playback_host()
+        host.discord = MagicMock()
+        host.discord.is_connected = True
+        host.discord.update = AsyncMock()
+
+        a_resolving = asyncio.Event()
+        release_a = asyncio.Event()
+
+        async def resolve(video_id):
+            if video_id == "AAA":
+                a_resolving.set()
+                await release_a.wait()
+            info = MagicMock()
+            info.url = f"url-{video_id}"
+            info.duration = 100
+            return info
+
+        host.stream_resolver.resolve = resolve
+
+        task_a = asyncio.create_task(host.play_track(self._track("AAA", "A")))
+        await a_resolving.wait()  # A is parked in stream resolution
+        await host.play_track(self._track("BBB", "B"))  # B completes fully
+        release_a.set()
+        await task_a  # A's resolve finishes — must abort, not play
+
+        played = [c.args[0] for c in host.player.play.await_args_list]
+        assert played == ["url-BBB"], "superseded call stole playback back"
+        titles = [c.kwargs["title"] for c in host.discord.update.await_args_list]
+        assert titles == ["B"], "superseded call pushed stale metadata"
+
+    async def test_late_fanout_suppressed_after_supersede(self):
+        import asyncio
+
+        host = _fresh_playback_host()
+
+        async def resolve(video_id):
+            info = MagicMock()
+            info.url = f"url-{video_id}"
+            info.duration = 100
+            return info
+
+        host.stream_resolver.resolve = resolve
+
+        a_in_discord = asyncio.Event()
+        release_discord = asyncio.Event()
+        discord_titles: list[str] = []
+
+        async def discord_update(**kwargs):
+            discord_titles.append(kwargs["title"])
+            if kwargs["title"] == "A":
+                a_in_discord.set()
+                await release_discord.wait()
+
+        host.discord = MagicMock()
+        host.discord.is_connected = True
+        host.discord.update = discord_update
+        host.lastfm = MagicMock()
+        host.lastfm.is_connected = True
+        host.lastfm.now_playing = AsyncMock()
+
+        task_a = asyncio.create_task(host.play_track(self._track("AAA", "A")))
+        await a_in_discord.wait()  # A played and is parked mid-fan-out
+        await host.play_track(self._track("BBB", "B"))
+        release_discord.set()
+        await task_a  # A resumes after Discord — must skip Last.fm etc.
+
+        titles = [c.kwargs["title"] for c in host.lastfm.now_playing.await_args_list]
+        assert titles == ["B"], "superseded call continued its metadata fan-out"
+
+    async def test_superseded_failed_resolve_does_not_advance_queue(self):
+        import asyncio
+
+        host = _fresh_playback_host()
+        a_resolving = asyncio.Event()
+        release_a = asyncio.Event()
+
+        async def resolve(video_id):
+            if video_id == "AAA":
+                a_resolving.set()
+                await release_a.wait()
+                return None  # A's resolve fails — after being superseded
+            info = MagicMock()
+            info.url = f"url-{video_id}"
+            info.duration = 100
+            return info
+
+        host.stream_resolver.resolve = resolve
+
+        task_a = asyncio.create_task(host.play_track(self._track("AAA", "A")))
+        await a_resolving.wait()
+        await host.play_track(self._track("BBB", "B"))
+        host.queue.next_track.reset_mock()
+        host.notify.reset_mock()
+        release_a.set()
+        await task_a
+
+        host.queue.next_track.assert_not_called()
+        host.notify.assert_not_called()
+
+    async def test_superseded_during_history_log_never_resolves(self):
+        import asyncio
+
+        host = _fresh_playback_host()
+        a_logging = asyncio.Event()
+        release_log = asyncio.Event()
+        resolved: list[str] = []
+        log_calls = {"n": 0}
+
+        async def slow_log():
+            log_calls["n"] += 1
+            if log_calls["n"] == 1:  # A's call
+                a_logging.set()
+                await release_log.wait()
+
+        host._log_current_listen = slow_log
+
+        async def resolve(video_id):
+            resolved.append(video_id)
+            info = MagicMock()
+            info.url = f"url-{video_id}"
+            info.duration = 100
+            return info
+
+        host.stream_resolver.resolve = resolve
+
+        task_a = asyncio.create_task(host.play_track(self._track("AAA", "A")))
+        await a_logging.wait()
+        await host.play_track(self._track("BBB", "B"))
+        release_log.set()
+        await task_a
+
+        assert resolved == ["BBB"], "superseded call kept going after history log"

@@ -257,6 +257,11 @@ class YTMPlayerApp(
         # Debounce rapid play_track calls (e.g. double-click).
         self._last_play_video_id: str = ""
         self._last_play_time: float = 0.0
+        # Cross-track supersede counter: each committed play_track call
+        # bumps it; older in-flight calls abort at their next check.
+        self._play_generation: int = 0
+        # Makes the generation check + mpv play command atomic.
+        self._play_lock = asyncio.Lock()
 
         # Pending resume from prior session (set by _restore_session_state).
         # Cleared on first matching play_track call.
