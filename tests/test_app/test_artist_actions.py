@@ -1038,3 +1038,32 @@ class TestDispatchEntityActionExtended:
         host.navigate_to.assert_awaited_once_with(
             "context", context_type="artist", context_id="UC1"
         )
+
+
+class TestIdHelpers:
+    """Precedence contracts for the shared id-extraction helpers."""
+
+    def test_first_artist_id_prefers_id_over_browse_id(self):
+        from ytm_player.app._track_actions import _first_artist_id
+
+        assert _first_artist_id({"artists": [{"id": "UC1", "browseId": "UC2"}]}) == "UC1"
+        assert _first_artist_id({"artists": [{"browseId": "UC2"}]}) == "UC2"
+        assert _first_artist_id({"artists": []}) == ""
+        assert _first_artist_id({"artists": ["not-a-dict"]}) == ""
+
+    def test_album_browse_id_nested_album_outranks_top_level_browse_id(self):
+        from ytm_player.app._track_actions import _album_browse_id
+
+        # A track dict can carry a non-album browseId; the nested album id
+        # must win (the old popup path never consulted browseId at all).
+        track = {"album": {"id": "MPREb_album"}, "browseId": "UC_artist"}
+        assert _album_browse_id(track) == "MPREb_album"
+
+    def test_album_browse_id_full_precedence(self):
+        from ytm_player.app._track_actions import _album_browse_id
+
+        assert _album_browse_id({"album_id": "A", "album": {"id": "B"}, "browseId": "C"}) == "A"
+        assert _album_browse_id({"album": {"id": "B"}, "browseId": "C"}) == "B"
+        # Album entities have no nested album dict and resolve via browseId.
+        assert _album_browse_id({"browseId": "C"}) == "C"
+        assert _album_browse_id({}) == ""
