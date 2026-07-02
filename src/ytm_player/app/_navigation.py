@@ -82,6 +82,20 @@ class NavigationMixin(YTMHostBase):
         current page onto the forward stack), or ``page_name="forward"``
         to do the reverse.
         """
+        # Refresh the current page's nav state into the cache FIRST — the
+        # back/forward stack snapshots below read from this cache, so a
+        # stale entry here would restore a previous visit's cursor.
+        if self._current_page:
+            current_page = self._get_current_page()
+            if current_page is not None and hasattr(current_page, "get_nav_state"):
+                page_state = current_page.get_nav_state()
+                if page_state:
+                    self._page_state_cache[self._current_page] = page_state
+                else:
+                    # An empty fresh state means the user left whatever the
+                    # cache remembers — drop it rather than restore it later.
+                    self._page_state_cache.pop(self._current_page, None)
+
         # Handle "back" / "forward" navigation via stacks.
         is_back = page_name == "back"
         is_forward = page_name == "forward"
@@ -131,15 +145,6 @@ class NavigationMixin(YTMHostBase):
                 same_page_back = True
             else:
                 return
-
-        # Cache current page state before destroying it.
-        # This allows forward navigation (footer/sidebar clicks) to restore state.
-        if self._current_page:
-            current_page = self._get_current_page()
-            if current_page is not None and hasattr(current_page, "get_nav_state"):
-                page_state = current_page.get_nav_state()
-                if page_state:
-                    self._page_state_cache[self._current_page] = page_state
 
         # Push current page onto the nav stack before switching.
         # Skip for back / forward / same-page-back — those already managed
@@ -203,6 +208,40 @@ class NavigationMixin(YTMHostBase):
         self._apply_lyrics_sidebar(self._lyrics_sidebar_open)
 
         logger.debug("Navigated to page: %s", page_name)
+
+    def _purge_playlist_nav_state(self, dead_ids: set[str]) -> None:
+        """Drop cached/stacked navigation state referencing a deleted playlist.
+
+        Without this, a bare footer-nav to Library (empty kwargs → cached
+        state applied) would reopen the deleted playlist.
+        """
+        # LibraryPage.on_mount falls back to this id when mounted bare.
+        if self._active_library_playlist_id in dead_ids:
+            self._active_library_playlist_id = None
+        lib_state = self._page_state_cache.get("library")
+        if lib_state and lib_state.get("playlist_id") in dead_ids:
+            del self._page_state_cache["library"]
+
+        def _is_dead(kw: dict) -> bool:
+            # Library entries carry playlist_id; playlist context pages
+            # (opened from search/browse) carry context_type + context_id.
+            if kw.get("playlist_id") in dead_ids:
+                return True
+            return kw.get("context_type") == "playlist" and kw.get("context_id") in dead_ids
+
+        self._nav_stack = [(name, kw) for name, kw in self._nav_stack if not _is_dead(kw)]
+        self._forward_stack = [(name, kw) for name, kw in self._forward_stack if not _is_dead(kw)]
+
+        # The purge may have emptied a stack — refresh the header buttons so
+        # a stale back/forward control doesn't stay clickable.
+        try:
+            from ytm_player.ui.header_bar import HeaderBar
+
+            header = self.query_one("#app-header", HeaderBar)
+            header.set_back_visible(bool(self._nav_stack))
+            header.set_forward_visible(bool(self._forward_stack))
+        except Exception:
+            logger.exception("Failed to update header back/forward button visibility")
 
     def _create_page(self, page_name: str, **kwargs: Any) -> Widget:
         """Instantiate the widget for a given page name."""

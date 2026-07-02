@@ -521,14 +521,27 @@ class SidebarMixin(YTMHostBase):
                 self.notify(f"Removed '{title}'", timeout=2)
                 ps = self.query_one("#playlist-sidebar", PlaylistSidebar)
                 ps.query_one("#ps-playlists", LibraryPanel).remove_item(raw_id)
-                # If the deleted playlist is currently open, navigate to plain library.
+                dead_ids = {playlist_id, raw_id, f"VL{raw_id}"}
+                # Clear the last-played fallback BEFORE navigating — the plain
+                # LibraryPage mounted below would otherwise auto-load the dead
+                # id from app._active_library_playlist_id in on_mount.
+                if self._active_library_playlist_id in dead_ids:
+                    self._active_library_playlist_id = None
+                # If the deleted playlist is currently open — as a library page
+                # or as a playlist context page — navigate to plain library.
                 active_pid = self._current_page_kwargs.get("playlist_id", "")
-                if self._current_page == "library" and active_pid in (
-                    playlist_id,
-                    raw_id,
-                    f"VL{raw_id}",
+                if self._current_page == "library" and active_pid in dead_ids:
+                    await self.navigate_to("library", playlist_id=None)
+                elif (
+                    self._current_page == "context"
+                    and self._current_page_kwargs.get("context_type") == "playlist"
+                    and self._current_page_kwargs.get("context_id", "") in dead_ids
                 ):
                     await self.navigate_to("library", playlist_id=None)
+                # Purge AFTER the conditional navigation above — navigate_to
+                # refreshes the dying page's state into the nav cache, which
+                # would re-introduce the dead playlist_id if we purged first.
+                self._purge_playlist_nav_state(dead_ids)
             else:
                 suffix = mutation_failure_suffix(result)
                 self.notify(f"Failed to remove playlist — {suffix}", severity="error", timeout=4)
