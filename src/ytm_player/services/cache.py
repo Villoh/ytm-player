@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import shutil
+import sqlite3
 from pathlib import Path
 
 import aiosqlite
@@ -124,7 +125,7 @@ class CacheManager:
             await asyncio.to_thread(dest.write_bytes, data)
             await self._index(video_id, dest, len(data), format)
             await self.evict()
-        except OSError as exc:
+        except (OSError, sqlite3.Error) as exc:
             logger.warning("Cache write failed for %s: %s", video_id, exc)
             raise CacheError(f"Failed to cache {video_id}: {exc}") from exc
         return dest
@@ -139,7 +140,7 @@ class CacheManager:
             file_size = dest.stat().st_size
             await self._index(video_id, dest, file_size, format)
             await self.evict()
-        except OSError as exc:
+        except (OSError, sqlite3.Error) as exc:
             logger.warning("Cache write failed for %s: %s", video_id, exc)
             raise CacheError(f"Failed to cache {video_id}: {exc}") from exc
         return dest
@@ -173,7 +174,7 @@ class CacheManager:
                     (video_id,),
                 )
                 await self._db.commit()
-        except OSError as exc:
+        except (OSError, sqlite3.Error) as exc:
             logger.warning("Cache remove failed for %s: %s", video_id, exc)
             raise CacheError(f"Failed to remove {video_id} from cache: {exc}") from exc
 
@@ -189,7 +190,7 @@ class CacheManager:
             await self._db.execute("DELETE FROM cache_index")
             await self._db.commit()
             logger.info("Cache cleared")
-        except OSError as exc:
+        except (OSError, sqlite3.Error) as exc:
             logger.warning("Cache clear failed: %s", exc)
             raise CacheError(f"Failed to clear cache: {exc}") from exc
 
@@ -253,7 +254,7 @@ class CacheManager:
                     evict_ids,
                 )
                 await self._db.commit()
-        except OSError as exc:
+        except (OSError, sqlite3.Error) as exc:
             logger.warning("Cache eviction failed: %s", exc)
             raise CacheError(f"Failed to evict cache entries: {exc}") from exc
 
@@ -281,6 +282,6 @@ class CacheManager:
                 (video_id, str(path), file_size, format),
             )
             await self._db.commit()
-        except OSError as exc:
+        except (OSError, sqlite3.Error) as exc:
             logger.warning("Cache index write failed for %s: %s", video_id, exc)
             raise CacheError(f"Failed to index {video_id} in cache: {exc}") from exc

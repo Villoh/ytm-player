@@ -1,5 +1,9 @@
 """Tests for ytm_player.services.history.HistoryManager."""
 
+import sqlite3
+from unittest.mock import Mock
+
+import aiosqlite
 import pytest
 
 from ytm_player.services.history import HistoryManager
@@ -165,3 +169,48 @@ class TestCloseAndReinit:
         assert len(history) == 1
         assert history[0]["query"] == "persistent query"
         await manager2.close()
+
+
+class TestSqliteErrorsWrapped:
+    """A locked/corrupt DB raises ``sqlite3.Error``, not ``OSError`` -- confirm
+    the write paths still wrap it into RuntimeError instead of leaking raw."""
+
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            lambda m: m.log_search("q", "music", 1),
+            lambda m: m.clear_search_history(),
+            lambda m: m.log_play(_make_track(), 30, "search"),
+        ],
+        ids=["log_search", "clear_search_history", "log_play"],
+    )
+    async def test_write_wraps_sqlite_error(self, history_manager, monkeypatch, operation):
+        await history_manager.init()
+        monkeypatch.setattr(
+            history_manager._db,
+            "execute",
+            Mock(side_effect=sqlite3.OperationalError("database is locked")),
+        )
+        with pytest.raises(RuntimeError, match="Failed to write to history database"):
+            await operation(history_manager)
+        await history_manager.close()
+
+    async def test_init_prune_wraps_sqlite_error(self, history_manager, monkeypatch):
+        real_connect = aiosqlite.connect
+
+        async def poisoned_connect(path, *args, **kwargs):
+            conn = await real_connect(path, *args, **kwargs)
+            real_execute = conn.execute
+
+            def execute_wrapper(sql, *a, **k):
+                if "DELETE FROM play_history" in sql:
+                    raise sqlite3.OperationalError("database is locked")
+                return real_execute(sql, *a, **k)
+
+            conn.execute = execute_wrapper
+            return conn
+
+        monkeypatch.setattr("ytm_player.services.history.aiosqlite.connect", poisoned_connect)
+        with pytest.raises(RuntimeError, match="Failed to write to history database"):
+            await history_manager.init()
+        await history_manager.close()

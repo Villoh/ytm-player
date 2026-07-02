@@ -1,8 +1,11 @@
 """Tests for ytm_player.services.cache.CacheManager."""
 
+import sqlite3
+from unittest.mock import Mock
+
 import pytest
 
-from ytm_player.services.cache import CacheManager
+from ytm_player.services.cache import CacheError, CacheManager
 
 
 @pytest.fixture
@@ -179,3 +182,41 @@ class TestCacheRoundTrip:
         assert missing is None
 
         await cm.close()
+
+
+class TestSqliteErrorsWrapped:
+    """A locked/corrupt DB raises ``sqlite3.Error``, not ``OSError`` -- confirm
+    the write paths still wrap it into CacheError instead of leaking raw."""
+
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            lambda m: m.put(VID_A, b"data", "opus"),
+            lambda m: m.remove(VID_A),
+            lambda m: m.clear(),
+        ],
+        ids=["put", "remove", "clear"],
+    )
+    async def test_write_wraps_sqlite_error(self, cache_manager, monkeypatch, operation):
+        await cache_manager.init()
+        monkeypatch.setattr(
+            cache_manager._db,
+            "execute",
+            Mock(side_effect=sqlite3.OperationalError("database is locked")),
+        )
+        with pytest.raises(CacheError):
+            await operation(cache_manager)
+        await cache_manager.close()
+
+    async def test_put_file_wraps_sqlite_error(self, cache_manager, monkeypatch, tmp_path):
+        await cache_manager.init()
+        source = tmp_path / "source.opus"
+        source.write_bytes(b"data")
+        monkeypatch.setattr(
+            cache_manager._db,
+            "execute",
+            Mock(side_effect=sqlite3.OperationalError("database is locked")),
+        )
+        with pytest.raises(CacheError):
+            await cache_manager.put_file(VID_A, source, "opus")
+        await cache_manager.close()

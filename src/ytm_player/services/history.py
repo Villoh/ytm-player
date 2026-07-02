@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from pathlib import Path
 
 import aiosqlite
@@ -80,7 +81,7 @@ class HistoryManager:
                 (self._max_history,),
             )
             await self._db.commit()
-        except OSError as exc:
+        except (OSError, sqlite3.Error) as exc:
             logger.warning("Failed to prune history database: %s", exc)
             raise RuntimeError(f"Failed to write to history database: {exc}") from exc
 
@@ -118,7 +119,7 @@ class HistoryManager:
                 (query, filter_mode, result_count),
             )
             await self._db.commit()
-        except OSError as exc:
+        except (OSError, sqlite3.Error) as exc:
             logger.warning("Failed to log search to history database: %s", exc)
             raise RuntimeError(f"Failed to write to history database: {exc}") from exc
 
@@ -163,7 +164,7 @@ class HistoryManager:
         try:
             await self._db.execute("DELETE FROM search_history")
             await self._db.commit()
-        except OSError as exc:
+        except (OSError, sqlite3.Error) as exc:
             logger.warning("Failed to clear search history: %s", exc)
             raise RuntimeError(f"Failed to write to history database: {exc}") from exc
 
@@ -223,7 +224,7 @@ class HistoryManager:
             )
 
             await self._db.commit()
-        except OSError as exc:
+        except (OSError, sqlite3.Error) as exc:
             logger.exception("Failed to log play (video_id=%r)", video_id)
             raise RuntimeError(f"Failed to write to history database: {exc}") from exc
 
