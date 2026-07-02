@@ -268,7 +268,15 @@ class ContextPage(TrackFilterHost, Widget):
             elif event.state == WorkerState.ERROR:
                 self.loading = False
                 self.error_message = _load_failure_message(self.context_type)
-                logger.exception("Failed to load %s %s", self.context_type, self.context_id)
+                # No active exception in this callback — logger.exception would
+                # log "NoneType: None". Pass the worker's captured error so the
+                # real traceback is recorded.
+                logger.error(
+                    "Failed to load %s %s",
+                    self.context_type,
+                    self.context_id,
+                    exc_info=event.worker.error,
+                )
         elif event.worker.name == "fetch_remaining":
             if event.state == WorkerState.SUCCESS:
                 remaining = event.worker.result or []
