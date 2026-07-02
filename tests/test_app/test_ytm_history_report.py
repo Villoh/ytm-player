@@ -8,7 +8,7 @@ actually started. Opt-out (default on).
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from ytm_player.app._playback import (
     _YTM_HISTORY_MAX,
@@ -33,6 +33,10 @@ def _host(
     host._play_generation = play_generation
     host._ytm_reported_generation = reported_generation
     host._ytm_history = None
+    host._local_history_play_id = None
+    host._local_history_video_id = ""
+    host._track_start_position = 0.0
+    host.history = MagicMock()
     host.player.position = position
     host.player.current_track = {"video_id": video_id} if video_id else None
     host.set_timer = MagicMock()
@@ -44,8 +48,16 @@ def _schedule(host, video_id="vid1", generation=1) -> None:
     PlaybackMixin._schedule_ytm_history_report.__get__(host)(video_id, generation)
 
 
+def _schedule_local(host, video_id="vid1", generation=1) -> None:
+    PlaybackMixin._schedule_local_history_log.__get__(host)(video_id, generation)
+
+
 def _report(host, video_id="vid1", generation=1) -> None:
     PlaybackMixin._report_ytm_play.__get__(host)(video_id, generation)
+
+
+def _report_local(host, video_id="vid1", generation=1) -> None:
+    PlaybackMixin._report_local_play.__get__(host)(video_id, generation)
 
 
 # ── scheduling ───────────────────────────────────────────────────────
@@ -113,6 +125,58 @@ def test_report_skips_when_disabled_mid_play() -> None:
     host = _host(enabled=False)
     _report(host)
     host.run_worker.assert_not_called()
+
+
+# ── local SQLite history ─────────────────────────────────────────────
+
+
+def test_local_schedule_arms_threshold_timer() -> None:
+    host = _host()
+    _schedule_local(host)
+    host.set_timer.assert_called_once()
+    assert host.set_timer.call_args.args[0] == _YTM_HISTORY_MIN_SECONDS
+
+
+def test_local_report_repolls_until_position_exceeds_threshold() -> None:
+    host = _host(position=_YTM_HISTORY_MIN_SECONDS)
+    _report_local(host)
+    host.run_worker.assert_not_called()
+    host.set_timer.assert_called_once()
+    assert host.set_timer.call_args.args[0] == _YTM_HISTORY_POLL_SECONDS
+
+
+def test_local_report_inserts_once_position_exceeds_threshold() -> None:
+    host = _host(position=_YTM_HISTORY_MIN_SECONDS + 1)
+    _report_local(host)
+    host.run_worker.assert_called_once()
+
+
+async def test_local_insert_records_play_id() -> None:
+    host = _host(play_generation=4)
+    host.history.log_play = AsyncMock(return_value=123)
+
+    await PlaybackMixin._insert_local_history_play.__get__(host)(
+        {"video_id": "vid1"},
+        _YTM_HISTORY_MIN_SECONDS + 1,
+        "vid1",
+        4,
+    )
+
+    assert host._local_history_play_id == 123
+    assert host._local_history_video_id == "vid1"
+
+
+async def test_final_local_log_updates_existing_row() -> None:
+    host = _host(position=60)
+    host._local_history_play_id = 123
+    host._local_history_video_id = "vid1"
+    host.history.update_play_listened_seconds = AsyncMock()
+
+    await PlaybackMixin._log_local_listen.__get__(host)({"video_id": "vid1"})
+
+    host.history.update_play_listened_seconds.assert_awaited_once_with(123, 60)
+    assert host._local_history_play_id is None
+    assert host._local_history_video_id == ""
 
 
 # ── optimistic cache update ──────────────────────────────────────────

@@ -175,6 +175,7 @@ class PlaybackMixin(YTMHostBase):
         if generation != self._play_generation:
             return
 
+        self._schedule_local_history_log(video_id, generation)
         self._schedule_ytm_history_report(video_id, generation)
 
         # Apply pending resume position if this play matches the resumed track.
@@ -643,17 +644,7 @@ class PlaybackMixin(YTMHostBase):
         """Log the listen duration for the currently playing track."""
         if not self.history or not self.player or not self.player.current_track:
             return
-
-        listened = int(self.player.position - self._track_start_position)
-        if listened > 0:
-            try:
-                await self.history.log_play(
-                    track=self.player.current_track,
-                    listened_seconds=listened,
-                    source="tui",
-                )
-            except Exception:
-                logger.exception("Failed to log play history")
+        await self._log_local_listen(self.player.current_track)
 
     async def _log_listen_for(self, track: dict) -> None:
         """Log listen duration for an explicit track dict.
@@ -663,17 +654,93 @@ class PlaybackMixin(YTMHostBase):
         """
         if not self.history or not self.player:
             return
+        await self._log_local_listen(track)
+
+    async def _log_local_listen(self, track: dict) -> None:
+        """Insert or finalize the local SQLite history row for this play."""
+        if not self.history or not self.player:
+            return
 
         listened = int(self.player.position - self._track_start_position)
-        if listened > 0:
-            try:
+        if listened <= 0:
+            return
+        video_id = get_video_id(track)
+        try:
+            if self._local_history_play_id is not None and video_id == self._local_history_video_id:
+                if self._local_history_play_id > 0:
+                    await self.history.update_play_listened_seconds(
+                        self._local_history_play_id,
+                        listened,
+                    )
+            else:
                 await self.history.log_play(
                     track=track,
                     listened_seconds=listened,
                     source="tui",
                 )
-            except Exception:
-                logger.exception("Failed to log play history")
+        except Exception:
+            logger.exception("Failed to log play history")
+        finally:
+            self._local_history_play_id = None
+            self._local_history_video_id = ""
+
+    def _schedule_local_history_log(self, video_id: str, generation: int) -> None:
+        """Insert the current play into SQLite once it crosses the threshold."""
+        if not self.history or not video_id:
+            return
+        self.set_timer(
+            _YTM_HISTORY_MIN_SECONDS,
+            lambda: self._report_local_play(video_id, generation),
+        )
+
+    def _report_local_play(self, video_id: str, generation: int) -> None:
+        if generation != self._play_generation:
+            return
+        if self._local_history_play_id is not None and video_id == self._local_history_video_id:
+            return
+        if not self.history or not self.player or not self.player.current_track:
+            return
+        listened = int(self.player.position - self._track_start_position)
+        if listened <= _YTM_HISTORY_MIN_SECONDS:
+            self.set_timer(
+                _YTM_HISTORY_POLL_SECONDS,
+                lambda: self._report_local_play(video_id, generation),
+            )
+            return
+        # Mark immediately so a quick skip while the DB worker is in flight
+        # does not insert a duplicate final play row.
+        self._local_history_play_id = -1
+        self._local_history_video_id = video_id
+        self.run_worker(
+            self._insert_local_history_play(
+                dict(self.player.current_track), listened, video_id, generation
+            ),
+            group="local-history-report",
+        )
+
+    async def _insert_local_history_play(
+        self,
+        track: dict,
+        listened: int,
+        video_id: str,
+        generation: int,
+    ) -> None:
+        if not self.history or generation != self._play_generation:
+            return
+        try:
+            play_id = await self.history.log_play(track, listened, source="tui")
+        except Exception:
+            logger.exception("Failed to log play history")
+            return
+        current = self.player.current_track if self.player else None
+        current_video_id = get_video_id(current) if current else ""
+        if (
+            play_id is not None
+            and generation == self._play_generation
+            and current_video_id == video_id
+        ):
+            self._local_history_play_id = play_id
+            self._local_history_video_id = video_id
 
     def _schedule_ytm_history_report(self, video_id: str, generation: int) -> None:
         """Arm focus-independent history reporting for the current play.

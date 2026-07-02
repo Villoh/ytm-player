@@ -263,6 +263,11 @@ class YTMPlayerApp(
         # Play generation already reported to the YT Music account history,
         # so each play is reported at most once. -1 = nothing reported yet.
         self._ytm_reported_generation: int = -1
+        # Local SQLite play_history row for the current play once it crosses
+        # the listen threshold; final logging updates this row instead of
+        # inserting a duplicate play.
+        self._local_history_play_id: int | None = None
+        self._local_history_video_id: str = ""
         # App-level cache of the normalized YT Music account history (the
         # Recently Played "YT Music" tab). Persists across page navigation so
         # we don't refetch on every visit, and is optimistically prepended to

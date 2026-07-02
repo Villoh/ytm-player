@@ -51,6 +51,8 @@ def _fresh_playback_host():
     p._pending_resume_video_id = None
     p._pending_resume_position = 0.0
     p._play_generation = 0
+    p._local_history_play_id = None
+    p._local_history_video_id = ""
     p._play_lock = asyncio.Lock()
     return p
 

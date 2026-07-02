@@ -126,6 +126,20 @@ class TestPlayHistory:
         assert recent[0]["video_id"] == "v1"
         await history_manager.close()
 
+    async def test_update_play_listened_seconds_updates_row_and_stats(self, history_manager):
+        await history_manager.init()
+        play_id = await history_manager.log_play(_make_track("v1", "Song"), 10, "tui")
+        assert play_id is not None
+
+        await history_manager.update_play_listened_seconds(play_id, 60)
+
+        plays = await history_manager.get_play_history()
+        stats = await history_manager.get_stats()
+        assert plays[0]["listened_seconds"] == 60
+        assert stats["total_plays"] == 1
+        assert stats["total_listen_time"] == 60
+        await history_manager.close()
+
 
 class TestStats:
     async def test_get_stats_returns_aggregate_data(self, history_manager):
