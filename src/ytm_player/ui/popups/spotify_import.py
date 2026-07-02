@@ -12,11 +12,9 @@ import logging
 import re
 
 from textual.app import ComposeResult
-from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.events import Click
 from textual.message import Message
-from textual.screen import ModalScreen
 from textual.widgets import (
     Button,
     Input,
@@ -30,6 +28,7 @@ from textual.widgets import (
 # NOTE: ytm_player.services.spotify_import is imported lazily inside worker
 # methods to avoid pulling in heavy optional deps (thefuzz, spotify_scraper)
 # at module load time.
+from ytm_player.ui.popups.base import BasePopup
 from ytm_player.utils.formatting import extract_artist
 
 logger = logging.getLogger(__name__)
@@ -122,24 +121,13 @@ class _TabLabel(Static):
 # ── Main import popup ────────────────────────────────────────────────
 
 
-class SpotifyImportPopup(ModalScreen[str | None]):
+class SpotifyImportPopup(BasePopup[str | None]):
     """Two-tab Spotify import: Single (≤100 tracks) and Multi (100+ tracks)."""
 
-    BINDINGS = [
-        Binding("escape", "cancel", "Close", show=False),
-    ]
-
     DEFAULT_CSS = """
-    SpotifyImportPopup {
-        align: center middle;
-    }
-
     SpotifyImportPopup > Vertical {
         width: 75;
         max-height: 85%;
-        background: $surface;
-        border: round $primary;
-        padding: 1 2;
     }
 
     /* Title */
@@ -950,13 +938,12 @@ class SpotifyImportPopup(ModalScreen[str | None]):
 
     # ── Cancel ───────────────────────────────────────────────────────
 
-    def on_click(self, event: Click) -> None:
-        """Dismiss when clicking outside the popup box."""
-        if event.widget is self:
-            self.action_cancel()
-
     def action_cancel(self) -> None:
-        """Cancel active workers and dismiss the popup."""
+        """Cancel active workers and dismiss the popup.
+
+        Overrides ``BasePopup.action_cancel`` so both Escape and a backdrop
+        click cancel in-flight import workers before dismissing.
+        """
         for worker in self.workers:
             worker.cancel()
-        self.dismiss(None)
+        self.dismiss(self._CANCEL_RESULT)

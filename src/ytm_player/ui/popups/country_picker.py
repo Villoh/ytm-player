@@ -13,12 +13,11 @@ from __future__ import annotations
 import logging
 
 from textual.app import ComposeResult
-from textual.binding import Binding
 from textual.containers import Vertical
-from textual.screen import ModalScreen
 from textual.widgets import Input, Label, ListItem, ListView, Static
 
 from ytm_player.services.regions import CHART_REGIONS
+from ytm_player.ui.popups.base import BasePopup
 
 logger = logging.getLogger(__name__)
 
@@ -46,27 +45,16 @@ class _RegionItem(ListItem):
         yield Label(f"{self.code} — {self._name}")
 
 
-class CountryPickerModal(ModalScreen[str | None]):
+class CountryPickerModal(BasePopup[str | None]):
     """Pick a YouTube Music chart region.
 
     Returns the ISO code on select, or None on cancel.
     """
 
-    BINDINGS = [
-        Binding("escape", "cancel", "Close", show=False),
-    ]
-
     DEFAULT_CSS = """
-    CountryPickerModal {
-        align: center middle;
-    }
-
     CountryPickerModal > Vertical {
         width: 50;
         max-height: 80%;
-        background: $surface;
-        border: round $primary;
-        padding: 1 2;
     }
 
     CountryPickerModal #picker-title {
@@ -135,6 +123,3 @@ class CountryPickerModal(ModalScreen[str | None]):
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         if isinstance(event.item, _RegionItem):
             self.dismiss(event.item.code)
-
-    def action_cancel(self) -> None:
-        self.dismiss(None)

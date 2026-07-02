@@ -2,37 +2,37 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
+from ytm_player.ui.popups.base import BasePopup
 
-class ConfirmPopup(ModalScreen[bool]):
+
+class ConfirmPopup(BasePopup[bool]):
     """Modal confirmation dialog.
 
     Returns ``True`` if the user confirms, ``False`` if cancelled.
     """
 
+    _CANCEL_RESULT: ClassVar[bool] = False
+
     BINDINGS = [
-        Binding("escape", "dismiss(False)", "Cancel", show=False),
-        Binding("n", "dismiss(False)", "No", show=False),
+        Binding("n", "cancel", "No", show=False),
         Binding("y", "confirm", "Yes", show=False),
     ]
 
     DEFAULT_CSS = """
     ConfirmPopup {
-        align: center middle;
         height: 100%;
     }
 
     ConfirmPopup > Vertical {
         width: 50;
         height: auto;
-        background: $surface;
-        border: round $primary;
-        padding: 1 2;
     }
 
     ConfirmPopup #confirm-message {

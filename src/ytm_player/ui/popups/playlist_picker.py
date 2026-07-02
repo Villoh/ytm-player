@@ -7,13 +7,12 @@ import logging
 from typing import TYPE_CHECKING, Any, cast
 
 from textual.app import ComposeResult
-from textual.binding import Binding
 from textual.containers import Vertical
-from textual.screen import ModalScreen
 from textual.widgets import Input, Label, ListItem, ListView, Static
 from textual.worker import Worker, WorkerState
 
 from ytm_player.config.paths import RECENT_PLAYLISTS_FILE
+from ytm_player.ui.popups.base import BasePopup
 from ytm_player.ui.popups.confirm_popup import ConfirmPopup
 from ytm_player.ui.popups.create_playlist_popup import CreatePlaylistPopup
 
@@ -80,27 +79,16 @@ class _CreateNewItem(ListItem):
         yield Label("[+] Create New Playlist")
 
 
-class PlaylistPicker(ModalScreen[str | None]):
+class PlaylistPicker(BasePopup[str | None]):
     """Select a playlist to add track(s) to.
 
     Returns the playlist ID on success, or ``None`` if cancelled.
     """
 
-    BINDINGS = [
-        Binding("escape", "cancel", "Close", show=False),
-    ]
-
     DEFAULT_CSS = """
-    PlaylistPicker {
-        align: center middle;
-    }
-
     PlaylistPicker > Vertical {
         width: 50;
         max-height: 80%;
-        background: $surface;
-        border: round $primary;
-        padding: 1 2;
     }
 
     PlaylistPicker #picker-title {
@@ -458,9 +446,3 @@ class PlaylistPicker(ModalScreen[str | None]):
             logger.exception("Failed to add tracks to playlist %r", playlist_id)
             self.notify(f"Failed to add to '{title}'", severity="error")
             status.update("Error")
-
-    # ── Cancel ──────────────────────────────────────────────────────
-
-    def action_cancel(self) -> None:
-        """Close the picker without selecting anything."""
-        self.dismiss(None)

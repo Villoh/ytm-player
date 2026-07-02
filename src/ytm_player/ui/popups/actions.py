@@ -8,8 +8,9 @@ from typing import Any
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
-from textual.screen import ModalScreen
 from textual.widgets import Label, ListItem, ListView, Static
+
+from ytm_player.ui.popups.base import BasePopup
 
 logger = logging.getLogger(__name__)
 
@@ -136,29 +137,21 @@ class _ActionItem(ListItem):
         yield Label(self._label)
 
 
-class ActionsPopup(ModalScreen[str | None]):
+class ActionsPopup(BasePopup[str | None]):
     """Context menu showing available actions for a track/album/artist/playlist.
 
     Returns the selected action string, or ``None`` if dismissed.
     """
 
     BINDINGS = [
-        Binding("escape", "dismiss(None)", "Close", show=False),
         Binding("j,down", "cursor_down", "Down", show=False),
         Binding("k,up", "cursor_up", "Up", show=False),
     ]
 
     DEFAULT_CSS = """
-    ActionsPopup {
-        align: center middle;
-    }
-
     ActionsPopup > Vertical {
         width: 40;
         max-height: 80%;
-        background: $surface;
-        border: round $primary;
-        padding: 1 2;
     }
 
     ActionsPopup #actions-title {
@@ -240,12 +233,6 @@ class ActionsPopup(ModalScreen[str | None]):
         self.query_one("#actions-list", ListView).action_cursor_up()
 
     # ── Selection ───────────────────────────────────────────────────
-
-    def on_click(self, event: Any) -> None:
-        """Dismiss when clicking outside the popup box."""
-        event.stop()
-        if event.widget is self:
-            self.dismiss(None)
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         """Return the selected action string and close."""

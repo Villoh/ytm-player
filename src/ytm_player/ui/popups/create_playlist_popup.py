@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Select, Static
+
+from ytm_player.ui.popups.base import BasePopup
 
 PRIVACY_OPTIONS: list[tuple[str, str]] = [
     ("Private", "PRIVATE"),
@@ -15,7 +15,7 @@ PRIVACY_OPTIONS: list[tuple[str, str]] = [
 ]
 
 
-class CreatePlaylistPopup(ModalScreen[tuple[str, str, str] | None]):
+class CreatePlaylistPopup(BasePopup[tuple[str, str, str] | None]):
     """Modal prompt for creating or editing a playlist.
 
     Pass ``initial_name``, ``initial_description``, and ``initial_privacy`` to
@@ -25,22 +25,14 @@ class CreatePlaylistPopup(ModalScreen[tuple[str, str, str] | None]):
     Returns ``(name, description, privacy)`` on submit, or ``None`` if dismissed.
     """
 
-    BINDINGS = [
-        Binding("escape", "dismiss(None)", "Close", show=False),
-    ]
-
     DEFAULT_CSS = """
     CreatePlaylistPopup {
-        align: center middle;
         height: 100%;
     }
 
     CreatePlaylistPopup > Vertical {
         width: 50;
         height: auto;
-        background: $surface;
-        border: round $primary;
-        padding: 1 2;
     }
 
     CreatePlaylistPopup #popup-title {

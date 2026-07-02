@@ -3,33 +3,22 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.binding import Binding
 from textual.containers import Vertical
-from textual.screen import ModalScreen
 from textual.widgets import Input, Static
 
+from ytm_player.ui.popups.base import BasePopup
 
-class InputPopup(ModalScreen[str | None]):
+
+class InputPopup(BasePopup[str | None]):
     """Modal prompt with a single text input.
 
     Returns the entered text on submit, or ``None`` if dismissed.
     """
 
-    BINDINGS = [
-        Binding("escape", "dismiss(None)", "Close", show=False),
-    ]
-
     DEFAULT_CSS = """
-    InputPopup {
-        align: center middle;
-    }
-
     InputPopup > Vertical {
         width: 50;
         height: auto;
-        background: $surface;
-        border: round $primary;
-        padding: 1 2;
     }
 
     InputPopup #input-title {
