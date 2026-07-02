@@ -270,9 +270,18 @@ try:
         def set_position(self, position_us: int) -> None:
             self._position_us = position_us
 
-except (ImportError, ValueError):
-    _DBUS_AVAILABLE = False
-    logger.debug("MPRIS D-Bus interfaces unavailable (dbus-fast incompatible)", exc_info=True)
+except (ImportError, ValueError, TypeError):
+    # TypeError: a broken dbus-fast build can blow up while the interface
+    # classes are being defined — e.g. dbus-fast compiled with Cython 3.2.6,
+    # where copying __annotate__ onto a cyfunction (PEP 749, Python 3.14)
+    # eagerly invokes it (#113, cython/cython#7767; fixed in Cython 3.2.8).
+    if _DBUS_AVAILABLE:
+        # Imports succeeded but the build is unusable — surface it so
+        # `ytm doctor` and the log explain why MPRIS is dead, instead of
+        # degrading silently. (The not-installed / off-Linux path stays
+        # quiet: it raises the ImportError above before reaching here.)
+        _DBUS_AVAILABLE = False
+        logger.exception("MPRIS D-Bus interfaces unavailable (incompatible dbus-fast build)")
 
 
 # Public, read-after-import view of whether MPRIS can run in this install. Other

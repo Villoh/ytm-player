@@ -76,11 +76,12 @@ def _libmpv_status() -> str:
 def _mpris_status() -> str:
     """Report whether MPRIS (playerctl / media keys) can run on this install.
 
-    MPRIS needs dbus-fast, a Linux core dependency. If it's missing the install
-    is broken/partial, the TUI runs without D-Bus controls, and playerctl finds
-    no player (#110) — so surface the gap and the fix here. doctor runs in its
-    own process, so this reflects dependency availability — not whether the live
-    TUI currently holds the bus name.
+    MPRIS needs dbus-fast, a Linux core dependency. If it's missing — or its
+    build is incompatible and blew up while our interfaces were defined (#113) —
+    the install is broken/partial, the TUI runs without D-Bus controls, and
+    playerctl finds no player (#110) — so surface the gap and the fix here.
+    doctor runs in its own process, so this reflects dependency availability —
+    not whether the live TUI currently holds the bus name.
     """
     if sys.platform != "linux":
         return f"MPRIS: n/a ({platform.system()} uses its native media integration)"
@@ -89,8 +90,10 @@ def _mpris_status() -> str:
     if DBUS_AVAILABLE:
         return f"MPRIS: available (dbus-fast OK; registers as {BUS_NAME})"
     return (
-        "MPRIS: UNAVAILABLE — dbus-fast missing (it's a Linux core dependency, so "
-        "this install is broken/partial). Fix: reinstall ytm-player "
+        "MPRIS: UNAVAILABLE — dbus-fast is missing or failed to load (it's a "
+        "Linux core dependency, so this install is broken/partial; an "
+        "incompatible dbus-fast build logs the failure to ytm.log — see the "
+        "recent-errors section below). Fix: reinstall ytm-player "
         "(pip install --force-reinstall ytm-player), or pip install dbus-fast."
     )
 

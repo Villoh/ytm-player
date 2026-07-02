@@ -598,15 +598,15 @@ class YTMPlayerApp(
                 await self.mpris.start(callbacks)
             elif not self._mpris_hint_shown and os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
                 # dbus-fast is a Linux core dependency, so reaching here means a
-                # broken/partial install (the library is missing despite being
-                # required). Flag it once instead of letting playerctl/media keys
-                # silently no-op (#110). Gate on a real D-Bus session bus:
-                # headless / SSH / server users have none, can't use MPRIS
-                # anyway, and shouldn't be nagged.
+                # broken/partial install (the library is missing, or its build
+                # is incompatible — #113). Flag it once instead of letting
+                # playerctl/media keys silently no-op (#110). Gate on a real
+                # D-Bus session bus: headless / SSH / server users have none,
+                # can't use MPRIS anyway, and shouldn't be nagged.
                 self._mpris_hint_shown = True
                 self.notify(
-                    "playerctl / media keys unavailable: this install is "
-                    "missing dbus-fast (a Linux core dependency). Reinstall "
+                    "playerctl / media keys unavailable: dbus-fast (a Linux "
+                    "core dependency) is missing or failed to load. Reinstall "
                     "ytm-player to fix — run `ytm doctor` for details.",
                     severity="warning",
                     timeout=10,
