@@ -82,6 +82,7 @@ async def test_ytm_tab_caps_rows_at_max_tracks(monkeypatch: pytest.MonkeyPatch) 
     fake_ytmusic.get_history = AsyncMock(return_value=_raw_tracks(200))
     fake_app = MagicMock()
     fake_app.ytmusic = fake_ytmusic
+    fake_app._ytm_history = None  # not cached yet → fetch
     _attach_fake_app(page, fake_app, monkeypatch)
 
     await page._load_ytm_history()
@@ -89,8 +90,8 @@ async def test_ytm_tab_caps_rows_at_max_tracks(monkeypatch: pytest.MonkeyPatch) 
     widgets["#recent-table"].load_tracks.assert_called_once()
     loaded = widgets["#recent-table"].load_tracks.call_args.args[0]
     assert len(loaded) == _MAX_TRACKS
-    # Cache holds the same capped list.
-    assert len(page._tab_cache[_TAB_YTM]) == _MAX_TRACKS
+    # App-level cache holds the same capped list.
+    assert len(fake_app._ytm_history) == _MAX_TRACKS
 
 
 async def test_ytm_tab_empty_history_message(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -100,6 +101,7 @@ async def test_ytm_tab_empty_history_message(monkeypatch: pytest.MonkeyPatch) ->
     fake_ytmusic.get_history = AsyncMock(return_value=[])
     fake_app = MagicMock()
     fake_app.ytmusic = fake_ytmusic
+    fake_app._ytm_history = None
     _attach_fake_app(page, fake_app, monkeypatch)
 
     await page._load_ytm_history()
@@ -116,6 +118,7 @@ async def test_ytm_tab_no_service_shows_auth_message(monkeypatch: pytest.MonkeyP
 
     fake_app = MagicMock()
     fake_app.ytmusic = None
+    fake_app._ytm_history = None
     _attach_fake_app(page, fake_app, monkeypatch)
 
     await page._load_ytm_history()
@@ -149,12 +152,12 @@ async def test_enter_on_focused_tab_switches(monkeypatch: pytest.MonkeyPatch) ->
     """With a tab label focused, SELECT (Enter) switches to that tab."""
     page, widgets = _make_page(active_tab=_TAB_LOCAL)
 
-    # Pre-seed the YT Music cache so _switch_tab takes the no-refetch path.
-    page._tab_cache[_TAB_YTM] = _raw_tracks(3)
-
     focused_tab = RecentTab("YT Music", _TAB_YTM, id="recent-tab-ytm")
     fake_app = MagicMock()
     fake_app.focused = focused_tab
+    # Pre-seed the app-level YT Music cache so the switch takes the
+    # no-refetch path.
+    fake_app._ytm_history = _raw_tracks(3)
     _attach_fake_app(page, fake_app, monkeypatch)
 
     await page.handle_action(Action.SELECT)
@@ -179,3 +182,20 @@ async def test_movement_on_focused_tab_drops_into_table(
 
     assert page._active_tab == _TAB_LOCAL
     widgets["#recent-table"].focus.assert_called_once()
+
+
+def test_reselecting_active_tab_reloads(monkeypatch) -> None:
+    """Clicking / Enter on the already-active tab drops its cache and
+    refetches, so the YT Music tab can be refreshed without leaving."""
+    page, _ = _make_page(active_tab=_TAB_YTM)
+
+    fake_app = MagicMock()
+    fake_app._ytm_history = _raw_tracks(3)
+    _attach_fake_app(page, fake_app, monkeypatch)
+    monkeypatch.setattr(page, "_load_active_tab", MagicMock())
+
+    page._switch_tab(_TAB_YTM)  # same tab → refresh
+
+    assert fake_app._ytm_history is None
+    page._load_active_tab.assert_called_once()
+    fake_app.notify.assert_called_once()

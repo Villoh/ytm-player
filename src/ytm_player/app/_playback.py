@@ -17,10 +17,19 @@ logger = logging.getLogger(__name__)
 
 _MAX_CONSECUTIVE_FAILURES = 5
 
-# Minimum seconds listened before a play is reported to the YouTube Music
+# Minimum played seconds before a play is reported to the YouTube Music
 # account history. Short (native YT Music registers plays early) but non-zero
 # so instant skips aren't logged.
-_YTM_HISTORY_MIN_SECONDS = 10
+_YTM_HISTORY_MIN_SECONDS = 5
+
+# Poll player.position with a timer instead of relying on UI position events:
+# timers keep firing when the terminal window loses focus, while position stays
+# frozen during pause. Best of both: focus-independent, pause-aware.
+_YTM_HISTORY_POLL_SECONDS = 1.0
+
+# Cap for the optimistic YT Music history cache — matches the row cap the
+# Recently Played page renders (RecentlyPlayedPage._MAX_TRACKS).
+_YTM_HISTORY_MAX = 100
 
 
 class PlaybackMixin(YTMHostBase):
@@ -165,6 +174,8 @@ class PlaybackMixin(YTMHostBase):
 
         if generation != self._play_generation:
             return
+
+        self._schedule_ytm_history_report(video_id, generation)
 
         # Apply pending resume position if this play matches the resumed track.
         # Only clear on a match — if the user plays a different track first,
@@ -643,7 +654,6 @@ class PlaybackMixin(YTMHostBase):
                 )
             except Exception:
                 logger.exception("Failed to log play history")
-            self._maybe_report_ytm_play(self.player.current_track, listened)
 
     async def _log_listen_for(self, track: dict) -> None:
         """Log listen duration for an explicit track dict.
@@ -664,30 +674,79 @@ class PlaybackMixin(YTMHostBase):
                 )
             except Exception:
                 logger.exception("Failed to log play history")
-            self._maybe_report_ytm_play(track, listened)
 
-    def _maybe_report_ytm_play(self, track: dict | None, listened_seconds: int) -> None:
-        """Report a qualifying play to the YT Music account history.
+    def _schedule_ytm_history_report(self, video_id: str, generation: int) -> None:
+        """Arm focus-independent history reporting for the current play.
 
-        Opt-out (``playback.sync_history_to_ytmusic``, default on): fires a
-        background, best-effort ``add_history_item`` so TUI plays show up in
-        the account history like any other client. Only plays past a short
-        listen threshold count, so skips aren't logged. Never blocks playback
-        — failures are logged and ignored inside the service call.
+        Position events can stop reaching the app when the terminal loses
+        focus even though mpv keeps playing. A timer avoids that: poll
+        ``player.position`` until the same play crosses the threshold. Skips
+        are ignored because play generation changes.
         """
         if not self.settings.playback.sync_history_to_ytmusic:
             return
-        if not self.ytmusic or not track:
+        if not self.ytmusic or not video_id:
             return
-        if listened_seconds < _YTM_HISTORY_MIN_SECONDS:
+        self.set_timer(
+            _YTM_HISTORY_MIN_SECONDS,
+            lambda: self._report_ytm_play(video_id, generation),
+        )
+
+    def _report_ytm_play(self, video_id: str, generation: int) -> None:
+        """Timer callback: report the play if it is still current.
+
+        Best-effort and non-blocking. If playback started late or was paused,
+        ``position`` may still be below threshold when the timer fires; in that
+        case keep polling. This means pause does not count, but reporting still
+        works without window focus.
+        """
+        if generation != self._play_generation:
             return
-        video_id = get_video_id(track)
-        if not video_id:
+        if self._ytm_reported_generation == generation:
             return
+        if not self.settings.playback.sync_history_to_ytmusic or not self.ytmusic:
+            return
+        if not self.player:
+            return
+        if self.player.position < _YTM_HISTORY_MIN_SECONDS:
+            self.set_timer(
+                _YTM_HISTORY_POLL_SECONDS,
+                lambda: self._report_ytm_play(video_id, generation),
+            )
+            return
+        self._ytm_reported_generation = generation
         self.run_worker(
             self.ytmusic.add_history_item(video_id),
             group="ytm-history-report",
         )
+        self._optimistic_ytm_history_add(video_id)
+
+    def _optimistic_ytm_history_add(self, video_id: str) -> None:
+        """Prepend the just-reported play to the cached YT Music history.
+
+        Keeps the "YT Music" tab in sync without a fresh ``get_history()``:
+        drops any existing entry for the same track and inserts the current
+        one at the top (most-recent-first), matching the server's own dedup.
+        No-op until the tab has been fetched at least once (``_ytm_history``
+        is None); the first visit then fetches the real server list. If the
+        Recently Played page is showing YT Music, it refreshes live.
+        """
+        cache = self._ytm_history
+        if cache is None:
+            return
+        track = self.player.current_track if self.player else None
+        if not track:
+            return
+        entry = dict(track)
+        self._ytm_history = [entry] + [t for t in cache if get_video_id(t) != video_id]
+        del self._ytm_history[_YTM_HISTORY_MAX:]
+
+        # If the Recently Played page is open on the YT Music tab, reflect it live.
+        from ytm_player.ui.pages.recently_played import RecentlyPlayedPage
+
+        page = self._get_current_page()
+        if isinstance(page, RecentlyPlayedPage):
+            page.refresh_ytm_tab()
 
     # ── Like toggle ──────────────────────────────────────────────────
 

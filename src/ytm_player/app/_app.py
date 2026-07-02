@@ -260,6 +260,14 @@ class YTMPlayerApp(
         # Cross-track supersede counter: each committed play_track call
         # bumps it; older in-flight calls abort at their next check.
         self._play_generation: int = 0
+        # Play generation already reported to the YT Music account history,
+        # so each play is reported at most once. -1 = nothing reported yet.
+        self._ytm_reported_generation: int = -1
+        # App-level cache of the normalized YT Music account history (the
+        # Recently Played "YT Music" tab). Persists across page navigation so
+        # we don't refetch on every visit, and is optimistically prepended to
+        # when a play is reported. None = not fetched yet this session.
+        self._ytm_history: list[dict] | None = None
         # Makes the generation check + mpv play command atomic.
         self._play_lock = asyncio.Lock()
 

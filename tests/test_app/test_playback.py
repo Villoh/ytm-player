@@ -34,11 +34,13 @@ def _fresh_playback_host():
     p.lastfm = None
     p.mpris = None
     p.mac_media = None
+    p.ytmusic = None
     p.settings = MagicMock()
     p.settings.notifications.enabled = False
     p.notify = MagicMock()
     p.call_later = MagicMock()
     p.run_worker = MagicMock()
+    p.set_timer = MagicMock()
     # query_one raises — caught by play_track's try/except around UI updates
     p.query_one = MagicMock(side_effect=Exception("no widget in test"))
     p._last_play_video_id = None

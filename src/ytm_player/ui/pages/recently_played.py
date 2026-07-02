@@ -200,6 +200,29 @@ class RecentlyPlayedPage(TrackFilterHost, Widget):
         else:
             self.run_worker(self._load_history(), group="recent-load", exclusive=True)
 
+    # ── Per-tab cache ────────────────────────────────────────────────
+    # Local history lives in a per-page dict (cheap SQLite read). The YT
+    # Music history is cached at the app level so it survives page navigation
+    # (no refetch per visit) and can be optimistically updated when a play is
+    # reported — see PlaybackMixin._optimistic_ytm_history_add.
+
+    def _get_cache(self, index: int) -> list[dict] | None:
+        if index == _TAB_YTM:
+            return getattr(self.app, "_ytm_history", None)
+        return self._tab_cache.get(index)
+
+    def _set_cache(self, index: int, tracks: list[dict]) -> None:
+        if index == _TAB_YTM:
+            self.app._ytm_history = tracks  # type: ignore[attr-defined]
+        else:
+            self._tab_cache[index] = tracks
+
+    def _clear_cache(self, index: int) -> None:
+        if index == _TAB_YTM:
+            self.app._ytm_history = None  # type: ignore[attr-defined]
+        else:
+            self._tab_cache.pop(index, None)
+
     async def _load_history(self) -> None:
         """Load the local SQLite play history (Local tab)."""
         self._ytm_auth_required = False
@@ -221,7 +244,7 @@ class RecentlyPlayedPage(TrackFilterHost, Widget):
             tracks = []
             self._load_failed = True
 
-        self._tab_cache[_TAB_LOCAL] = tracks
+        self._set_cache(_TAB_LOCAL, tracks)
         if self._active_tab == _TAB_LOCAL:
             self._display_tracks(tracks)
 
@@ -229,10 +252,18 @@ class RecentlyPlayedPage(TrackFilterHost, Widget):
         """Load the account play history from YT Music (YT Music tab)."""
         self._load_failed = False
         self._ytm_auth_required = False
+
+        # Reuse the app-level cache when present (populated on a prior visit
+        # and kept fresh optimistically) so we don't refetch every time.
+        cached = self._get_cache(_TAB_YTM)
+        if cached is not None:
+            if self._active_tab == _TAB_YTM:
+                self._display_tracks(cached)
+            return
+
         ytmusic = self.app.ytmusic  # type: ignore[attr-defined]
         if not ytmusic:
             self._ytm_auth_required = True
-            self._tab_cache[_TAB_YTM] = []
             if self._active_tab == _TAB_YTM:
                 self._display_tracks([])
             return
@@ -245,9 +276,30 @@ class RecentlyPlayedPage(TrackFilterHost, Widget):
         raw = await ytmusic.get_history()
         tracks = normalize_tracks(raw)[:_MAX_TRACKS]
 
-        self._tab_cache[_TAB_YTM] = tracks
+        self._set_cache(_TAB_YTM, tracks)
         if self._active_tab == _TAB_YTM:
             self._display_tracks(tracks)
+
+    def refresh_ytm_tab(self) -> None:
+        """Re-render the YT Music tab from the (optimistically updated) cache.
+
+        Called when a play is reported while this page is open on the YT Music
+        tab. Keeps the current selection put (a row was prepended, so the
+        cursor shifts down one to stay on the same track).
+        """
+        if self._active_tab != _TAB_YTM:
+            return
+        cache = self._get_cache(_TAB_YTM)
+        if cache is None:
+            return
+        try:
+            table = self.query_one("#recent-table", TrackTable)
+            row = table.cursor_row
+            if row is not None:
+                self._restore_cursor_row = min(row + 1, len(cache) - 1)
+        except Exception:
+            pass
+        self._display_tracks(cache)
 
     def _display_tracks(self, tracks: list[dict]) -> None:
         table = self.query_one("#recent-table", TrackTable)
@@ -347,8 +399,14 @@ class RecentlyPlayedPage(TrackFilterHost, Widget):
                 await table.handle_action(action, count)
 
     def _switch_tab(self, index: int) -> None:
-        """Activate the tab at *index*, loading (or restoring) its tracks."""
+        """Activate the tab at *index*, loading (or restoring) its tracks.
+
+        Re-selecting the tab that's already active refreshes it (drops the
+        cache and refetches) — handy for the YT Music tab, which otherwise
+        keeps showing the cached snapshot from when it was first opened.
+        """
         if index == self._active_tab:
+            self._reload_active_tab()
             return
         self._active_tab = index
 
@@ -358,7 +416,24 @@ class RecentlyPlayedPage(TrackFilterHost, Widget):
         local_tab.set_class(index == _TAB_LOCAL, "active")
         ytm_tab.set_class(index == _TAB_YTM, "active")
 
-        # Reset filter state when switching tabs.
+        self._reset_filter()
+
+        cached = self._get_cache(index)
+        if cached is not None:
+            self._display_tracks(cached)
+        else:
+            self._show_loading()
+            self._load_active_tab()
+
+    def _reload_active_tab(self) -> None:
+        """Drop the active tab's cache and refetch it."""
+        self._clear_cache(self._active_tab)
+        self._reset_filter()
+        self._show_loading()
+        self._load_active_tab()
+        self.app.notify("Refreshing\u2026", timeout=1)
+
+    def _reset_filter(self) -> None:
         try:
             f = self.query_one("#track-filter", Input)
             f.value = ""
@@ -366,15 +441,11 @@ class RecentlyPlayedPage(TrackFilterHost, Widget):
         except Exception:
             pass
 
-        if index in self._tab_cache:
-            self._display_tracks(self._tab_cache[index])
-        else:
-            table = self.query_one("#recent-table", TrackTable)
-            table.display = False
-            loading = self.query_one("#recent-loading", Label)
-            loading.update("Loading history...")
-            loading.display = True
-            self._load_active_tab()
+    def _show_loading(self) -> None:
+        self.query_one("#recent-table", TrackTable).display = False
+        loading = self.query_one("#recent-loading", Label)
+        loading.update("Loading history...")
+        loading.display = True
 
     def on_click(self, event: Click) -> None:
         widget_id = event.widget.id if event.widget is not None else None
