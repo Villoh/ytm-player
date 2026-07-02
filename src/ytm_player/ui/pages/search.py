@@ -672,9 +672,17 @@ class SearchPage(Widget):
                 if self._debounce_timer is not None:
                     self._debounce_timer.stop()
                     self._debounce_timer = None
-                self._restoring = True
                 search_input = self.query_one("#search-input", Input)
-                search_input.value = query
+                # Setting .value only fires on_input_changed when the value
+                # actually changes. If the picked suggestion equals the current
+                # text, no Changed event arrives to reset _restoring — so only
+                # arm it when the value will change, else it leaks and swallows
+                # the user's next real keystroke.
+                if search_input.value != query:
+                    self._restoring = True
+                    search_input.value = query
+                else:
+                    self._restoring = False
                 self._hide_suggestions()
                 self._last_query = query
                 self.run_worker(self._execute_search(query), name="search", exclusive=True)

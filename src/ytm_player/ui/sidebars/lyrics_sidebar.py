@@ -71,7 +71,7 @@ class LyricsSidebar(Widget):
     """Right-side lyrics sidebar. Stays mounted; toggled via display CSS.
 
     Registers player events once in on_mount. When hidden (display: none),
-    skips visual updates and sets a _needs_rebuild flag for when shown.
+    skips visual updates; activate() reloads for the current track on show.
     """
 
     DEFAULT_CSS = """
@@ -141,8 +141,6 @@ class LyricsSidebar(Widget):
         self._current_video_id: str | None = None
         self._position_callback: Any = None
         self._track_change_callback: Any = None
-        self._needs_rebuild: bool = False
-        self._pending_track: dict | None = None
         self._transliteration_enabled: bool = False
 
     def compose(self) -> ComposeResult:
@@ -203,8 +201,7 @@ class LyricsSidebar(Widget):
     def _on_track_change(self, track_info: dict) -> None:
         try:
             if not self.display:
-                self._needs_rebuild = True
-                self._pending_track = track_info
+                # Skip work while hidden; activate() reloads on next show.
                 return
             self._load_for_current_track()
         except Exception:

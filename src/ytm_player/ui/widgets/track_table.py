@@ -120,6 +120,11 @@ class TrackTable(DataTable):
         self._playing_video_id: str | None = None
         self._playing_index: int | None = None
         self._right_clicked: bool = False
+        # Armed on right-click; only escalated to _suppress_select_on_refocus
+        # once the table actually blurs (a modal took focus). Right-clicks
+        # whose handler early-returns without opening a popup never blur, so
+        # they no longer leave the suppress flag stale.
+        self._popup_pending: bool = False
         self._suppress_select_on_refocus: bool = False
         self._sort_column: str | None = None
         self._sort_reverse: bool = False
@@ -602,6 +607,11 @@ class TrackTable(DataTable):
         if self._resize_col is not None:
             self._resize_col = None
             self.release_mouse()
+        # A right-click that actually opened a modal blurs the table; arm the
+        # one-shot suppression so the spurious RowSelected on refocus is eaten.
+        if self._popup_pending:
+            self._popup_pending = False
+            self._suppress_select_on_refocus = True
 
     # -- Event handlers ---------------------------------------------------
 
@@ -616,6 +626,9 @@ class TrackTable(DataTable):
         if self._suppress_select_on_refocus:
             self._suppress_select_on_refocus = False
             return
+        # A genuine selection got through — drop any pending right-click intent
+        # so it can't linger and arm suppression on a later, unrelated blur.
+        self._popup_pending = False
         row_idx = event.cursor_row
         if 0 <= row_idx < len(self._tracks):
             original_idx = self._filtered_map[row_idx] if self._filtered_map else row_idx
@@ -667,7 +680,7 @@ class TrackTable(DataTable):
             event.stop()
             event.prevent_default()
             self._right_clicked = True
-            self._suppress_select_on_refocus = True
+            self._popup_pending = True
             meta = event.style.meta
             row_idx = meta.get("row") if meta else None
             if row_idx is not None and 0 <= row_idx < len(self._tracks):
