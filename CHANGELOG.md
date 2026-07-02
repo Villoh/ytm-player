@@ -27,11 +27,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **Popup backdrop clicks** — clicking outside any popup now dismisses it consistently, across all popups.
 - **Database errors degrade gracefully** — SQLite errors at history/session write sites are caught alongside OS errors instead of crashing the operation.
 - **Player teardown races** — transport actions during mpv shutdown no longer raise, and a failed stream start no longer disturbs end-of-track handling for the track after it.
+- **Media-key presses can no longer vanish** — Windows and macOS key callbacks were scheduled without holding a reference, so the garbage collector could occasionally reclaim one mid-flight and the press did nothing. A shared dispatcher now keeps every in-flight callback alive.
+- **Radio respects shuffle from a cold start** — starting radio into an empty queue with shuffle on skipped the shuffle-order build, so tracks played in linear order until shuffle was toggled off and on.
+- **Fast track-switching can't wedge stream resolution** — cancelling a track that was still resolving could leave the next request for the same track waiting forever, or turn a successful resolve into an error. Both cancellation paths now settle cleanly.
+- **Playlist-creation failures say why** — creating a playlist (sidebar, picker, or Spotify import) now reports whether it failed from an expired session, a network problem, or a server error, instead of a generic "Failed to create playlist".
+- **A corrupt saved volume can't derail startup** — a garbage `volume` in session.json falls back to the default and out-of-range values clamp to 0–100, instead of aborting the session restore midway.
+- **Liked Songs distinguishes "empty" from "failed"** — a fetch failure now shows a check-the-log message instead of the misleading "No liked songs found."
+- **Two swallowed-input quirks** — a right-click that didn't open a popup no longer eats your next Enter/click, and picking a search suggestion identical to the current input no longer eats the next keystroke.
+- **`ytm doctor` stops counting bystanders** — any process whose command line contained a `/ytm…` path (an editor open on the repo, say) counted as a running instance; only the real `ytm` / `python -m ytm_player` entry points match now.
+- **Parser drift isn't blamed on your connection** — when YouTube changes a response shape mid-operation, the error now reads as a server problem instead of "check your internet connection".
+- **No phantom crash file from the yt-dlp pre-warm** — a failure in the background yt-dlp import was written out as a crash file; it now logs a warning, and the only real cost is a slower first play.
 
 **Internal**
 
 - The five per-page track-filter stacks are unified into one shared mixin, all popups sit on a shared base shell, and the ytmusicapi sort-parameter patch window no longer leaks into unrelated concurrent API calls.
 - First dedicated test coverage for the Spotify import service and the mpv player wrapper.
+- Services dedup sweep: the Python 3.10 StrEnum shim has one home, the three platform media-key services share one thread→loop dispatcher, stream-URL expiry follows a single policy, the lyrics and update-check fetchers use `requests`, and duplicated CLI/IPC boilerplate, path normalizers, listen-logging, and go-to-artist/album id extraction each collapsed into single implementations. Page-load failures now log their real tracebacks.
 - Packaging hardening: the AUR package now declares `python-packaging`, requires `dbus-fast` 5.x (4.x is the #113 crash combo), and caps textual below 9.0; a mistagged release can no longer upload the wrong version to PyPI (the tag is checked against `__version__` before anything builds); CI now also runs on pull requests targeting `dev`.
 
 ---
