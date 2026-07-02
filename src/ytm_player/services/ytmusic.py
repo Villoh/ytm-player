@@ -841,16 +841,27 @@ class YTMusicService:
         title: str,
         description: str = "",
         privacy: str = "PRIVATE",
-    ) -> str:
-        """Create a new playlist and return its ID."""
+    ) -> tuple[MutationResult, str]:
+        """Create a new playlist.
+
+        Returns:
+            ``("success", playlist_id)`` when the server created the playlist,
+            otherwise ``(kind, "")`` where *kind* is one of ``"auth_required"``,
+            ``"auth_expired"``, ``"network"``, ``"server_error"``. Unexpected
+            exceptions propagate.
+        """
         try:
             result = await self._call(
                 self.client.create_playlist, title, description, privacy_status=privacy
             )
-            return result if isinstance(result, str) else ""
-        except Exception:
-            logger.debug("create_playlist failed for title=%r", title)
-            return ""
+            if isinstance(result, str) and result:
+                return "success", result
+            logger.warning("create_playlist returned no id for title=%r: %r", title, result)
+            return "server_error", ""
+        except _EXPECTED_MUTATION_EXCEPTIONS as exc:
+            kind = _classify_mutation_failure(exc)
+            logger.exception("create_playlist failed for title=%r (kind=%s)", title, kind)
+            return kind, ""
 
     async def edit_playlist(
         self,

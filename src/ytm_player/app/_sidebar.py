@@ -420,14 +420,19 @@ class SidebarMixin(YTMHostBase):
         if not self.ytmusic:
             return
         try:
-            playlist_id = await self.ytmusic.create_playlist(name, description, privacy=privacy)
-            if playlist_id:
+            status, playlist_id = await self.ytmusic.create_playlist(
+                name, description, privacy=privacy
+            )
+            if status == "success" and playlist_id:
                 self.notify(f"Created '{name}'", timeout=2)
                 ps = self.query_one("#playlist-sidebar", PlaylistSidebar)
                 panel = ps.query_one("#ps-playlists", LibraryPanel)
                 panel.prepend_item({"playlistId": playlist_id, "title": name, "count": 0})
             else:
-                self.notify("Failed to create playlist", severity="error", timeout=3)
+                from ytm_player.services.ytmusic import mutation_failure_suffix
+
+                suffix = mutation_failure_suffix(status)
+                self.notify(f"Failed to create playlist - {suffix}", severity="error", timeout=4)
         except Exception:
             logger.exception("Failed to create playlist %r", name)
             self.notify("Failed to create playlist", severity="error", timeout=3)

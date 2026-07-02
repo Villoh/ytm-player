@@ -862,8 +862,8 @@ class SpotifyImportPopup(BasePopup[str | None]):
         try:
             desc = f"Imported from Spotify: {self._playlist_name}"
             status.update(f"Creating '{name}' on YouTube Music...")
-            playlist_id = await ytmusic_svc.create_playlist(name, desc)
-            if not playlist_id:
+            create_status, playlist_id = await ytmusic_svc.create_playlist(name, desc)
+            if create_status != "success" or not playlist_id:
                 color = get_theme().error
                 status.update(f"[{color}]Failed to create playlist.[/{color}]")
                 return
