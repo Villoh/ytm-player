@@ -238,8 +238,13 @@ class QueueManager:
                 # Shift indices that pointed beyond the removed track.
                 self._shuffle_order = [(i - 1 if i > real_idx else i) for i in self._shuffle_order]
                 del self._tracks[real_idx]
-                if index <= self._shuffle_position and self._shuffle_position > 0:
+                if index < self._shuffle_position:
                     self._shuffle_position -= 1
+                elif index == self._shuffle_position:
+                    # Current track removed; clamp position (mirrors the
+                    # non-shuffle branch: current() lands on the next track).
+                    if self._shuffle_position >= len(self._shuffle_order):
+                        self._shuffle_position = len(self._shuffle_order) - 1
             else:
                 del self._tracks[index]
                 if index < self._current_index:

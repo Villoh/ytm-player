@@ -354,6 +354,61 @@ class TestRemoveEdgeCases:
         assert queue_manager.current()["video_id"] == "vid_02"
 
 
+class TestRemoveShuffleCurrentTrack:
+    """remove() of the current track under shuffle must match the
+    non-shuffle contract: current() lands on the NEXT track in playback
+    order (clamped to the new last track at the end of the queue)."""
+
+    def _shuffled_order(self, queue_manager, sample_tracks) -> list[str]:
+        """Populate, enable shuffle, return video_ids in shuffle order."""
+        for t in sample_tracks:
+            queue_manager.add(t)
+        queue_manager.jump_to(0)
+        queue_manager.toggle_shuffle()
+        return [t["video_id"] for t in queue_manager.tracks]
+
+    def test_remove_current_lands_on_next_shuffle_track(self, queue_manager, sample_tracks):
+        order = self._shuffled_order(queue_manager, sample_tracks)
+        queue_manager.next_track()
+        assert queue_manager.current()["video_id"] == order[1]
+
+        queue_manager.remove(1)
+        assert queue_manager.current()["video_id"] == order[2]
+
+    def test_remove_current_at_end_clamps_to_new_last(self, queue_manager, sample_tracks):
+        order = self._shuffled_order(queue_manager, sample_tracks)
+        queue_manager.jump_to(len(order) - 1)
+
+        queue_manager.remove(len(order) - 1)
+        assert queue_manager.current()["video_id"] == order[-2]
+
+    def test_remove_before_current_keeps_current_track(self, queue_manager, sample_tracks):
+        order = self._shuffled_order(queue_manager, sample_tracks)
+        queue_manager.jump_to(2)
+
+        queue_manager.remove(0)
+        assert queue_manager.current()["video_id"] == order[2]
+
+    def test_remove_after_current_keeps_current_track(self, queue_manager, sample_tracks):
+        order = self._shuffled_order(queue_manager, sample_tracks)
+        queue_manager.jump_to(1)
+
+        queue_manager.remove(3)
+        assert queue_manager.current()["video_id"] == order[1]
+
+    def test_remove_only_track_shuffle_empties_queue(self, queue_manager):
+        from tests.conftest import _make_track
+
+        queue_manager.add(_make_track("only", "Only Track", "Solo Artist", 100))
+        queue_manager.jump_to(0)
+        queue_manager.toggle_shuffle()
+
+        queue_manager.remove(0)
+        assert queue_manager.is_empty
+        assert queue_manager.current() is None
+        assert queue_manager.current_index == -1
+
+
 class TestRadioTracks:
     def test_set_radio_tracks_deduplicates(self, queue_manager, sample_tracks):
         for t in sample_tracks:
