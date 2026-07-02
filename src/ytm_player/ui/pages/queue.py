@@ -274,28 +274,31 @@ class QueuePage(Widget):
 
     def _remove_selected(self, table: TrackTable, queue: Any) -> None:
         """Remove the currently highlighted track from the queue."""
-        track = table.selected_track
-        if not track:
-            return
-        # Find the track's real index in the queue.
-        idx = table.cursor_row
+        # cursor_row is a visible-row index — after a sort or filter it no
+        # longer matches the queue position, so map it through the table's
+        # view first (the same mapping track selection uses).
+        idx = table.selected_original_index
         if idx is not None and 0 <= idx < queue.length:
             queue.remove(idx)
             self._refresh_queue()
+            # _refresh_queue reloads the table in queue order (sort/filter
+            # reset), so the queue index doubles as the cursor row here.
             if table.row_count > 0:
                 new_row = min(idx, table.row_count - 1)
                 table.move_cursor(row=new_row)
 
     def _move_track(self, table: TrackTable, queue: Any, direction: int, count: int = 1) -> None:
-        """Move the highlighted track ``count`` positions up or down.
+        """Move the highlighted track ``count`` queue positions up or down.
 
         The destination is clamped to the queue bounds, so a ``count`` larger
         than the remaining distance simply moves the track to the top/bottom
-        (e.g. ``15 J`` near the end lands it at the bottom).
+        (e.g. ``15 J`` near the end lands it at the bottom). In a sorted or
+        filtered view the move still happens in queue order; the refresh
+        below resets the view to queue order so the result is visible.
         """
-        if table.cursor_row is None:
+        from_idx = table.selected_original_index
+        if from_idx is None:
             return
-        from_idx = table.cursor_row
         to_idx = max(0, min(from_idx + direction * count, queue.length - 1))
         if to_idx == from_idx:
             return

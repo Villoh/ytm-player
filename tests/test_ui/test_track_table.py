@@ -76,3 +76,38 @@ async def test_columns_match_show_album_show_index_flags():
     async with app.run_test():
         assert captured["minimal"] == {"title", "artist", "duration"}
         assert captured["full"] == {"index", "title", "artist", "album", "duration"}
+
+
+async def test_selected_original_index_maps_through_sort_and_filter():
+    """cursor_row is a visible-row index; selected_original_index must
+    return the load-order index (what queue mutations need)."""
+
+    tracks = [
+        {"video_id": f"t{i}", "title": title, "artist": "A", "duration": 60}
+        for i, title in enumerate(["d", "c", "b", "a"])
+    ]
+
+    class _WithTable(_Host):
+        def compose(self) -> ComposeResult:
+            yield TrackTable(show_index=True, show_album=False)
+
+    app = _WithTable()
+    async with app.run_test():
+        table = app.query_one(TrackTable)
+        table.load_tracks(tracks)
+        table.move_cursor(row=0)
+        assert table.selected_original_index == 0
+
+        table.sort_by("title")  # visible: a,b,c,d = original 3,2,1,0
+        table.move_cursor(row=0)
+        assert table.selected_original_index == 3
+
+        # Bypass apply_filter's debounce timer for determinism.
+        table._filter_text = "b"
+        table._execute_filter()  # visible: only "b" (original index 2)
+        table.move_cursor(row=0)
+        assert table.selected_original_index == 2
+
+        table._filter_text = "no-match"
+        table._execute_filter()
+        assert table.selected_original_index is None

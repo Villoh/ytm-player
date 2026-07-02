@@ -159,6 +159,19 @@ class TrackTable(DataTable):
             return self._tracks[self.cursor_row]
         return None
 
+    @property
+    def selected_original_index(self) -> int | None:
+        """Return the highlighted row's index in the originally loaded order.
+
+        ``cursor_row`` is a visible-row index that diverges from the load
+        order once a sort or filter is active. Callers that mutate the
+        backing collection (e.g. queue remove/move) must use this mapped
+        index — the same mapping ``TrackSelected`` messages carry.
+        """
+        if self.cursor_row is not None and 0 <= self.cursor_row < len(self._tracks):
+            return self._filtered_map[self.cursor_row] if self._filtered_map else self.cursor_row
+        return None
+
     # -- Setup ------------------------------------------------------------
 
     def on_mount(self) -> None:
