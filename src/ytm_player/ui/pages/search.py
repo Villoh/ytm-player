@@ -17,6 +17,7 @@ from textual.widgets import Input, Label, ListItem, ListView, Static
 
 from ytm_player.config.keymap import Action
 from ytm_player.config.settings import get_settings
+from ytm_player.ui.theme import get_theme
 from ytm_player.ui.widgets.track_table import TrackTable
 from ytm_player.utils.formatting import (
     copy_to_clipboard,
@@ -399,13 +400,14 @@ class SearchPage(Widget):
         self._restoring = False
 
     def compose(self) -> ComposeResult:
+        mode_color = get_theme().primary
         with Vertical():
             with Horizontal(id="search-header"):
                 yield Input(
                     placeholder="Search YouTube Music...",
                     id="search-input",
                 )
-                yield Static("[red]▶[/red] Music", id="search-mode")
+                yield Static(f"[{mode_color}]▶[/{mode_color}] Music", id="search-mode")
             yield SuggestionList(id="suggestion-overlay")
             yield Static("", id="loading-msg", classes="loading-indicator")
             with Horizontal(id="search-results"):
@@ -429,7 +431,12 @@ class SearchPage(Widget):
 
         # Update mode label to match.
         mode_label = self.query_one("#search-mode", Static)
-        display = "[red]▶[/red] Music" if self.search_mode == "music" else "[red]▶[/red] All"
+        mode_color = get_theme().primary
+        display = (
+            f"[{mode_color}]▶[/{mode_color}] Music"
+            if self.search_mode == "music"
+            else f"[{mode_color}]▶[/{mode_color}] All"
+        )
         mode_label.update(display)
 
         # Restore previous search results if navigating back.
@@ -847,7 +854,12 @@ class SearchPage(Widget):
 
         # Update the mode indicator.
         mode_label = self.query_one("#search-mode", Static)
-        display = "[red]▶[/red] Music" if self.search_mode == "music" else "[red]▶[/red] All"
+        mode_color = get_theme().primary
+        display = (
+            f"[{mode_color}]▶[/{mode_color}] Music"
+            if self.search_mode == "music"
+            else f"[{mode_color}]▶[/{mode_color}] All"
+        )
         mode_label.update(display)
 
         # Re-run the last search with the new mode if we have a query.
