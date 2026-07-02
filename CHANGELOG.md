@@ -11,6 +11,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 **Changes**
 
 - **Only one TUI instance at a time** — launching `ytm` while another instance is running now exits with "ytm is already running (PID …)" instead of letting two instances fight over the same session and IPC socket.
+- **Every color now follows your theme** — the last hard-coded widget colors (the search-mode `▶` indicator and the Spotify-import status texts and result symbols) now use the theme's `primary` / `success` / `warning` / `error` variables, so custom themes recolor them too.
 
 **Fixes**
 
@@ -31,6 +32,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 - The five per-page track-filter stacks are unified into one shared mixin, all popups sit on a shared base shell, and the ytmusicapi sort-parameter patch window no longer leaks into unrelated concurrent API calls.
 - First dedicated test coverage for the Spotify import service and the mpv player wrapper.
+- Packaging hardening: the AUR package now declares `python-packaging`, requires `dbus-fast` 5.x (4.x is the #113 crash combo), and caps textual below 9.0; a mistagged release can no longer upload the wrong version to PyPI (the tag is checked against `__version__` before anything builds); CI now also runs on pull requests targeting `dev`.
 
 ---
 
