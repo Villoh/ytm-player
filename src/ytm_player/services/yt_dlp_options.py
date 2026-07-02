@@ -20,8 +20,8 @@ def _split_csv_or_space(value: str) -> list[str]:
     return [part for part in normalized.split() if part]
 
 
-def normalize_cookiefile(value: str | os.PathLike[str] | None) -> str | None:
-    """Return expanded cookie file path for yt-dlp, or None when unset."""
+def _normalize_path(value: str | os.PathLike[str] | None) -> str | None:
+    """Return an expanded filesystem path, or None when unset/blank."""
     if value is None:
         return None
     if isinstance(value, os.PathLike):
@@ -30,6 +30,11 @@ def normalize_cookiefile(value: str | os.PathLike[str] | None) -> str | None:
     if not stripped:
         return None
     return str(Path(stripped).expanduser())
+
+
+def normalize_cookiefile(value: str | os.PathLike[str] | None) -> str | None:
+    """Return expanded cookie file path for yt-dlp, or None when unset."""
+    return _normalize_path(value)
 
 
 def normalize_remote_components(value: str | list[str] | None) -> list[str] | None:
@@ -89,14 +94,7 @@ def normalize_js_runtimes(
 
 def normalize_cafile(value: str | os.PathLike[str] | None) -> str | None:
     """Return expanded CA bundle path, or None when unset."""
-    if value is None:
-        return None
-    if isinstance(value, os.PathLike):
-        return str(Path(value).expanduser())
-    stripped = value.strip()
-    if not stripped:
-        return None
-    return str(Path(stripped).expanduser())
+    return _normalize_path(value)
 
 
 def apply_configured_yt_dlp_options(opts: dict, yt_dlp_settings: YtDlpSettings) -> dict:
