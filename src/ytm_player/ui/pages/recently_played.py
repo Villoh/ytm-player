@@ -41,6 +41,7 @@ _HISTORY_LOAD_FAILED_MSG = (
 # Shown on the YT Music tab when no authenticated session is available (the
 # ytmusicapi ``get_history`` endpoint requires auth).
 _YTM_AUTH_REQUIRED_MSG = "Sign in to YT Music to see your account play history."
+_YTM_LOAD_FAILED_MSG = "Couldn't load YT Music history. Check the log for details."
 
 # Tab indices.
 _TAB_LOCAL = 0
@@ -168,9 +169,10 @@ class RecentlyPlayedPage(TrackFilterHost, Widget):
         # failure so ``_display_tracks`` can render the failure message
         # instead of the genuine empty-state copy.
         self._load_failed = False
-        # Distinguishes an empty YT Music tab caused by missing auth from a
-        # genuinely empty account history.
+        # Distinguishes empty YT Music states: auth missing, load failed,
+        # or genuinely empty account history.
         self._ytm_auth_required = False
+        self._ytm_load_failed = False
         # Per-tab track cache so switching tabs doesn't refetch every time.
         self._tab_cache: dict[int, list[dict]] = {}
 
@@ -226,6 +228,7 @@ class RecentlyPlayedPage(TrackFilterHost, Widget):
     async def _load_history(self) -> None:
         """Load the local SQLite play history (Local tab)."""
         self._ytm_auth_required = False
+        self._ytm_load_failed = False
         history = self.app.history  # type: ignore[attr-defined]
         if not history:
             self.query_one("#recent-loading", Label).update("History not available.")
@@ -252,6 +255,7 @@ class RecentlyPlayedPage(TrackFilterHost, Widget):
         """Load the account play history from YT Music (YT Music tab)."""
         self._load_failed = False
         self._ytm_auth_required = False
+        self._ytm_load_failed = False
 
         # Reuse the app-level cache when present (populated on a prior visit
         # and kept fresh optimistically) so we don't refetch every time.
@@ -275,8 +279,11 @@ class RecentlyPlayedPage(TrackFilterHost, Widget):
         # the TUI.
         raw = await ytmusic.get_history()
         tracks = normalize_tracks(raw)[:_MAX_TRACKS]
+        if not tracks and getattr(ytmusic, "last_history_error", False) is True:
+            self._ytm_load_failed = True
 
-        self._set_cache(_TAB_YTM, tracks)
+        if not self._ytm_load_failed:
+            self._set_cache(_TAB_YTM, tracks)
         if self._active_tab == _TAB_YTM:
             self._display_tracks(tracks)
 
@@ -306,12 +313,17 @@ class RecentlyPlayedPage(TrackFilterHost, Widget):
         loading = self.query_one("#recent-loading", Label)
 
         if not tracks:
+            table.load_tracks([])
+            self.track_count = 0
+            self.query_one("#recent-footer", Static).update("")
             table.display = False
             if self._load_failed:
                 loading.update(_HISTORY_LOAD_FAILED_MSG)
             elif self._active_tab == _TAB_YTM:
                 if self._ytm_auth_required:
                     loading.update(_YTM_AUTH_REQUIRED_MSG)
+                elif self._ytm_load_failed:
+                    loading.update(_YTM_LOAD_FAILED_MSG)
                 else:
                     loading.update("No YT Music play history found.")
             else:

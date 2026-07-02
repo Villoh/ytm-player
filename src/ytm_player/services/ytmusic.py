@@ -166,6 +166,7 @@ class YTMusicService:
         self._no_inflight.set()
         self._last_discovery_source: int = 0
         self._last_chart_shelf: int = 0
+        self.last_history_error: bool = False
         # videoId -> server-assigned setVideoId from the most recent successful
         # add_playlist_items() call. Lets callers stamp freshly-added rows with
         # the setVideoId they need for later removal, without a reload.
@@ -1009,9 +1010,11 @@ class YTMusicService:
 
     async def get_history(self) -> list[dict[str, Any]]:
         """Return the user's recently played tracks."""
+        self.last_history_error = False
         try:
             return await self._call(self.client.get_history)
         except Exception:
+            self.last_history_error = True
             logger.exception("get_history failed")
             return []
 

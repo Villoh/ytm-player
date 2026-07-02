@@ -498,6 +498,21 @@ class TestMutationFailureSuffix:
         assert "setup" in mutation_failure_suffix("auth_expired").lower()
 
 
+class TestHistory:
+    async def test_get_history_marks_error_on_failure(self, ytmusic_service):
+        ytmusic_service._ytm.get_history = MagicMock(side_effect=RuntimeError("boom"))
+
+        assert await ytmusic_service.get_history() == []
+        assert ytmusic_service.last_history_error is True
+
+    async def test_get_history_clears_error_on_success(self, ytmusic_service):
+        ytmusic_service.last_history_error = True
+        ytmusic_service._ytm.get_history = MagicMock(return_value=[{"videoId": "vid123"}])
+
+        assert await ytmusic_service.get_history() == [{"videoId": "vid123"}]
+        assert ytmusic_service.last_history_error is False
+
+
 class TestAddHistoryItem:
     """Piece 2: report TUI plays back to the YT Music account history."""
 

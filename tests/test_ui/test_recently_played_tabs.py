@@ -106,9 +106,28 @@ async def test_ytm_tab_empty_history_message(monkeypatch: pytest.MonkeyPatch) ->
 
     await page._load_ytm_history()
 
-    widgets["#recent-table"].load_tracks.assert_not_called()
+    widgets["#recent-table"].load_tracks.assert_called_once_with([])
     msgs = [c.args[0] for c in widgets["#recent-loading"].update.call_args_list]
     assert any("No YT Music play history found" in m for m in msgs), msgs
+
+
+async def test_ytm_tab_error_shows_load_failed_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    page, widgets = _make_page(active_tab=_TAB_YTM)
+
+    fake_ytmusic = MagicMock()
+    fake_ytmusic.get_history = AsyncMock(return_value=[])
+    fake_ytmusic.last_history_error = True
+    fake_app = MagicMock()
+    fake_app.ytmusic = fake_ytmusic
+    fake_app._ytm_history = None
+    _attach_fake_app(page, fake_app, monkeypatch)
+
+    await page._load_ytm_history()
+
+    assert fake_app._ytm_history is None
+    widgets["#recent-table"].load_tracks.assert_called_once_with([])
+    msgs = [c.args[0] for c in widgets["#recent-loading"].update.call_args_list]
+    assert any("Couldn't load YT Music history" in m for m in msgs), msgs
 
 
 async def test_ytm_tab_no_service_shows_auth_message(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -124,6 +143,7 @@ async def test_ytm_tab_no_service_shows_auth_message(monkeypatch: pytest.MonkeyP
     await page._load_ytm_history()
 
     assert page._ytm_auth_required is True
+    widgets["#recent-table"].load_tracks.assert_called_once_with([])
     msgs = [c.args[0] for c in widgets["#recent-loading"].update.call_args_list]
     assert any("Sign in to YT Music" in m for m in msgs), msgs
 
