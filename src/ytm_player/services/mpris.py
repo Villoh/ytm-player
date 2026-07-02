@@ -23,6 +23,12 @@ logger = logging.getLogger(__name__)
 # gracefully instead of crashing the whole app at startup (#106). Linux import
 # failures still surface via the except.
 if sys.platform == "linux":
+    # Inside the gate: importing asyncio under a faked win32 sys.platform
+    # (platform-guard test) pulls asyncio's Windows branch, which needs the
+    # _overlapped extension module. Only the Linux-only interface classes
+    # below use it anyway.
+    import asyncio
+
     try:
         from dbus_fast import Variant  # type: ignore[reportMissingImports]
         from dbus_fast.aio import MessageBus  # type: ignore[reportMissingImports]
@@ -126,6 +132,9 @@ try:
             self._metadata: dict[str, Variant] = _empty_metadata()
             self._volume = 0.8
             self._position_us: int = 0
+            # Strong references to volume-setter tasks so they aren't GC'd
+            # before execution (the classic asyncio.create_task footgun).
+            self._volume_tasks: set[asyncio.Task] = set()
 
         # --- Properties ------------------------------------------------
 
@@ -144,6 +153,14 @@ try:
         @Volume.setter  # type: ignore[attr-defined]
         def Volume(self, value: "d"):  # type: ignore[override]
             self._volume = max(0.0, min(1.0, value))
+            # Forward the write to the actual player (dbus-fast invokes
+            # property setters synchronously on the event loop, so the
+            # async callback must be scheduled, not awaited).
+            cb = self._callbacks.get("set_volume")
+            if cb:
+                task = asyncio.ensure_future(cb(self._volume))
+                self._volume_tasks.add(task)
+                task.add_done_callback(self._volume_tasks.discard)
 
         @dbus_property(access=PropertyAccess.READ)
         def Position(self) -> "x":  # type: ignore[override]
@@ -270,6 +287,9 @@ try:
         def set_position(self, position_us: int) -> None:
             self._position_us = position_us
 
+        def set_volume(self, volume: float) -> None:
+            self._volume = max(0.0, min(1.0, volume))
+
 except (ImportError, ValueError, TypeError):
     # TypeError: a broken dbus-fast build can blow up while the interface
     # classes are being defined — e.g. dbus-fast compiled with Cython 3.2.6,
@@ -379,6 +399,30 @@ class MPRISService:
             return
 
         self._player_iface.set_position(position_us)
+
+    def update_volume(self, volume: float) -> None:
+        """Push the player's volume (0.0–1.0) to D-Bus listeners."""
+        if not self._running or self._player_iface is None:
+            return
+
+        volume = max(0.0, min(1.0, volume))
+        # Skip the echo of a D-Bus-initiated set (setter already stored
+        # the value) — re-emitting would ping-pong with the client.
+        if abs(volume - self._player_iface._volume) < 1e-6:
+            return
+        self._player_iface.set_volume(volume)
+        self._emit_properties_changed(
+            "org.mpris.MediaPlayer2.Player",
+            {"Volume": self._player_iface._volume},
+        )
+
+    def emit_seeked(self, position_us: int) -> None:
+        """Update Position and emit the Seeked signal so clients resync."""
+        if not self._running or self._player_iface is None:
+            return
+
+        self._player_iface.set_position(position_us)
+        self._player_iface.Seeked()
 
     # ------------------------------------------------------------------
     # Internal helpers

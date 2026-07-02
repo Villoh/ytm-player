@@ -232,3 +232,80 @@ class TestPlayerMpvLogHandler:
         assert any("mpv[demuxer]:" in m and "stream opened" in m for m in messages), (
             f"info message not routed: {messages!r}"
         )
+
+
+class TestSeekDispatch:
+    """T10: seek/seek_absolute must dispatch PlayerEvent.SEEK with the
+    requested target, clamped to [0, duration]."""
+
+    async def test_seek_relative_dispatches_target(self, player):
+        from ytm_player.services.player import PlayerEvent
+
+        player._mpv.time_pos = 30.0
+        player._mpv.duration = 300.0
+        received: list[float] = []
+        player.on(PlayerEvent.SEEK, received.append)
+
+        await player.seek(15.0)
+
+        assert received == [45.0]
+        player._mpv.seek.assert_called_once_with(15.0, reference="relative")
+
+    async def test_seek_relative_clamps_below_zero(self, player):
+        from ytm_player.services.player import PlayerEvent
+
+        player._mpv.time_pos = 5.0
+        player._mpv.duration = 300.0
+        received: list[float] = []
+        player.on(PlayerEvent.SEEK, received.append)
+
+        await player.seek(-30.0)
+
+        assert received == [0.0]
+
+    async def test_seek_relative_clamps_to_duration(self, player):
+        from ytm_player.services.player import PlayerEvent
+
+        player._mpv.time_pos = 290.0
+        player._mpv.duration = 300.0
+        received: list[float] = []
+        player.on(PlayerEvent.SEEK, received.append)
+
+        await player.seek(60.0)
+
+        assert received == [300.0]
+
+    async def test_seek_absolute_dispatches_target(self, player):
+        from ytm_player.services.player import PlayerEvent
+
+        player._mpv.duration = 300.0
+        received: list[float] = []
+        player.on(PlayerEvent.SEEK, received.append)
+
+        await player.seek_absolute(90.0)
+
+        assert received == [90.0]
+        player._mpv.seek.assert_called_once_with(90.0, reference="absolute")
+
+    async def test_seek_absolute_unknown_duration_does_not_clamp(self, player):
+        from ytm_player.services.player import PlayerEvent
+
+        player._mpv.duration = None  # duration unknown → 0.0 → no upper clamp
+        received: list[float] = []
+        player.on(PlayerEvent.SEEK, received.append)
+
+        await player.seek_absolute(90.0)
+
+        assert received == [90.0]
+
+    async def test_seek_on_dead_mpv_does_not_dispatch(self, player):
+        from ytm_player.services.player import PlayerEvent
+        from ytm_player.services.player import mpv as _mpv
+
+        received: list[float] = []
+        player.on(PlayerEvent.SEEK, received.append)
+        player._mpv.seek.side_effect = _mpv.ShutdownError("dead")
+
+        await player.seek_absolute(10.0)
+
+        assert received == []

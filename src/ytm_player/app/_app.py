@@ -597,6 +597,10 @@ class YTMPlayerApp(
                 self.mpris = MPRISService()
                 callbacks = self._build_mpris_callbacks()
                 await self.mpris.start(callbacks)
+                # Session volume was restored before MPRIS came up — push
+                # the real value so clients don't read the 0.8 default.
+                if self.player:
+                    self.mpris.update_volume(self.player.volume / 100)
             elif not self._mpris_hint_shown and os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
                 # dbus-fast is a Linux core dependency, so reaching here means a
                 # broken/partial install (the library is missing, or its build
@@ -660,6 +664,7 @@ class YTMPlayerApp(
         self.player.on(PlayerEvent.TRACK_CHANGE, self._on_track_change)
         self.player.on(PlayerEvent.VOLUME_CHANGE, self._on_volume_change)
         self.player.on(PlayerEvent.PAUSE_CHANGE, self._on_pause_change)
+        self.player.on(PlayerEvent.SEEK, self._on_seek)
 
         # Poll playback position on a timer (avoids cross-thread issues).
         self._poll_timer = self.set_interval(_POSITION_POLL_INTERVAL, self._poll_position)

@@ -520,6 +520,19 @@ class PlaybackMixin(YTMHostBase):
             bar.update_volume(volume)
         except Exception:
             logger.debug("Failed to update volume display", exc_info=True)
+        if self.mpris:
+            try:
+                self.mpris.update_volume(volume / 100)
+            except Exception:
+                logger.exception("MPRIS volume update failed")
+
+    def _on_seek(self, position: float) -> None:
+        """Push seek jumps to MPRIS (Seeked signal) so clients resync."""
+        if self.mpris:
+            try:
+                self.mpris.emit_seeked(int(position * 1_000_000))
+            except Exception:
+                logger.exception("MPRIS Seeked emit failed")
 
     def _on_pause_change(self, paused: bool) -> None:
         """Handle pause/resume events."""

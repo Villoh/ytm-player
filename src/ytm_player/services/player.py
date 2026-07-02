@@ -153,6 +153,7 @@ class PlayerEvent(StrEnum):
     ERROR = auto()
     VOLUME_CHANGE = auto()
     PAUSE_CHANGE = auto()
+    SEEK = auto()
 
 
 # Type alias for callback functions.
@@ -491,17 +492,30 @@ class Player:
             self._current_track = None
         self._mpv.stop()
 
+    def _clamp_seek_target(self, target: float) -> float:
+        """Clamp a seek target to [0, duration] (duration 0.0 = unknown)."""
+        duration = self.duration
+        if duration > 0:
+            target = min(target, duration)
+        return max(0.0, target)
+
     async def seek(self, seconds: float) -> None:
         """Seek relative to the current position."""
         try:
+            # mpv applies the seek asynchronously — dispatch the clamped
+            # requested target; the position poll corrects any drift.
+            target = self._clamp_seek_target(self.position + seconds)
             self._mpv.seek(seconds, reference="relative")
+            self._dispatch(PlayerEvent.SEEK, target)
         except mpv.ShutdownError:
             pass
 
     async def seek_absolute(self, seconds: float) -> None:
         """Seek to an absolute position in seconds."""
         try:
+            target = self._clamp_seek_target(seconds)
             self._mpv.seek(seconds, reference="absolute")
+            self._dispatch(PlayerEvent.SEEK, target)
         except mpv.ShutdownError:
             pass
 

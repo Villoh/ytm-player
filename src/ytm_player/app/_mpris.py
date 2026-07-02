@@ -21,6 +21,7 @@ class MPRISMixin(YTMHostBase):
             "previous": self._mpris_previous,
             "seek": self._mpris_seek,
             "set_position": self._mpris_set_position,
+            "set_volume": self._mpris_set_volume,
             "quit": self._mpris_quit,
         }
 
@@ -52,6 +53,10 @@ class MPRISMixin(YTMHostBase):
     async def _mpris_set_position(self, position_us: int) -> None:
         if self.player:
             await self.player.seek_absolute(position_us / 1_000_000)
+
+    async def _mpris_set_volume(self, volume: float) -> None:
+        if self.player:
+            await self.player.set_volume(round(volume * 100))
 
     async def _mpris_quit(self) -> None:
         self.exit()
