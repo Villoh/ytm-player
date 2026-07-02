@@ -14,6 +14,7 @@ from textual.widgets import Input, Label, Static
 from ytm_player.config.keymap import Action
 from ytm_player.config.settings import get_settings
 from ytm_player.services.player import PlayerEvent
+from ytm_player.ui.track_filter import TRACK_FILTER_CSS, TrackFilterHost
 from ytm_player.ui.widgets.track_table import TrackTable
 
 if TYPE_CHECKING:
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class QueuePage(Widget):
+class QueuePage(TrackFilterHost, Widget):
     """Displays and manages the playback queue.
 
     Shows the currently playing track at the top, the upcoming queue in a
@@ -30,7 +31,10 @@ class QueuePage(Widget):
     removal, and jumping to tracks.
     """
 
-    DEFAULT_CSS = """
+    _filter_table_id = "#queue-table"
+
+    DEFAULT_CSS = (
+        """
     QueuePage {
         layout: vertical;
         width: 1fr;
@@ -67,14 +71,9 @@ class QueuePage(Widget):
         color: $text-muted;
         display: none;
     }
-    .track-filter {
-        dock: bottom;
-        display: none;
-    }
-    .track-filter.visible {
-        display: block;
-    }
     """
+        + TRACK_FILTER_CSS
+    )
 
     queue_length: reactive[int] = reactive(0)
 
@@ -305,54 +304,3 @@ class QueuePage(Widget):
         queue.move(from_idx, to_idx)
         self._refresh_queue()
         table.move_cursor(row=to_idx)
-
-    # ── Filter wiring ────────────────────────────────────────────────
-
-    def on_track_table_filter_requested(self, event: TrackTable.FilterRequested) -> None:
-        event.stop()
-        try:
-            f = self.query_one("#track-filter", Input)
-            f.value = ""
-            f.add_class("visible")
-            f.focus()
-        except Exception:
-            pass
-
-    def on_track_table_filter_closed(self, event: TrackTable.FilterClosed) -> None:
-        event.stop()
-        try:
-            f = self.query_one("#track-filter", Input)
-            f.remove_class("visible")
-            self.query_one("#queue-table", TrackTable).focus()
-        except Exception:
-            pass
-
-    def on_input_changed(self, event: Input.Changed) -> None:
-        if event.input.id == "track-filter":
-            self.query_one("#queue-table", TrackTable).apply_filter(event.value)
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id == "track-filter":
-            try:
-                f = self.query_one("#track-filter", Input)
-                f.remove_class("visible")
-                self.query_one("#queue-table", TrackTable).focus()
-            except Exception:
-                pass
-
-    def on_key(self, event: object) -> None:
-        from textual.events import Key
-
-        if not isinstance(event, Key):
-            return
-        if event.key == "escape":
-            try:
-                f = self.query_one("#track-filter", Input)
-                if f.has_class("visible"):
-                    event.stop()
-                    event.prevent_default()
-                    self.query_one("#queue-table", TrackTable).clear_filter()
-                    f.remove_class("visible")
-                    self.query_one("#queue-table", TrackTable).focus()
-            except Exception:
-                pass

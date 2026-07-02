@@ -18,6 +18,7 @@ from textual.worker import Worker, WorkerState
 
 from ytm_player.config.keymap import Action
 from ytm_player.services.ytmusic import _EXPECTED_API_EXCEPTIONS
+from ytm_player.ui.track_filter import TRACK_FILTER_CSS, TrackFilterHost
 from ytm_player.ui.widgets.track_table import TrackTable
 from ytm_player.utils.formatting import extract_artist, normalize_tracks
 
@@ -73,14 +74,17 @@ class _ArtistAlbumList(DataTable):
         return None
 
 
-class ContextPage(Widget):
+class ContextPage(TrackFilterHost, Widget):
     """Shows details for a selected album, artist, or playlist.
 
     The app navigates here with context_type and context_id parameters
     that determine which data to fetch and how to render it.
     """
 
-    DEFAULT_CSS = """
+    _filter_table_id = "#context-tracks"
+
+    DEFAULT_CSS = (
+        """
     ContextPage {
         layout: vertical;
         width: 1fr;
@@ -161,16 +165,9 @@ class ContextPage(Widget):
     .artist-right:focus-within {
         border: solid $accent;
     }
-
-    .track-filter {
-        dock: bottom;
-        display: none;
-    }
-
-    .track-filter.visible {
-        display: block;
-    }
     """
+        + TRACK_FILTER_CSS
+    )
 
     # ``loading`` is inherited from Widget — re-declaring would shadow
     # the parent's reactive with an invariant-mismatched type.
@@ -607,57 +604,6 @@ class ContextPage(Widget):
                 context_type="album",
                 context_id=album["browseId"],
             )
-
-    # ── Track filter ──────────────────────────────────────────────────
-
-    def on_track_table_filter_requested(self, _event: TrackTable.FilterRequested) -> None:
-        try:
-            f = self.query_one("#track-filter", Input)
-            f.value = ""
-            f.add_class("visible")
-            f.focus()
-        except Exception:
-            pass
-
-    def on_track_table_filter_closed(self, _event: TrackTable.FilterClosed) -> None:
-        try:
-            f = self.query_one("#track-filter", Input)
-            f.remove_class("visible")
-            self.query_one("#context-tracks", TrackTable).focus()
-        except Exception:
-            pass
-
-    def on_input_changed(self, event: Input.Changed) -> None:
-        if event.input.id == "track-filter":
-            try:
-                self.query_one("#context-tracks", TrackTable).apply_filter(event.value)
-            except Exception:
-                pass
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id == "track-filter":
-            f = self.query_one("#track-filter", Input)
-            f.remove_class("visible")
-            try:
-                self.query_one("#context-tracks", TrackTable).focus()
-            except Exception:
-                pass
-
-    def on_key(self, event: object) -> None:
-        """Handle Escape in filter input."""
-        from textual.events import Key
-
-        if not isinstance(event, Key):
-            return
-        if event.key == "escape":
-            try:
-                f = self.query_one("#track-filter", Input)
-                if f.has_class("visible"):
-                    event.stop()
-                    event.prevent_default()
-                    self.query_one("#context-tracks", TrackTable).clear_filter()
-            except Exception:
-                pass
 
     # ── Action handling ───────────────────────────────────────────────
 

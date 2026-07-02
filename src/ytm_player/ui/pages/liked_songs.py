@@ -13,6 +13,7 @@ from textual.widget import Widget
 from textual.widgets import Input, Label, Static
 
 from ytm_player.config.keymap import Action
+from ytm_player.ui.track_filter import TRACK_FILTER_CSS, TrackFilterHost
 from ytm_player.ui.widgets.track_table import TrackTable
 from ytm_player.utils.formatting import normalize_tracks
 
@@ -22,10 +23,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class LikedSongsPage(Widget):
+class LikedSongsPage(TrackFilterHost, Widget):
     """Displays the user's Liked Music playlist."""
 
-    DEFAULT_CSS = """
+    _filter_table_id = "#liked-table"
+
+    DEFAULT_CSS = (
+        """
     LikedSongsPage {
         layout: vertical;
         width: 1fr;
@@ -71,14 +75,9 @@ class LikedSongsPage(Widget):
         content-align: center middle;
         color: $text-muted;
     }
-    .track-filter {
-        dock: bottom;
-        display: none;
-    }
-    .track-filter.visible {
-        display: block;
-    }
     """
+        + TRACK_FILTER_CSS
+    )
 
     track_count: reactive[int] = reactive(0)
 
@@ -248,52 +247,3 @@ class LikedSongsPage(Widget):
         seeds = random.sample(tracks, min(5, len(tracks)))
         host = cast("YTMHostBase", self.app)
         await host._fetch_and_play_radio(seeds, label="Radio: Liked Songs")
-
-    def on_track_table_filter_requested(self, event: TrackTable.FilterRequested) -> None:
-        event.stop()
-        try:
-            f = self.query_one("#track-filter", Input)
-            f.value = ""
-            f.add_class("visible")
-            f.focus()
-        except Exception:
-            pass
-
-    def on_track_table_filter_closed(self, event: TrackTable.FilterClosed) -> None:
-        event.stop()
-        try:
-            f = self.query_one("#track-filter", Input)
-            f.remove_class("visible")
-            self.query_one("#liked-table", TrackTable).focus()
-        except Exception:
-            pass
-
-    def on_input_changed(self, event: Input.Changed) -> None:
-        if event.input.id == "track-filter":
-            self.query_one("#liked-table", TrackTable).apply_filter(event.value)
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id == "track-filter":
-            try:
-                f = self.query_one("#track-filter", Input)
-                f.remove_class("visible")
-                self.query_one("#liked-table", TrackTable).focus()
-            except Exception:
-                pass
-
-    def on_key(self, event: object) -> None:
-        from textual.events import Key
-
-        if not isinstance(event, Key):
-            return
-        if event.key == "escape":
-            try:
-                f = self.query_one("#track-filter", Input)
-                if f.has_class("visible"):
-                    event.stop()
-                    event.prevent_default()
-                    self.query_one("#liked-table", TrackTable).clear_filter()
-                    f.remove_class("visible")
-                    self.query_one("#liked-table", TrackTable).focus()
-            except Exception:
-                pass

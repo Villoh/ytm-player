@@ -13,6 +13,7 @@ from textual.widget import Widget
 from textual.widgets import Input, Label, Static
 
 from ytm_player.config.keymap import Action
+from ytm_player.ui.track_filter import TRACK_FILTER_CSS, TrackFilterHost
 from ytm_player.ui.widgets.track_table import TrackTable
 from ytm_player.utils.formatting import build_playlist_subtitle, normalize_tracks
 
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class LibraryPage(Widget):
+class LibraryPage(TrackFilterHost, Widget):
     """Library content area — displays tracks for the selected playlist.
 
     The playlist sidebar has been extracted to PlaylistSidebar (persistent).
@@ -30,7 +31,10 @@ class LibraryPage(Widget):
     the corresponding tracks inline.
     """
 
-    DEFAULT_CSS = """
+    _filter_table_id = "#library-tracks"
+
+    DEFAULT_CSS = (
+        """
     LibraryPage {
         height: 1fr;
         width: 1fr;
@@ -109,16 +113,9 @@ class LibraryPage(Widget):
     #library-tracks {
         height: 1fr;
     }
-
-    .track-filter {
-        dock: bottom;
-        display: none;
-    }
-
-    .track-filter.visible {
-        display: block;
-    }
     """
+        + TRACK_FILTER_CSS
+    )
 
     is_loading: reactive[bool] = reactive(True)
 
@@ -387,53 +384,6 @@ class LibraryPage(Widget):
                 if track.get("video_id") == playing_id:
                     table.move_cursor(row=i)
                     return
-
-    # ------------------------------------------------------------------
-    # Track filter
-    # ------------------------------------------------------------------
-
-    def on_track_table_filter_requested(self, event: TrackTable.FilterRequested) -> None:
-        try:
-            f = self.query_one("#track-filter", Input)
-            f.value = ""
-            f.add_class("visible")
-            f.focus()
-        except Exception:
-            pass
-
-    def on_track_table_filter_closed(self, event: TrackTable.FilterClosed) -> None:
-        try:
-            f = self.query_one("#track-filter", Input)
-            f.remove_class("visible")
-            self.query_one("#library-tracks", TrackTable).focus()
-        except Exception:
-            pass
-
-    def on_input_changed(self, event: Input.Changed) -> None:
-        if event.input.id == "track-filter":
-            self.query_one("#library-tracks", TrackTable).apply_filter(event.value)
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id == "track-filter":
-            f = self.query_one("#track-filter", Input)
-            f.remove_class("visible")
-            self.query_one("#library-tracks", TrackTable).focus()
-
-    def on_key(self, event: object) -> None:
-        """Handle Escape in filter input."""
-        from textual.events import Key
-
-        if not isinstance(event, Key):
-            return
-        if event.key == "escape":
-            try:
-                f = self.query_one("#track-filter", Input)
-                if f.has_class("visible"):
-                    event.stop()
-                    event.prevent_default()
-                    self.query_one("#library-tracks", TrackTable).clear_filter()
-            except Exception:
-                pass
 
     # ------------------------------------------------------------------
     # Header button clicks
