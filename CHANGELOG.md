@@ -8,6 +8,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Unreleased
 
+**New features**
+
+- **Recently Played — YT Music account history tab** — the Recently Played page now has two tabs: **Local** (the existing SQLite play history recorded inside this app) and **YT Music** (your account-wide play history fetched from the server via ytmusicapi `get_history()`). Switch tabs by clicking the labels or with the keyboard (`Tab` / `Shift+Tab` to focus a tab label, `Enter` to activate) — consistent with the Browse page. Each tab is cached so switching back doesn't refetch. Both tabs are capped at 100 rows to keep the TUI responsive. `[▶ Start Radio]` and filtering work on both. No new keybinding — both views live under `g r`.
+
 **Changes**
 
 - **Only one TUI instance at a time** — launching `ytm` while another instance is running now exits with "ytm is already running (PID …)" instead of letting two instances fight over the same session and IPC socket.
