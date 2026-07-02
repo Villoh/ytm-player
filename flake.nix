@@ -91,7 +91,7 @@
           build-system = [ python.pkgs.hatchling ];
 
           # Relax upper bounds that may conflict with nixpkgs versions.
-          # nixpkgs may ship textual 8.x while pyproject.toml says <8.0.
+          # nixpkgs may ship textual 9.x while pyproject.toml caps at <9.0.
           pythonRelaxDeps = [ "textual" ];
 
           # python-mpv on PyPI registers as "mpv" in dist-info.

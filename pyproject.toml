@@ -45,7 +45,7 @@ dependencies = [
     # sys_platform marker keeps it off macOS/Windows, where it can't even
     # import (socket.CMSG_LEN) and which use their own media integrations
     # (#106, #110).
-    "dbus-fast>=4.0.0; sys_platform == 'linux'",
+    "dbus-fast>=5.0.0; sys_platform == 'linux'",
 ]
 
 [project.optional-dependencies]
