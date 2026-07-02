@@ -88,7 +88,12 @@ def _classify_mutation_failure(exc: BaseException) -> MutationResult:
     is stable in ytmusicapi 1.x but explicitly fall through to
     "server_error" if the regex doesn't match.
     """
-    if isinstance(exc, _EXPECTED_API_EXCEPTIONS):
+    if isinstance(exc, KeyError):
+        # ytmusicapi parser drift: YouTube changed a response shape. That's a
+        # server-side problem, not connectivity — classifying it "network"
+        # would wrongly tell the user to "check your connection".
+        return "server_error"
+    if isinstance(exc, (requests.exceptions.RequestException, asyncio.TimeoutError)):
         return "network"
     if isinstance(exc, YTMusicUserError):
         # _check_auth() raises this when auth_type is UNAUTHORIZED — i.e.
@@ -332,12 +337,12 @@ class YTMusicService:
     async def get_charts(self, country: str = "ZZ") -> dict[str, Any]:
         """Return chart data for *country* (ISO 3166-1 alpha-2, e.g. ``"GB"``).
 
-        ``"ZZ"`` is YouTube's catch-all "no specific region" code which
-        returns no chart data. The default of ``"GB"`` matches the
-        ``settings.ui.region`` default; production code passes the
-        configured region explicitly. Locale-style codes (``ES-ES``,
-        ``en-GB``) are normalised to bare two-letter codes — YouTube's
-        endpoint silently falls back to Global on locale-shaped input.
+        ``"ZZ"`` is YouTube's catch-all "Global" region and is the default
+        here, matching the ``settings.ui.region`` default; production code
+        passes the configured region explicitly. Locale-style codes
+        (``ES-ES``, ``en-GB``) are normalised to bare two-letter codes —
+        YouTube's endpoint silently falls back to Global on locale-shaped
+        input.
         """
         from ytm_player.services.regions import normalise_region
 

@@ -66,10 +66,14 @@ class ShufflePreferences:
             logger.exception("Failed to load shuffle prefs from %s", self._path)
 
     def _save(self) -> None:
+        # Snapshot under the lock so a concurrent set()/clear() can't mutate
+        # _prefs mid-serialisation; the file I/O stays outside the lock.
+        with self._lock:
+            data = dict(self._prefs)
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self._path.with_suffix(self._path.suffix + ".tmp")
-            tmp.write_text(json.dumps(dict(self._prefs), indent=2), encoding="utf-8")
+            tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
             tmp.replace(self._path)
         except Exception:
             logger.exception("Failed to save shuffle prefs to %s", self._path)

@@ -442,13 +442,17 @@ class AuthManager:
         # follow a symlink at the target path — defense-in-depth against
         # a malicious local user planting a symlink in CONFIG_DIR.
         headers = {**base_headers, "x-goog-authuser": str(chosen_index)}
-        fd = os.open(
-            str(self._auth_file),
-            os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0),
-            SECURE_FILE_MODE,
-        )
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(headers, f, ensure_ascii=True, indent=4, sort_keys=True)
+        try:
+            fd = os.open(
+                str(self._auth_file),
+                os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0),
+                SECURE_FILE_MODE,
+            )
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(headers, f, ensure_ascii=True, indent=4, sort_keys=True)
+        except OSError:
+            logger.exception("Failed to write auth file %s", self._auth_file)
+            return False
         return True
 
     # ── Manual header paste (fallback) ───────────────────────────────
@@ -559,5 +563,5 @@ def _normalize_raw_headers(raw: str) -> str:
 
 
 def get_auth_manager(cookies_file: str | None = None) -> AuthManager:
-    """Return a module-level AuthManager instance."""
+    """Construct a new AuthManager for *cookies_file* (not a shared singleton)."""
     return AuthManager(cookies_file=cookies_file)
