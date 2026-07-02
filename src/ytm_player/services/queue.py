@@ -473,9 +473,9 @@ class QueueManager:
             if self._shuffle:
                 next_pos = self._shuffle_position + 1
                 if next_pos >= len(self._shuffle_order):
-                    if self._repeat == RepeatMode.ALL:
-                        # Would wrap around, but we can't predict the reshuffle.
-                        return None
+                    # End of the shuffle order. Even under RepeatMode.ALL we
+                    # can't predict the next reshuffle, so there's nothing to
+                    # prefetch.
                     return None
                 real_idx = self._shuffle_order[next_pos]
                 if 0 <= real_idx < len(self._tracks):

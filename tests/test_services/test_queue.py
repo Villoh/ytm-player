@@ -521,3 +521,50 @@ class TestRadioSeeds:
         queue_manager.add(sample_track)
         queue_manager.clear()
         assert queue_manager.radio_seeds is None
+
+
+class TestPeekNext:
+    """peek_next is prefetch-critical: it must never advance the position."""
+
+    def test_empty_queue_is_none(self, queue_manager):
+        assert queue_manager.peek_next() is None
+
+    def test_returns_next_without_advancing(self, queue_manager, sample_tracks):
+        queue_manager.add_multiple(sample_tracks)
+        queue_manager.jump_to(0)
+        assert queue_manager.peek_next() == sample_tracks[1]
+        # Position must be unchanged after peeking.
+        assert queue_manager.current() == sample_tracks[0]
+
+    def test_last_track_repeat_off_is_none(self, queue_manager, sample_tracks):
+        queue_manager.add_multiple(sample_tracks)
+        queue_manager.jump_to(len(sample_tracks) - 1)
+        assert queue_manager.peek_next() is None
+
+    def test_last_track_repeat_all_wraps_to_first(self, queue_manager, sample_tracks):
+        queue_manager.add_multiple(sample_tracks)
+        queue_manager.jump_to(len(sample_tracks) - 1)
+        queue_manager.set_repeat(RepeatMode.ALL)
+        assert queue_manager.peek_next() == sample_tracks[0]
+
+    def test_repeat_one_returns_current(self, queue_manager, sample_tracks):
+        queue_manager.add_multiple(sample_tracks)
+        queue_manager.jump_to(2)
+        queue_manager.set_repeat(RepeatMode.ONE)
+        assert queue_manager.peek_next() == sample_tracks[2]
+
+    def test_shuffle_end_of_order_is_none(self, queue_manager, sample_tracks):
+        queue_manager.add_multiple(sample_tracks)
+        queue_manager.jump_to(0)
+        queue_manager.toggle_shuffle()
+        # Jump to the final shuffle position — no known next to prefetch.
+        queue_manager.jump_to(len(sample_tracks) - 1)
+        assert queue_manager.peek_next() is None
+
+    def test_shuffle_mid_order_returns_a_track(self, queue_manager, sample_tracks):
+        queue_manager.add_multiple(sample_tracks)
+        queue_manager.jump_to(0)
+        queue_manager.toggle_shuffle()
+        queue_manager.jump_to(0)
+        nxt = queue_manager.peek_next()
+        assert nxt in sample_tracks
