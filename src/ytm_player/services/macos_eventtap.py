@@ -11,8 +11,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from collections.abc import Callable, Coroutine
 from typing import Any
+
+from ytm_player.services._dispatch import PlayerCallback, dispatch_coro_threadsafe
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +26,6 @@ except ImportError:
     AppKit = None
     Quartz = None
     _EVENT_TAP_AVAILABLE = False
-
-PlayerCallback = Callable[..., Coroutine[Any, Any, None]]
 
 _MEDIA_EVENT_SUBTYPE = 8
 _MEDIA_KEY_DOWN_STATE = 0xA
@@ -167,10 +166,7 @@ class MacOSEventTapService:
         if callback is None or self._loop is None or self._loop.is_closed():
             return event
 
-        try:
-            self._loop.call_soon_threadsafe(lambda cb=callback: asyncio.ensure_future(cb()))
-        except RuntimeError:
-            logger.debug("Event loop closed, cannot dispatch macOS event-tap key")
+        if not dispatch_coro_threadsafe(self._loop, callback):
             return event
 
         # Swallow event so Apple Music does not steal media-key presses.
