@@ -210,6 +210,14 @@ class TestExtractDuration:
     def test_duration_takes_priority_over_length(self):
         assert extract_duration({"duration": 200, "length": "5:00"}) == 200
 
+    def test_duration_seconds_mm_ss_string_falls_through(self):
+        # A "M:SS" string under duration_seconds must not raise; fall through
+        # to the length fallback instead.
+        assert extract_duration({"duration_seconds": "3:45", "length": "3:45"}) == 225
+
+    def test_duration_seconds_garbage_falls_through_to_zero(self):
+        assert extract_duration({"duration_seconds": "nonsense"}) == 0
+
 
 # ── normalize_tracks ─────────────────────────────────────────────────
 

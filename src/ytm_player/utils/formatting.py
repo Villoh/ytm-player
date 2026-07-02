@@ -80,7 +80,10 @@ def extract_duration(track: dict) -> int:
     """
     dur = track.get("duration_seconds")
     if dur is not None:
-        return int(dur)
+        try:
+            return int(dur)
+        except (ValueError, TypeError):
+            pass
     for key in ("duration", "length"):
         dur = track.get(key)
         if isinstance(dur, int):
