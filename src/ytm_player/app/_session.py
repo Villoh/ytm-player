@@ -42,6 +42,10 @@ class SessionMixin(YTMHostBase):
             state = {}
 
         volume = state.get("volume", self.settings.playback.default_volume)
+        if not isinstance(volume, (int, float)) or isinstance(volume, bool):
+            volume = self.settings.playback.default_volume
+        else:
+            volume = int(max(0, min(100, volume)))
         if self.player:
             await self.player.set_volume(volume)
 
@@ -191,9 +195,7 @@ class SessionMixin(YTMHostBase):
             "queue_context_id": self.queue.current_context_id,
             "resume": resume,
             "sidebar_per_page": self._sidebar_per_page,
-            "lyrics_sidebar_open": self._lyrics_sidebar_open,
             "transliteration_enabled": self._get_transliteration_state(),
-            "theme": self.theme,
             "first_run_hint_shown": self._first_run_hint_shown,
             "mpris_hint_shown": self._mpris_hint_shown,
         }

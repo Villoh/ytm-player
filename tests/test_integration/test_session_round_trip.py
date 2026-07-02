@@ -103,7 +103,6 @@ async def test_valid_round_trip_persists_and_restores(tmp_path, monkeypatch):
     saver.queue.shuffle_enabled = False
     saver.queue.tracks = []
     saver.queue.current_index = 0
-    saver.theme = "textual-dark"
 
     saver._save_session_state()
     assert target.exists()
@@ -116,7 +115,6 @@ async def test_valid_round_trip_persists_and_restores(tmp_path, monkeypatch):
     assert on_disk["volume"] == 42
     assert on_disk["repeat"] == "all"
     assert on_disk["shuffle"] is False
-    assert on_disk["theme"] == "textual-dark"
 
     # ---- Restore side: a fresh host loads the file we just wrote. -----------
     loader = _build_session_host()
