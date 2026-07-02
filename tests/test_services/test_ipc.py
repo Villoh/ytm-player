@@ -8,7 +8,93 @@ from pathlib import Path
 
 import pytest
 
-from ytm_player.ipc import _VALID_COMMANDS, IPCServer
+from ytm_player.ipc import (
+    _VALID_COMMANDS,
+    IPCServer,
+    get_running_pid,
+    is_tui_running,
+    remove_pid,
+    try_claim_pid,
+)
+
+
+class TestGetRunningPid:
+    """PID-file liveness resolution behind the single-instance guard."""
+
+    @pytest.fixture
+    def pid_file(self, tmp_path, monkeypatch):
+        pid_file = tmp_path / "ytm.pid"
+        monkeypatch.setattr("ytm_player.ipc.PID_FILE", pid_file)
+        return pid_file
+
+    def test_no_pid_file_means_not_running(self, pid_file):
+        assert get_running_pid() is None
+
+    def test_live_process_returns_pid(self, pid_file, monkeypatch):
+        pid_file.write_text("12345", encoding="utf-8")
+        monkeypatch.setattr("ytm_player.ipc._is_pid_alive", lambda pid: True)
+        assert get_running_pid() == 12345
+        assert pid_file.exists()
+
+    def test_dead_process_cleans_stale_pid_file(self, pid_file, monkeypatch):
+        pid_file.write_text("12345", encoding="utf-8")
+        monkeypatch.setattr("ytm_player.ipc._is_pid_alive", lambda pid: False)
+        assert get_running_pid() is None
+        assert not pid_file.exists()
+
+    def test_garbage_pid_file_cleaned_up(self, pid_file):
+        pid_file.write_text("not-a-pid", encoding="utf-8")
+        assert get_running_pid() is None
+        assert not pid_file.exists()
+
+    def test_is_tui_running_delegates(self, pid_file, monkeypatch):
+        pid_file.write_text("777", encoding="utf-8")
+        monkeypatch.setattr("ytm_player.ipc._is_pid_alive", lambda pid: True)
+        assert is_tui_running() is True
+
+
+class TestTryClaimPid:
+    """Atomic PID-file claim for the single-instance launch guard."""
+
+    @pytest.fixture
+    def pid_file(self, tmp_path, monkeypatch):
+        pid_file = tmp_path / "ytm.pid"
+        monkeypatch.setattr("ytm_player.ipc.PID_FILE", pid_file)
+        return pid_file
+
+    def test_claim_succeeds_and_records_own_pid(self, pid_file):
+        import os
+
+        assert try_claim_pid() is None
+        assert pid_file.read_text(encoding="utf-8") == str(os.getpid())
+
+    def test_second_claim_returns_holders_pid(self, pid_file):
+        """Our own PID is genuinely alive, so no liveness mocking needed."""
+        import os
+
+        assert try_claim_pid() is None
+        assert try_claim_pid() == os.getpid()
+
+    def test_stale_holder_is_evicted_and_reclaimed(self, pid_file, monkeypatch):
+        import os
+
+        pid_file.write_text("99999", encoding="utf-8")
+        monkeypatch.setattr("ytm_player.ipc._is_pid_alive", lambda pid: False)
+        assert try_claim_pid() is None
+        assert pid_file.read_text(encoding="utf-8") == str(os.getpid())
+
+    def test_remove_pid_only_removes_own_claim(self, pid_file, monkeypatch):
+        # Another instance's claim must survive our cleanup.
+        monkeypatch.setattr("ytm_player.ipc._is_pid_alive", lambda pid: True)
+        pid_file.write_text("424242", encoding="utf-8")
+        remove_pid()
+        assert pid_file.exists()
+
+        # Our own claim is removed.
+        pid_file.unlink()
+        assert try_claim_pid() is None
+        remove_pid()
+        assert not pid_file.exists()
 
 
 class TestIPCCommandWhitelist:

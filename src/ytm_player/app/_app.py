@@ -29,7 +29,7 @@ from ytm_player.app._track_actions import TrackActionsMixin
 from ytm_player.config import KeyMap, get_keymap
 from ytm_player.config.paths import THEME_FILE  # noqa: F401  # module-level for monkeypatch
 from ytm_player.config.settings import Settings, get_settings
-from ytm_player.ipc import IPCServer, remove_pid, write_pid
+from ytm_player.ipc import IPCServer, remove_pid
 from ytm_player.services.auth import AuthManager
 from ytm_player.services.cache import CacheManager
 from ytm_player.services.discord_rpc import DiscordRPC
@@ -555,8 +555,9 @@ class YTMPlayerApp(
                 )
                 logger.warning("Auth validation failed at startup — session expired.")
 
-        # Write PID for CLI IPC detection.
-        write_pid()
+        # The PID file was already claimed atomically by the CLI launch
+        # guard (ipc.try_claim_pid) before the app was constructed —
+        # rewriting it here could clobber another instance's claim.
 
         # Start IPC server for CLI command channel.
         self._ipc_server = IPCServer(self._handle_ipc_command)

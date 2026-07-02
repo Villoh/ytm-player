@@ -1,8 +1,9 @@
 """IPC utilities: PID-file single-instance enforcement and command channel.
 
-The TUI app calls ``write_pid()`` / ``remove_pid()`` for single-instance checks,
-and creates an ``IPCServer`` so CLI commands can talk to the running TUI via
-``ipc_request()``.
+The CLI launch path claims the PID file atomically via ``try_claim_pid()``
+before starting the TUI (refusing when another live instance holds it), the
+app calls ``remove_pid()`` on shutdown, and creates an ``IPCServer`` so CLI
+commands can talk to the running TUI via ``ipc_request()``.
 
 On Linux/macOS, uses Unix domain sockets.  On Windows, uses TCP on localhost.
 """
@@ -73,17 +74,21 @@ def _is_pid_alive(pid: int) -> bool:
             return False
 
 
-def is_tui_running() -> bool:
-    """Return True if a ytm-player TUI process is alive."""
+def get_running_pid() -> int | None:
+    """Return the PID of the live ytm-player TUI process, or None.
+
+    Cleans up the stale PID file (and IPC port file on Windows) when the
+    recorded process is dead, so a fresh launch can proceed.
+    """
     if not PID_FILE.exists():
-        return False
+        return None
     try:
         pid = int(PID_FILE.read_text(encoding="utf-8").strip())
     except (ValueError, OSError):
         PID_FILE.unlink(missing_ok=True)
-        return False
+        return None
     if _is_pid_alive(pid):
-        return True
+        return pid
     # Process is dead — clean up stale PID file and IPC port file (Windows).
     PID_FILE.unlink(missing_ok=True)
     if sys.platform == "win32":
@@ -91,18 +96,91 @@ def is_tui_running() -> bool:
 
         if IPC_PORT_FILE is not None:
             IPC_PORT_FILE.unlink(missing_ok=True)
-    return False
+    return None
 
 
-def write_pid() -> None:
-    """Write the current process PID to the PID file."""
-    PID_FILE.parent.mkdir(parents=True, exist_ok=True)
-    PID_FILE.write_text(str(os.getpid()), encoding="utf-8")
-    secure_chmod(PID_FILE, 0o600)
+def is_tui_running() -> bool:
+    """Return True if a ytm-player TUI process is alive."""
+    return get_running_pid() is not None
+
+
+def try_claim_pid() -> int | None:
+    """Atomically claim the PID file for this process.
+
+    Returns None when the claim succeeded (this process is now the
+    recorded instance). Returns the other instance's PID when a live
+    ytm-player already holds the file. Stale files are cleaned up and
+    re-claimed.
+
+    The claim publishes the file with its PID content in one atomic step
+    (hard link of a pre-written temp file), so two processes launching
+    simultaneously cannot both succeed — the loser sees the winner's PID —
+    and no reader can ever observe a claimed-but-empty file.
+    """
+    while True:
+        existing = get_running_pid()
+        if existing is not None:
+            return existing
+        PID_FILE.parent.mkdir(parents=True, exist_ok=True)
+        if _try_create_pid_file():
+            return None
+        # Lost the race to a concurrently-launching instance — loop to
+        # read who won (or clean up if it already died). Converges: an
+        # existing file either names a live PID (returned) or a dead
+        # one (cleaned, then re-claimed).
+
+
+def _try_create_pid_file() -> bool:
+    """Atomically publish PID_FILE naming this process.
+
+    Returns False when the file already exists (another claimant won).
+    """
+    tmp = PID_FILE.with_name(f"{PID_FILE.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(str(os.getpid()), encoding="utf-8")
+        secure_chmod(tmp, 0o600)
+        try:
+            os.link(tmp, PID_FILE)
+            return True
+        except FileExistsError:
+            return False
+        except OSError:
+            # Filesystem without hard-link support — fall back to plain
+            # exclusive create. This creates the file before its content
+            # lands, so a concurrent get_running_pid() may garbage-collect
+            # the momentarily-empty file and re-claim. The re-read below
+            # detects that (our PID no longer in the file → defer); a
+            # narrower interleaving remains theoretically possible and is
+            # accepted on such exotic setups.
+            try:
+                fd = os.open(str(PID_FILE), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            except FileExistsError:
+                return False
+            try:
+                os.write(fd, str(os.getpid()).encode("utf-8"))
+            finally:
+                os.close(fd)
+            secure_chmod(PID_FILE, 0o600)
+            try:
+                return PID_FILE.read_text(encoding="utf-8").strip() == str(os.getpid())
+            except OSError:
+                return False
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def remove_pid() -> None:
-    """Remove the PID file."""
+    """Remove the PID file, but only if it still belongs to this process.
+
+    Guards against deleting a newer instance's claim (possible when a
+    user manually removed the file while this instance was running and
+    another instance claimed it since).
+    """
+    try:
+        if int(PID_FILE.read_text(encoding="utf-8").strip()) != os.getpid():
+            return
+    except (ValueError, OSError):
+        pass  # Missing or unreadable — unlinking is harmless either way.
     PID_FILE.unlink(missing_ok=True)
 
 

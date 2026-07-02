@@ -33,10 +33,11 @@ from ytm_player.config.paths import (
     CRASH_DIR,
     HISTORY_DB,
     LOG_FILE,
+    PID_FILE,
     ensure_dirs,
 )
 from ytm_player.config.settings import get_settings
-from ytm_player.ipc import ipc_request, is_tui_running
+from ytm_player.ipc import ipc_request, is_tui_running, try_claim_pid
 from ytm_player.services.auth import AuthManager
 from ytm_player.utils.logging import install_excepthooks, setup_logging
 
@@ -106,6 +107,22 @@ def main(ctx: click.Context, compact_json: bool, debug: bool) -> None:
     Launch without arguments to start the interactive TUI.
     Use subcommands for headless / scripting control.
     """
+    if ctx.invoked_subcommand is None:
+        # Single-instance guard, before ANY startup side effects (settings
+        # load can rewrite a corrupt config.toml; logging setup rotates
+        # files). A second TUI would unlink the live instance's IPC socket,
+        # overwrite its PID file, and fight over session.json (last writer
+        # wins). try_claim_pid() claims the PID file atomically, so two
+        # simultaneous launches can't both pass; a stale file (recorded
+        # process dead) is cleaned up automatically, so recovery after a
+        # crash needs nothing manual.
+        existing_pid = try_claim_pid()
+        if existing_pid is not None:
+            _error(
+                f"ytm is already running (PID {existing_pid}). "
+                f"If no ytm instance is actually running, delete {PID_FILE} and retry."
+            )
+
     ensure_dirs()
     settings = get_settings()
     ctx.ensure_object(dict)
