@@ -14,16 +14,22 @@ import asyncio
 import json
 import logging
 import os
+import secrets
 import socket
 import sys
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-from ytm_player.config.paths import PID_FILE, secure_chmod
+from ytm_player.config.paths import PID_FILE, SECURE_FILE_MODE, secure_chmod
 
 logger = logging.getLogger(__name__)
 
 _MAX_MSG = 65536  # 64 KB
 _CLIENT_TIMEOUT = 5  # seconds
+
+# Auth-token file for the TCP transport (Windows). Lives next to the IPC port
+# file; the Unix-socket transport relies on 0600 socket perms instead.
+_TOKEN_FILE_NAME = "ipc_token"
 
 # Whitelist of valid IPC commands.
 _VALID_COMMANDS = frozenset(
@@ -89,13 +95,14 @@ def get_running_pid() -> int | None:
         return None
     if _is_pid_alive(pid):
         return pid
-    # Process is dead — clean up stale PID file and IPC port file (Windows).
+    # Process is dead — clean up stale PID file and IPC port/token files (Windows).
     PID_FILE.unlink(missing_ok=True)
     if sys.platform == "win32":
         from ytm_player.config.paths import IPC_PORT_FILE
 
         if IPC_PORT_FILE is not None:
             IPC_PORT_FILE.unlink(missing_ok=True)
+            IPC_PORT_FILE.with_name(_TOKEN_FILE_NAME).unlink(missing_ok=True)
     return None
 
 
@@ -185,6 +192,56 @@ def remove_pid() -> None:
 
 
 # ---------------------------------------------------------------------------
+# IPC auth token (TCP transport only)
+# ---------------------------------------------------------------------------
+
+
+def _token_file_path() -> Path | None:
+    """Path of the TCP auth-token file, alongside the IPC port file.
+
+    ``None`` on Unix, where the token mechanism is unused (IPC_PORT_FILE is
+    ``None`` there; the Unix socket relies on 0600 perms instead).
+    """
+    from ytm_player.config.paths import IPC_PORT_FILE
+
+    if IPC_PORT_FILE is None:
+        return None
+    return IPC_PORT_FILE.with_name(_TOKEN_FILE_NAME)
+
+
+def _write_token_file(token: str) -> None:
+    """Persist *token* owner-only next to the IPC port file."""
+    token_path = _token_file_path()
+    if token_path is None:
+        return
+    token_path.parent.mkdir(parents=True, exist_ok=True)
+    # Never write the secret into a pre-existing inode — a stale file could
+    # carry loose permission bits (O_TRUNC preserves them). Drop it, then
+    # create exclusively with owner-only mode; O_EXCL failing means another
+    # process raced the path, so fail closed rather than reuse its inode.
+    # On Windows the mode bits are ignored (NTFS) but the file lives under
+    # the per-user profile.
+    token_path.unlink(missing_ok=True)
+    fd = os.open(str(token_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, SECURE_FILE_MODE)
+    try:
+        os.write(fd, token.encode("utf-8"))
+    finally:
+        os.close(fd)
+    secure_chmod(token_path, SECURE_FILE_MODE)
+
+
+def _read_token() -> str | None:
+    """Read the TCP auth token, or ``None`` when the file is absent/unreadable."""
+    token_path = _token_file_path()
+    if token_path is None or not token_path.exists():
+        return None
+    try:
+        return token_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+
+
+# ---------------------------------------------------------------------------
 # IPC Server (runs inside the TUI's asyncio loop)
 # ---------------------------------------------------------------------------
 
@@ -202,6 +259,9 @@ class IPCServer:
     def __init__(self, handler: IPCHandler) -> None:
         self._handler = handler
         self._server: asyncio.AbstractServer | None = None
+        # Set only on the TCP transport; when non-None every request must
+        # carry a matching ``token``. Unix sockets leave this None.
+        self._token: str | None = None
 
     async def start(self) -> None:
         if sys.platform == "win32":
@@ -222,7 +282,7 @@ class IPCServer:
         prev_umask = os.umask(0o077)
         try:
             self._server = await asyncio.start_unix_server(
-                self._client_connected, path=str(SOCKET_PATH)
+                self._client_connected, path=str(SOCKET_PATH), limit=_MAX_MSG
             )
         finally:
             os.umask(prev_umask)
@@ -235,13 +295,22 @@ class IPCServer:
         # _start_tcp is only invoked on Windows where IPC_PORT_FILE is set;
         # on Unix start_unix_server is used instead and IPC_PORT_FILE is None.
         assert IPC_PORT_FILE is not None
-        # Bind to localhost with a random available port.
-        self._server = await asyncio.start_server(self._client_connected, host="127.0.0.1", port=0)
+        # Bind to localhost with a random available port. Cap the read buffer at
+        # _MAX_MSG so an oversized line raises instead of buffering unbounded.
+        self._server = await asyncio.start_server(
+            self._client_connected, host="127.0.0.1", port=0, limit=_MAX_MSG
+        )
         # Save the port so the client can find us.
         addr = self._server.sockets[0].getsockname()
         port = addr[1]
         IPC_PORT_FILE.parent.mkdir(parents=True, exist_ok=True)
         IPC_PORT_FILE.write_text(str(port), encoding="utf-8")
+        # The TCP path has no socket-permission protection (unlike the Unix
+        # socket's 0600 mode), so any local process could otherwise connect and
+        # drive playback / mutate account state. Gate it behind a random token
+        # persisted owner-only next to the port file.
+        self._token = secrets.token_hex(32)
+        _write_token_file(self._token)
         logger.info("IPC server listening on 127.0.0.1:%d", port)
 
     async def stop(self) -> None:
@@ -250,15 +319,20 @@ class IPCServer:
             await self._server.wait_closed()
             self._server = None
 
-        if sys.platform == "win32":
+        if self._token is not None:
+            # TCP transport — remove the port and token files.
             from ytm_player.config.paths import IPC_PORT_FILE
 
             if IPC_PORT_FILE is not None:
                 IPC_PORT_FILE.unlink(missing_ok=True)
+            token_path = _token_file_path()
+            if token_path is not None:
+                token_path.unlink(missing_ok=True)
         else:
             from ytm_player.config.paths import SOCKET_PATH
 
-            SOCKET_PATH.unlink(missing_ok=True)
+            if SOCKET_PATH is not None:
+                SOCKET_PATH.unlink(missing_ok=True)
 
         logger.info("IPC server stopped")
 
@@ -266,34 +340,45 @@ class IPCServer:
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
         try:
-            raw = await asyncio.wait_for(reader.read(_MAX_MSG), timeout=_CLIENT_TIMEOUT)
-            if not raw:
+            # Newline-delimited framing: read exactly one JSON line. readline()
+            # loops until it sees "\n" (or EOF), so fragmented writes are
+            # reassembled instead of parsed as truncated JSON. It raises when a
+            # single line exceeds the stream limit (_MAX_MSG).
+            try:
+                raw = await asyncio.wait_for(reader.readline(), timeout=_CLIENT_TIMEOUT)
+            except (ValueError, asyncio.LimitOverrunError):
+                await self._respond(writer, {"ok": False, "error": "payload too large"})
                 return
 
-            # Reject oversized payloads.
-            if len(raw) > _MAX_MSG:
-                writer.write(json.dumps({"ok": False, "error": "payload too large"}).encode())
-                await writer.drain()
+            if not raw:
                 return
 
             try:
                 request = json.loads(raw.decode("utf-8", errors="replace"))
             except (json.JSONDecodeError, UnicodeDecodeError):
-                writer.write(json.dumps({"ok": False, "error": "invalid JSON"}).encode())
-                await writer.drain()
+                await self._respond(writer, {"ok": False, "error": "invalid JSON"})
                 return
 
             if not isinstance(request, dict):
-                writer.write(json.dumps({"ok": False, "error": "expected JSON object"}).encode())
-                await writer.drain()
+                await self._respond(writer, {"ok": False, "error": "expected JSON object"})
                 return
+
+            # TCP transport has no socket-permission auth — require a matching
+            # token before dispatching (rejects any local process without it).
+            if self._token is not None:
+                token = request.get("token")
+                # Compare as bytes: compare_digest raises TypeError on
+                # non-ASCII str input, which would surface as "internal
+                # error" instead of a proper auth rejection.
+                if not isinstance(token, str) or not secrets.compare_digest(
+                    token.encode("utf-8"), self._token.encode("utf-8")
+                ):
+                    await self._respond(writer, {"ok": False, "error": "authentication failed"})
+                    return
 
             command = request.get("command", "")
             if not isinstance(command, str) or command not in _VALID_COMMANDS:
-                writer.write(
-                    json.dumps({"ok": False, "error": f"unknown command: {command}"}).encode()
-                )
-                await writer.drain()
+                await self._respond(writer, {"ok": False, "error": f"unknown command: {command}"})
                 return
 
             args = request.get("args", {})
@@ -301,15 +386,13 @@ class IPCServer:
                 args = {}
 
             response = await self._handler(command, args)
-            writer.write(json.dumps(response).encode())
-            await writer.drain()
+            await self._respond(writer, response)
         except asyncio.TimeoutError:
             logger.debug("IPC client timed out")
         except Exception:
             logger.debug("IPC client error", exc_info=True)
             try:
-                writer.write(json.dumps({"ok": False, "error": "internal error"}).encode())
-                await writer.drain()
+                await self._respond(writer, {"ok": False, "error": "internal error"})
             except Exception:
                 pass
         finally:
@@ -318,6 +401,11 @@ class IPCServer:
                 await writer.wait_closed()
             except Exception:
                 pass
+
+    async def _respond(self, writer: asyncio.StreamWriter, payload: dict[str, Any]) -> None:
+        """Write one newline-terminated JSON response line and flush."""
+        writer.write((json.dumps(payload) + "\n").encode("utf-8"))
+        await writer.drain()
 
 
 # ---------------------------------------------------------------------------
@@ -340,6 +428,26 @@ def ipc_request(
     return _ipc_request_unix(command, args, timeout)
 
 
+def _ipc_exchange(sock: socket.socket, request: dict[str, Any]) -> dict[str, Any]:
+    """Send one newline-framed request over *sock* and return the parsed reply.
+
+    The server writes exactly one newline-terminated JSON line then closes, so
+    reading to EOF yields that single reply line (json.loads ignores the
+    trailing newline).
+    """
+    sock.sendall((json.dumps(request) + "\n").encode("utf-8"))
+    sock.shutdown(socket.SHUT_WR)
+
+    chunks: list[bytes] = []
+    while True:
+        chunk = sock.recv(4096)
+        if not chunk:
+            break
+        chunks.append(chunk)
+
+    return json.loads(b"".join(chunks).decode("utf-8"))
+
+
 def _ipc_request_unix(
     command: str,
     args: dict[str, Any] | None,
@@ -351,18 +459,7 @@ def _ipc_request_unix(
     sock.settimeout(timeout)
     try:
         sock.connect(str(SOCKET_PATH))
-        payload = json.dumps({"command": command, "args": args or {}}).encode()
-        sock.sendall(payload)
-        sock.shutdown(socket.SHUT_WR)
-
-        chunks: list[bytes] = []
-        while True:
-            chunk = sock.recv(4096)
-            if not chunk:
-                break
-            chunks.append(chunk)
-
-        return json.loads(b"".join(chunks).decode())
+        return _ipc_exchange(sock, {"command": command, "args": args or {}})
     finally:
         sock.close()
 
@@ -378,21 +475,14 @@ def _ipc_request_tcp(
         raise FileNotFoundError("IPC port file not found — is ytm-player running?")
 
     port = int(IPC_PORT_FILE.read_text(encoding="utf-8").strip())
+    token = _read_token()
+    if token is None:
+        raise FileNotFoundError("IPC token file not found — is ytm-player running?")
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(timeout)
     try:
         sock.connect(("127.0.0.1", port))
-        payload = json.dumps({"command": command, "args": args or {}}).encode()
-        sock.sendall(payload)
-        sock.shutdown(socket.SHUT_WR)
-
-        chunks: list[bytes] = []
-        while True:
-            chunk = sock.recv(4096)
-            if not chunk:
-                break
-            chunks.append(chunk)
-
-        return json.loads(b"".join(chunks).decode())
+        return _ipc_exchange(sock, {"command": command, "args": args or {}, "token": token})
     finally:
         sock.close()

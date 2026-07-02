@@ -9,13 +9,40 @@ from pathlib import Path
 import pytest
 
 from ytm_player.ipc import (
+    _MAX_MSG,
     _VALID_COMMANDS,
     IPCServer,
+    _ipc_request_tcp,
+    _ipc_request_unix,
     get_running_pid,
     is_tui_running,
     remove_pid,
     try_claim_pid,
 )
+
+
+async def _tcp_roundtrip(port: int, obj: dict, *, split: bool = False) -> dict:
+    """Send *obj* as a newline-framed line to the TCP server and read one reply.
+
+    When *split* is set, the line is written in two flushes with a delay
+    between them to exercise the server's reassembly of fragmented messages.
+    """
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    data = (json.dumps(obj) + "\n").encode()
+    if split and len(data) > 4:
+        mid = len(data) // 2
+        writer.write(data[:mid])
+        await writer.drain()
+        await asyncio.sleep(0.1)
+        writer.write(data[mid:])
+        await writer.drain()
+    else:
+        writer.write(data)
+        await writer.drain()
+    resp = json.loads(await asyncio.wait_for(reader.readline(), timeout=5))
+    writer.close()
+    await writer.wait_closed()
+    return resp
 
 
 class TestGetRunningPid:
@@ -268,3 +295,266 @@ class TestIPCServerHandler:
         resp = await send(payload)
         assert resp["ok"] is False
         assert "unknown command" in resp["error"]
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Unix-socket framing tests use AF_UNIX which Windows doesn't support",
+)
+class TestIPCUnixFraming:
+    """Newline framing over the Unix-socket transport (fragmentation, oversize)."""
+
+    @pytest.fixture
+    async def unix_env(self, monkeypatch):
+        # Short socket path (AF_UNIX sun_path is capped at 104 bytes on macOS).
+        tmp_dir = Path(tempfile.mkdtemp(prefix="ytm-ipc-"))
+        socket_path = tmp_dir / "s"
+        calls: list[str] = []
+
+        async def handler(command: str, args: dict) -> dict:
+            calls.append(command)
+            return {"ok": True, "command": command, "args": args}
+
+        server = IPCServer(handler)
+        import ytm_player.config.paths as paths_mod
+
+        monkeypatch.setattr(paths_mod, "SOCKET_PATH", socket_path)
+        try:
+            await server.start()
+            yield socket_path, calls
+        finally:
+            await server.stop()
+            socket_path.unlink(missing_ok=True)
+            try:
+                tmp_dir.rmdir()
+            except OSError:
+                pass
+
+    async def test_fragmented_message_is_reassembled(self, unix_env):
+        """A JSON line split across two writes must still parse (pre-fix: fails)."""
+        socket_path, calls = unix_env
+        reader, writer = await asyncio.open_unix_connection(str(socket_path))
+        line = json.dumps({"command": "play", "args": {}}).encode() + b"\n"
+        mid = len(line) // 2
+        writer.write(line[:mid])
+        await writer.drain()
+        await asyncio.sleep(0.1)
+        writer.write(line[mid:])
+        await writer.drain()
+        resp = json.loads(await asyncio.wait_for(reader.readline(), timeout=5))
+        writer.close()
+        await writer.wait_closed()
+        assert resp["ok"] is True
+        assert calls == ["play"]
+
+    async def test_oversized_line_rejected(self, unix_env):
+        """A line above the cap yields a clean error and never dispatches."""
+        socket_path, calls = unix_env
+        reader, writer = await asyncio.open_unix_connection(str(socket_path))
+        blob = "x" * (_MAX_MSG + 4096)
+        line = json.dumps({"command": "play", "args": {"blob": blob}}).encode() + b"\n"
+        writer.write(line)
+        try:
+            await writer.drain()
+        except (ConnectionResetError, BrokenPipeError):
+            pass
+        try:
+            resp = json.loads(await asyncio.wait_for(reader.readline(), timeout=5))
+            assert resp["ok"] is False
+            assert "large" in resp["error"].lower()
+        except (ConnectionResetError, ConnectionError):
+            # Dropping the oversized connection is also acceptable — the point
+            # is no hang (guarded by wait_for) and no crash (verified below).
+            pass
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except (ConnectionResetError, ConnectionError):
+            pass
+        assert "play" not in calls
+
+        # Server survived and still serves — proves no crash.
+        r2, w2 = await asyncio.open_unix_connection(str(socket_path))
+        w2.write(json.dumps({"command": "status", "args": {}}).encode() + b"\n")
+        await w2.drain()
+        resp2 = json.loads(await asyncio.wait_for(r2.readline(), timeout=5))
+        w2.close()
+        await w2.wait_closed()
+        assert resp2["ok"] is True
+
+    async def test_unix_client_roundtrip(self, monkeypatch):
+        """The real blocking Unix client talks to the real server end-to-end."""
+        tmp_dir = Path(tempfile.mkdtemp(prefix="ytm-ipc-"))
+        socket_path = tmp_dir / "s"
+
+        async def handler(command: str, args: dict) -> dict:
+            return {"ok": True, "command": command}
+
+        server = IPCServer(handler)
+        import ytm_player.config.paths as paths_mod
+
+        monkeypatch.setattr(paths_mod, "SOCKET_PATH", socket_path)
+        try:
+            await server.start()
+            resp = await asyncio.to_thread(_ipc_request_unix, "status", {}, 5.0)
+            assert resp == {"ok": True, "command": "status"}
+        finally:
+            await server.stop()
+            socket_path.unlink(missing_ok=True)
+            try:
+                tmp_dir.rmdir()
+            except OSError:
+                pass
+
+
+class TestIPCTcpAuth:
+    """Auth-token gating + framing over the TCP transport (all platforms)."""
+
+    @pytest.fixture
+    async def tcp_env(self, monkeypatch):
+        tmp_dir = Path(tempfile.mkdtemp(prefix="ytm-ipc-"))
+        port_file = tmp_dir / "ipc_port"
+        calls: list[str] = []
+
+        async def handler(command: str, args: dict) -> dict:
+            calls.append(command)
+            return {"ok": True, "command": command, "args": args}
+
+        server = IPCServer(handler)
+        import ytm_player.config.paths as paths_mod
+
+        monkeypatch.setattr(paths_mod, "IPC_PORT_FILE", port_file)
+        await server._start_tcp()
+        port = int(port_file.read_text(encoding="utf-8").strip())
+        token = port_file.with_name("ipc_token").read_text(encoding="utf-8").strip()
+        try:
+            yield port, token, calls
+        finally:
+            if server._server is not None:
+                server._server.close()
+                await server._server.wait_closed()
+            port_file.unlink(missing_ok=True)
+            port_file.with_name("ipc_token").unlink(missing_ok=True)
+            try:
+                tmp_dir.rmdir()
+            except OSError:
+                pass
+
+    async def test_valid_token_is_dispatched(self, tcp_env):
+        port, token, calls = tcp_env
+        resp = await _tcp_roundtrip(port, {"command": "play", "args": {}, "token": token})
+        assert resp["ok"] is True
+        assert resp["command"] == "play"
+        assert calls == ["play"]
+
+    async def test_wrong_token_rejected_and_not_dispatched(self, tcp_env):
+        port, _token, calls = tcp_env
+        resp = await _tcp_roundtrip(port, {"command": "play", "args": {}, "token": "deadbeef"})
+        assert resp["ok"] is False
+        assert "auth" in resp["error"].lower()
+        assert calls == []
+
+    async def test_missing_token_rejected_and_not_dispatched(self, tcp_env):
+        port, _token, calls = tcp_env
+        resp = await _tcp_roundtrip(port, {"command": "play", "args": {}})
+        assert resp["ok"] is False
+        assert "auth" in resp["error"].lower()
+        assert calls == []
+
+    async def test_fragmented_message_is_reassembled(self, tcp_env):
+        port, token, calls = tcp_env
+        resp = await _tcp_roundtrip(
+            port, {"command": "play", "args": {}, "token": token}, split=True
+        )
+        assert resp["ok"] is True
+        assert calls == ["play"]
+
+    async def test_tcp_client_roundtrip_reads_token(self, monkeypatch):
+        """The real blocking TCP client reads the token file and authenticates."""
+        tmp_dir = Path(tempfile.mkdtemp(prefix="ytm-ipc-"))
+        port_file = tmp_dir / "ipc_port"
+
+        async def handler(command: str, args: dict) -> dict:
+            return {"ok": True, "command": command}
+
+        server = IPCServer(handler)
+        import ytm_player.config.paths as paths_mod
+
+        monkeypatch.setattr(paths_mod, "IPC_PORT_FILE", port_file)
+        await server._start_tcp()
+        try:
+            resp = await asyncio.to_thread(_ipc_request_tcp, "status", {}, 5.0)
+            assert resp == {"ok": True, "command": "status"}
+        finally:
+            if server._server is not None:
+                server._server.close()
+                await server._server.wait_closed()
+            port_file.unlink(missing_ok=True)
+            port_file.with_name("ipc_token").unlink(missing_ok=True)
+            try:
+                tmp_dir.rmdir()
+            except OSError:
+                pass
+
+    async def test_start_tcp_writes_files_and_stop_removes_them(self, monkeypatch):
+        tmp_dir = Path(tempfile.mkdtemp(prefix="ytm-ipc-"))
+        port_file = tmp_dir / "ipc_port"
+        token_file = port_file.with_name("ipc_token")
+
+        async def handler(command: str, args: dict) -> dict:
+            return {"ok": True}
+
+        server = IPCServer(handler)
+        import ytm_player.config.paths as paths_mod
+
+        monkeypatch.setattr(paths_mod, "IPC_PORT_FILE", port_file)
+        await server._start_tcp()
+        assert port_file.exists()
+        assert token_file.exists()
+        assert len(token_file.read_text(encoding="utf-8").strip()) >= 32
+        await server.stop()
+        assert not port_file.exists()
+        assert not token_file.exists()
+        try:
+            tmp_dir.rmdir()
+        except OSError:
+            pass
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="NTFS ignores POSIX mode bits")
+    async def test_token_file_is_owner_only(self, monkeypatch):
+        tmp_dir = Path(tempfile.mkdtemp(prefix="ytm-ipc-"))
+        port_file = tmp_dir / "ipc_port"
+
+        async def handler(command: str, args: dict) -> dict:
+            return {"ok": True}
+
+        server = IPCServer(handler)
+        import ytm_player.config.paths as paths_mod
+
+        monkeypatch.setattr(paths_mod, "IPC_PORT_FILE", port_file)
+        await server._start_tcp()
+        try:
+            token_file = port_file.with_name("ipc_token")
+            assert (token_file.stat().st_mode & 0o777) == 0o600
+        finally:
+            await server.stop()
+            try:
+                tmp_dir.rmdir()
+            except OSError:
+                pass
+
+
+def test_whitelist_matches_handler_cases():
+    """The frozenset gate and the mixin's match arms must not drift apart.
+
+    Reads app/_ipc.py as text (no heavy app import) and compares its
+    ``case "..."`` command literals against _VALID_COMMANDS.
+    """
+    import re
+
+    import ytm_player
+
+    src_path = Path(ytm_player.__file__).parent / "app" / "_ipc.py"
+    text = src_path.read_text(encoding="utf-8")
+    cases = set(re.findall(r'case "(\w+)":', text))
+    assert cases == set(_VALID_COMMANDS)
