@@ -245,3 +245,78 @@ class TestResolveAsync:
         assert results[0].url == results[1].url
         # extract_info should only be called once despite two concurrent resolve() calls.
         assert mock_inst.extract_info.call_count == 1
+
+    async def test_cancelled_owner_does_not_orphan_waiter(self):
+        """If the owning resolve() is cancelled mid-flight, a concurrent waiter
+        on the same video must not hang on the orphaned pending future."""
+        import contextlib
+        import threading
+
+        resolver = StreamResolver()
+        release = threading.Event()
+
+        def blocking_resolve(video_id: str) -> StreamInfo:
+            release.wait(timeout=5)
+            return _make_info(video_id)
+
+        resolver._resolve_sync = blocking_resolve  # type: ignore[method-assign]
+
+        owner = asyncio.create_task(resolver.resolve("hangVid01"))
+        # Let the owner register the pending future and enter to_thread.
+        await asyncio.sleep(0.05)
+        assert "hangVid01" in resolver._pending
+
+        waiter = asyncio.create_task(resolver.resolve("hangVid01"))
+        await asyncio.sleep(0.05)
+
+        owner.cancel()
+
+        try:
+            # Both tasks must settle promptly; a hang means the waiter was
+            # orphaned on a never-resolved future.
+            await asyncio.wait_for(
+                asyncio.gather(owner, waiter, return_exceptions=True),
+                timeout=2.0,
+            )
+        except asyncio.TimeoutError:
+            release.set()
+            pytest.fail("concurrent waiter hung on an orphaned pending future")
+
+        release.set()
+        assert owner.cancelled()
+        # The waiter did not hang — it settled (cancelled/errored) instead.
+        assert waiter.done()
+        with contextlib.suppress(BaseException):
+            await waiter
+
+    async def test_cancelled_waiter_does_not_break_owner(self):
+        """Cancelling a waiter must not cancel the shared pending future out
+        from under the owner — Task.cancel() propagates into an awaited bare
+        future, and the owner's set_result would raise InvalidStateError."""
+        import threading
+
+        resolver = StreamResolver()
+        release = threading.Event()
+
+        def blocking_resolve(video_id: str) -> StreamInfo:
+            release.wait(timeout=5)
+            return _make_info(video_id)
+
+        resolver._resolve_sync = blocking_resolve  # type: ignore[method-assign]
+
+        owner = asyncio.create_task(resolver.resolve("shieldVid1"))
+        await asyncio.sleep(0.05)
+        assert "shieldVid1" in resolver._pending
+
+        waiter = asyncio.create_task(resolver.resolve("shieldVid1"))
+        await asyncio.sleep(0.05)
+
+        waiter.cancel()
+        await asyncio.sleep(0.05)  # let the cancellation land on the waiter
+        release.set()
+
+        # The owner must complete its successful resolve untouched.
+        info = await asyncio.wait_for(owner, timeout=2.0)
+        assert info is not None
+        assert info.video_id == "shieldVid1"
+        assert waiter.cancelled()
