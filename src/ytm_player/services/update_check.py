@@ -11,10 +11,9 @@ from __future__ import annotations
 import json
 import logging
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 
+import requests
 from packaging.version import InvalidVersion, Version
 
 logger = logging.getLogger(__name__)
@@ -35,14 +34,15 @@ def _is_newer(latest: str, current: str) -> bool:
 def _fetch_latest_from_pypi() -> str | None:
     """Hit PyPI for the latest ytm-player version. None on any failure."""
     try:
-        req = urllib.request.Request(
+        resp = requests.get(
             _PYPI_URL,
             headers={"User-Agent": "ytm-player update-check"},
+            timeout=_REQUEST_TIMEOUT,
         )
-        with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT) as resp:  # noqa: S310
-            data = json.loads(resp.read().decode("utf-8"))
+        resp.raise_for_status()
+        data = resp.json()
         return data.get("info", {}).get("version")
-    except (urllib.error.URLError, OSError, json.JSONDecodeError, ValueError):
+    except (requests.RequestException, ValueError):
         return None
     except Exception:  # pragma: no cover — belt-and-braces
         logger.debug("Unexpected PyPI fetch failure", exc_info=True)
