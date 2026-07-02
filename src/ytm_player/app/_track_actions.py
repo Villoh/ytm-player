@@ -15,6 +15,26 @@ from ytm_player.utils.formatting import copy_to_clipboard, get_video_id, normali
 logger = logging.getLogger(__name__)
 
 
+def _first_artist_id(source: dict) -> str:
+    """Browse ID of the first artist listed on a track/entity dict, or ''."""
+    artists = source.get("artists")
+    if isinstance(artists, list) and artists and isinstance(artists[0], dict):
+        return artists[0].get("id") or artists[0].get("browseId", "")
+    return ""
+
+
+def _album_browse_id(source: dict) -> str:
+    """Album browse ID from a track/entity dict, or ''.
+
+    The nested album id must outrank the top-level ``browseId``: track dicts
+    can carry a non-album ``browseId``, while album entities have no nested
+    ``album`` dict and legitimately resolve through ``browseId``.
+    """
+    album = source.get("album")
+    nested = album.get("id") if isinstance(album, dict) else None
+    return source.get("album_id") or nested or source.get("browseId") or ""
+
+
 class TrackActionsMixin(YTMHostBase):
     """Track table integration and actions popup wiring."""
 
@@ -111,21 +131,13 @@ class TrackActionsMixin(YTMHostBase):
             elif action_id == "start_radio":
                 self.run_worker(self._fetch_and_play_radio(track))
             elif action_id == "go_to_artist":
-                artists = track.get("artists", [])
-                if isinstance(artists, list) and artists:
-                    artist = artists[0]
-                    artist_id = artist.get("id") or artist.get("browseId", "")
-                    if artist_id:
-                        self.run_worker(
-                            self.navigate_to("context", context_type="artist", context_id=artist_id)
-                        )
+                artist_id = _first_artist_id(track)
+                if artist_id:
+                    self.run_worker(
+                        self.navigate_to("context", context_type="artist", context_id=artist_id)
+                    )
             elif action_id == "go_to_album":
-                album = track.get("album", {})
-                album_id = (
-                    track.get("album_id")
-                    or (album.get("id") if isinstance(album, dict) else None)
-                    or ""
-                )
+                album_id = _album_browse_id(track)
                 if album_id:
                     self.run_worker(
                         self.navigate_to("context", context_type="album", context_id=album_id)
@@ -619,9 +631,9 @@ class TrackActionsMixin(YTMHostBase):
             return True
 
         if action_id in ("go_to_artist", "view_similar"):
-            artists = item.get("artists") or []
+            artists = item.get("artists")
             if isinstance(artists, list) and artists:
-                artist_id = artists[0].get("id") or artists[0].get("browseId", "")
+                artist_id = _first_artist_id(item)
             else:
                 artist_id = entity_id if item_type == "artist" else ""
             if not artist_id:
@@ -631,7 +643,7 @@ class TrackActionsMixin(YTMHostBase):
             return True
 
         if action_id == "go_to_album":
-            album_id = item.get("album_id") or item.get("browseId") or ""
+            album_id = _album_browse_id(item)
             if not album_id:
                 self.notify("No ID available", severity="error", timeout=2)
                 return True
