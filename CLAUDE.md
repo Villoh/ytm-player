@@ -85,7 +85,7 @@ ruff check src/ tests/
 
 - pytest with `asyncio_mode = "auto"` — async test functions are auto-detected, no `@pytest.mark.asyncio` needed
 - UI code (`src/ytm_player/ui/*`) is excluded from coverage; services and config are covered
-- Coverage floor: 10%
+- Coverage floor: 47%
 - Heavy mocking of mpv, ytmusicapi, yt-dlp, D-Bus — tests never hit real APIs or require mpv installed
 - Test fixtures in `tests/conftest.py`: `sample_track`/`sample_tracks` use `_make_track()` helper to create standardized track dicts; `queue_manager` provides a fresh `QueueManager` instance
 - CI runs on GitHub Actions (Ubuntu + macOS + Windows, Python 3.10 and 3.14): ruff lint + format check, then pytest with coverage

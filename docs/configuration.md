@@ -145,6 +145,7 @@ api_key = ""
 api_secret = ""
 session_key = ""
 username = ""
+password_hash = ""           # md5 hash of your Last.fm password (pylast.md5())
 ```
 
 ### `[logging]`
