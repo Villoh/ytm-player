@@ -60,58 +60,34 @@ class IPCMixin(YTMHostBase):
                     return {"ok": True}
 
                 case "like":
-                    if (
-                        not self.player
-                        or not self.player.current_track
-                        or not self.player.current_track.get("video_id")
-                    ):
-                        return {"ok": False, "error": "no track is playing"}
-                    if not self.ytmusic:
-                        return {"ok": False, "error": "ytmusic not initialized"}
-                    result = await self.ytmusic.rate_song(
-                        self.player.current_track["video_id"], "LIKE"
-                    )
-                    if result == "success":
-                        return {"ok": True}
-                    return {"ok": False, "error": result}
+                    return await self._ipc_rate("LIKE")
 
                 case "dislike":
-                    if (
-                        not self.player
-                        or not self.player.current_track
-                        or not self.player.current_track.get("video_id")
-                    ):
-                        return {"ok": False, "error": "no track is playing"}
-                    if not self.ytmusic:
-                        return {"ok": False, "error": "ytmusic not initialized"}
-                    result = await self.ytmusic.rate_song(
-                        self.player.current_track["video_id"], "DISLIKE"
-                    )
-                    if result == "success":
-                        return {"ok": True}
-                    return {"ok": False, "error": result}
+                    return await self._ipc_rate("DISLIKE")
 
                 case "unlike":
-                    if (
-                        not self.player
-                        or not self.player.current_track
-                        or not self.player.current_track.get("video_id")
-                    ):
-                        return {"ok": False, "error": "no track is playing"}
-                    if not self.ytmusic:
-                        return {"ok": False, "error": "ytmusic not initialized"}
-                    result = await self.ytmusic.rate_song(
-                        self.player.current_track["video_id"], "INDIFFERENT"
-                    )
-                    if result == "success":
-                        return {"ok": True}
-                    return {"ok": False, "error": result}
+                    return await self._ipc_rate("INDIFFERENT")
 
                 case _:
                     return {"ok": False, "error": f"unknown command: {command}"}
         except Exception as exc:
             logger.exception("IPC command '%s' failed", command)
             return {"ok": False, "error": str(exc)}
+
+    async def _ipc_rate(self, rating: str) -> dict:
+        """Rate the currently playing track (LIKE / DISLIKE / INDIFFERENT)."""
+        if (
+            not self.player
+            or not self.player.current_track
+            or not self.player.current_track.get("video_id")
+        ):
+            return {"ok": False, "error": "no track is playing"}
+        if not self.ytmusic:
+            return {"ok": False, "error": "ytmusic not initialized"}
+        result = await self.ytmusic.rate_song(self.player.current_track["video_id"], rating)
+        if result == "success":
+            return {"ok": True}
+        return {"ok": False, "error": result}
 
     async def _ipc_seek(self, args: dict) -> dict:
         """Handle seek IPC command. Accepts relative (+10, -10) or absolute (1:30)."""
