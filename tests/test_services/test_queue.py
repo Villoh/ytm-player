@@ -432,6 +432,27 @@ class TestRadioTracks:
         queue_manager.set_radio_tracks(radio)
         assert queue_manager.length == 7
 
+    def test_set_radio_tracks_empty_shuffle_rebuilds(
+        self, queue_manager, sample_tracks, monkeypatch
+    ):
+        """Radio tracks into an empty shuffled queue must rebuild the shuffle
+        order — the old piecemeal path skipped _rebuild_shuffle (regression)."""
+        queue_manager._shuffle = True  # shuffle on while queue is still empty
+
+        calls: list[bool] = []
+        original = queue_manager._rebuild_shuffle
+
+        def spy(keep_current: bool = True) -> None:
+            calls.append(keep_current)
+            original(keep_current)
+
+        monkeypatch.setattr(queue_manager, "_rebuild_shuffle", spy)
+
+        queue_manager.set_radio_tracks(sample_tracks)
+
+        assert calls == [False]  # full rebuild, matching add_multiple on an empty queue
+        assert sorted(queue_manager._shuffle_order) == list(range(len(sample_tracks)))
+
 
 class TestQueuePositionTracking:
     """Tests for real_index and remaining_tracks properties."""

@@ -189,29 +189,38 @@ class QueueManager:
                 insert_pos = self._current_index + 1 if self._current_index >= 0 else 0
                 self._add_unlocked(track, position=insert_pos)
 
+    def _add_multiple_unlocked(self, tracks: list[dict]) -> None:
+        """Append *tracks* to the queue and update shuffle order.
+
+        Caller must already hold ``self._lock``.  On a fresh (empty) queue with
+        shuffle enabled this rebuilds the whole shuffle order rather than
+        inserting piecemeal into an empty list.
+        """
+        was_empty = len(self._tracks) == 0
+        start_idx = len(self._tracks)
+        self._tracks.extend(tracks)
+        new_indices = list(range(start_idx, start_idx + len(tracks)))
+
+        if self._shuffle:
+            if was_empty:
+                # Fresh queue after clear() — do a full shuffle build
+                # instead of piecemeal insertion into an empty list.
+                self._rebuild_shuffle(keep_current=False)
+            else:
+                # Insert new indices at random future positions.
+                insert_after = self._shuffle_position + 1 if self._shuffle_position >= 0 else 0
+                random.shuffle(new_indices)
+                for new_idx in new_indices:
+                    pos = random.randint(insert_after, len(self._shuffle_order))
+                    self._shuffle_order.insert(pos, new_idx)
+
     def add_multiple(self, tracks: list[dict]) -> None:
         """Append multiple tracks to the end of the queue."""
         if not tracks:
             return
 
         with self._lock:
-            was_empty = len(self._tracks) == 0
-            start_idx = len(self._tracks)
-            self._tracks.extend(tracks)
-            new_indices = list(range(start_idx, start_idx + len(tracks)))
-
-            if self._shuffle:
-                if was_empty:
-                    # Fresh queue after clear() — do a full shuffle build
-                    # instead of piecemeal insertion into an empty list.
-                    self._rebuild_shuffle(keep_current=False)
-                else:
-                    # Insert new indices at random future positions.
-                    insert_after = self._shuffle_position + 1 if self._shuffle_position >= 0 else 0
-                    random.shuffle(new_indices)
-                    for new_idx in new_indices:
-                        pos = random.randint(insert_after, len(self._shuffle_order))
-                        self._shuffle_order.insert(pos, new_idx)
+            self._add_multiple_unlocked(tracks)
 
     def remove(self, index: int) -> None:
         """Remove the track at the given index (in visible/playback order)."""
@@ -443,16 +452,8 @@ class QueueManager:
             new_tracks = [t for t in tracks if t.get("video_id") not in existing_ids]
             if new_tracks:
                 logger.debug("Adding %d radio tracks to queue", len(new_tracks))
-                # Use internal unlocked path since we already hold the lock.
-                start_idx = len(self._tracks)
-                self._tracks.extend(new_tracks)
-                new_indices = list(range(start_idx, start_idx + len(new_tracks)))
-                if self._shuffle:
-                    insert_after = self._shuffle_position + 1 if self._shuffle_position >= 0 else 0
-                    random.shuffle(new_indices)
-                    for new_idx in new_indices:
-                        pos = random.randint(insert_after, len(self._shuffle_order))
-                        self._shuffle_order.insert(pos, new_idx)
+                # Share the append/shuffle path (we already hold the lock).
+                self._add_multiple_unlocked(new_tracks)
 
     def peek_next(self) -> dict | None:
         """Return the next track WITHOUT advancing the position.
