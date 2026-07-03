@@ -306,25 +306,46 @@ class RecentlyPlayedPage(TrackFilterHost, Widget):
         self._refresh_tab_from_cache(index)
 
     def _refresh_tab_from_cache(self, index: int) -> None:
-        """Re-render *index* from its cache, keeping the cursor on the same track.
+        """Re-render *index* from its cache after a background update.
 
-        A row was prepended, so the cursor shifts down one to stay put.
+        Never steals focus, reapplies the active ``/`` filter, and keeps the
+        cursor on the same track by identity (a prepend shifts rows down one,
+        but a dedup that moves an existing row is net-zero, so a blanket +1
+        would drift).
         """
         if self._active_tab != index:
             return
         cache = self._get_cache(index)
         if cache is None:
             return
+        query = ""
+        try:
+            query = self.query_one("#track-filter", Input).value.strip()
+        except Exception:
+            logger.debug("Failed to read track filter on tab refresh", exc_info=True)
         try:
             table = self.query_one("#recent-table", TrackTable)
             row = table.cursor_row
-            if row is not None:
-                self._restore_cursor_row = min(row + 1, len(cache) - 1)
+            # While a filter is active the cursor restore is skipped:
+            # apply_filter rebuilds the visible rows on a debounce, so a row
+            # index computed now would race it — and the user is typing in
+            # the Input at that moment, not driving the table cursor.
+            if not query and row is not None and 0 <= row < len(table.tracks):
+                cursored_id = get_video_id(table.tracks[row])
+                for i, t in enumerate(cache):
+                    if get_video_id(t) == cursored_id:
+                        self._restore_cursor_row = i
+                        break
         except Exception:
             logger.debug("Failed to preserve cursor on tab refresh", exc_info=True)
-        self._display_tracks(cache)
+        self._display_tracks(cache, focus=False)
+        if query:
+            try:
+                self.query_one("#recent-table", TrackTable).apply_filter(query)
+            except Exception:
+                logger.debug("Failed to reapply track filter on tab refresh", exc_info=True)
 
-    def _display_tracks(self, tracks: list[dict]) -> None:
+    def _display_tracks(self, tracks: list[dict], *, focus: bool = True) -> None:
         table = self.query_one("#recent-table", TrackTable)
         loading = self.query_one("#recent-loading", Label)
 
@@ -362,8 +383,11 @@ class RecentlyPlayedPage(TrackFilterHost, Widget):
         if row is not None and 0 <= row < table.row_count:
             table.move_cursor(row=row)
 
-        # Land keyboard focus on the table so Tab / j / k have a starting point.
-        table.focus()
+        # Land keyboard focus on the table so Tab / j / k have a starting
+        # point — but never on background refreshes, which would steal focus
+        # from the filter input mid-keystroke.
+        if focus:
+            table.focus()
 
     def get_nav_state(self) -> dict[str, Any]:
         """Return state to preserve when navigating away."""

@@ -47,6 +47,7 @@ def _make_page(active_tab: int = _TAB_LOCAL):
     }
     widgets["#recent-table"].row_count = 0
     widgets["#recent-table"].cursor_row = None
+    widgets["#track-filter"].value = ""
 
     def fake_query_one(selector: str, _expected_type=None):
         return widgets[selector]
@@ -255,3 +256,63 @@ def test_reselecting_active_tab_reloads(monkeypatch) -> None:
     assert fake_app._ytm_history is None
     page._load_active_tab.assert_called_once()
     fake_app.notify.assert_called_once()
+
+
+# ── background refresh (focus / filter / cursor) ─────────────────────
+
+
+def _page_with_cache(monkeypatch, tracks):
+    page, widgets = _make_page(active_tab=_TAB_LOCAL)
+    fake_app = MagicMock()
+    _attach_fake_app(page, fake_app, monkeypatch)
+    page._set_cache(_TAB_LOCAL, tracks)
+    return page, widgets
+
+
+def test_background_refresh_does_not_steal_focus(monkeypatch) -> None:
+    page, widgets = _page_with_cache(monkeypatch, [{"video_id": "a", "title": "A"}])
+    widgets["#recent-table"].tracks = []
+
+    page._refresh_tab_from_cache(_TAB_LOCAL)
+
+    widgets["#recent-table"].focus.assert_not_called()
+
+
+def test_initial_display_still_focuses_table(monkeypatch) -> None:
+    page, widgets = _make_page(active_tab=_TAB_LOCAL)
+    fake_app = MagicMock()
+    _attach_fake_app(page, fake_app, monkeypatch)
+    widgets["#recent-table"].row_count = 1
+
+    page._display_tracks([{"video_id": "a", "title": "A"}])
+
+    widgets["#recent-table"].focus.assert_called_once()
+
+
+def test_background_refresh_reapplies_active_filter(monkeypatch) -> None:
+    page, widgets = _page_with_cache(
+        monkeypatch,
+        [{"video_id": "a", "title": "Alpha"}, {"video_id": "b", "title": "Beta"}],
+    )
+    widgets["#track-filter"].value = "alp"
+    widgets["#recent-table"].tracks = []
+
+    page._refresh_tab_from_cache(_TAB_LOCAL)
+
+    widgets["#recent-table"].load_tracks.assert_called_once()
+    widgets["#recent-table"].apply_filter.assert_called_once_with("alp")
+
+
+def test_background_refresh_keeps_cursor_on_same_track(monkeypatch) -> None:
+    """A dedup-move refresh is net-zero: the cursored track keeps its row."""
+    old = [{"video_id": "a", "title": "A"}, {"video_id": "b", "title": "B"}]
+    new = [{"video_id": "b", "title": "B"}, {"video_id": "a", "title": "A"}]
+    page, widgets = _page_with_cache(monkeypatch, new)
+    widgets["#recent-table"].tracks = old
+    widgets["#recent-table"].cursor_row = 0  # cursor on "a"
+    widgets["#recent-table"].row_count = 2
+
+    page._refresh_tab_from_cache(_TAB_LOCAL)
+
+    # "a" is at index 1 in the new cache; move_cursor lands there.
+    widgets["#recent-table"].move_cursor.assert_called_once_with(row=1)
