@@ -22,7 +22,7 @@ from ytm_player.app._ipc import IPCMixin
 from ytm_player.app._keys import KeyHandlingMixin
 from ytm_player.app._mpris import MPRISMixin
 from ytm_player.app._navigation import PAGE_NAMES, NavigationMixin
-from ytm_player.app._playback import PlaybackMixin
+from ytm_player.app._playback import PlaybackMixin, _LocalHistoryClaim
 from ytm_player.app._session import SessionMixin
 from ytm_player.app._sidebar import SidebarMixin
 from ytm_player.app._track_actions import TrackActionsMixin
@@ -266,16 +266,10 @@ class YTMPlayerApp(
         # Play generation already reported to the YT Music account history,
         # so each play is reported at most once. -1 = nothing reported yet.
         self._ytm_reported_generation: int = -1
-        # Local SQLite play_history row for the current play once it crosses
-        # the listen threshold; final logging updates this row instead of
-        # inserting a duplicate play.
-        self._local_history_play_id: int | None = None
-        self._local_history_video_id: str = ""
-        # Final listen duration captured while the optimistic insert worker is
-        # still in flight (a quick skip/track-end before the row exists). The
-        # worker applies it once the row is written so we don't leave the row
-        # stuck at the threshold value. None = nothing pending.
-        self._local_history_pending_seconds: int | None = None
+        # Ownership token for the current play's local-history row. One
+        # object per play; the report timer chain, insert worker and finalize
+        # share it — see _playback._LocalHistoryClaim.
+        self._local_history_claim: _LocalHistoryClaim | None = None
         # App-level cache of the normalized YT Music account history (the
         # Recently Played "YT Music" tab). Persists across page navigation so
         # we don't refetch on every visit, and is optimistically prepended to

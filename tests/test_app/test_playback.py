@@ -51,8 +51,7 @@ def _fresh_playback_host():
     p._pending_resume_video_id = None
     p._pending_resume_position = 0.0
     p._play_generation = 0
-    p._local_history_play_id = None
-    p._local_history_video_id = ""
+    p._local_history_claim = None
     p._play_lock = asyncio.Lock()
     return p
 
@@ -602,3 +601,33 @@ class TestCrossTrackRace:
         await task_a
 
         assert resolved == ["BBB"], "superseded call kept going after history log"
+
+
+class TestTrackEndFinalize:
+    async def test_stale_track_end_noops_when_new_play_current(self):
+        """A new play can commit between mpv's end-file event and this
+        callback running — the whole event is stale. Finalizing could
+        consume the new play's live claim (worst case: a same-video replay
+        dropped from history), and advancing would skip straight over the
+        track that is already playing."""
+        host = _fresh_playback_host()
+        host._log_listen_for = AsyncMock()
+        host._play_next = AsyncMock()
+        host.player.current_track = {"video_id": "new"}
+
+        await host._on_track_end({"track": {"video_id": "old"}})
+
+        host._log_listen_for.assert_not_awaited()
+        host._play_next.assert_not_awaited()
+        assert host._advancing is False
+
+    async def test_natural_track_end_finalizes_and_advances(self):
+        host = _fresh_playback_host()
+        host._log_listen_for = AsyncMock()
+        host._play_next = AsyncMock()
+        host.player.current_track = None
+
+        await host._on_track_end({"track": {"video_id": "old"}})
+
+        host._log_listen_for.assert_awaited_once_with({"video_id": "old"})
+        host._play_next.assert_awaited_once()

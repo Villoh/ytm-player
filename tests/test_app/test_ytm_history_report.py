@@ -14,6 +14,7 @@ from ytm_player.app._playback import (
     _YTM_HISTORY_MAX,
     _YTM_HISTORY_POLL_SECONDS,
     PlaybackMixin,
+    _LocalHistoryClaim,
 )
 from ytm_player.config.settings import DEFAULT_HISTORY_MIN_LISTEN_SECONDS
 
@@ -34,9 +35,7 @@ def _host(
     host._play_generation = play_generation
     host._ytm_reported_generation = reported_generation
     host._ytm_history = None
-    host._local_history_play_id = None
-    host._local_history_video_id = ""
-    host._local_history_pending_seconds = None
+    host._local_history_claim = None
     host._track_start_position = 0.0
     host.history = MagicMock()
     host.player.position = position
@@ -63,9 +62,23 @@ def _report(host, video_id="vid1", generation=1) -> None:
     PlaybackMixin._report_ytm_play.__get__(host)(track, video_id, generation)
 
 
-def _report_local(host, video_id="vid1", generation=1) -> None:
-    track = {"video_id": video_id}
-    PlaybackMixin._report_local_play.__get__(host)(track, video_id, generation)
+def _claim(video_id: str = "vid1", generation: int = 1, **kw) -> _LocalHistoryClaim:
+    c = _LocalHistoryClaim(video_id=video_id, track={"video_id": video_id}, generation=generation)
+    for k, v in kw.items():
+        setattr(c, k, v)
+    return c
+
+
+def _report_local(host, claim) -> None:
+    PlaybackMixin._report_local_play.__get__(host)(claim)
+
+
+def _finalize(host, video_id="vid1"):
+    return PlaybackMixin._log_local_listen.__get__(host)({"video_id": video_id})
+
+
+def _insert(host, claim, listened=DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 1):
+    return PlaybackMixin._insert_local_history_play.__get__(host)(claim, listened)
 
 
 # ── scheduling ───────────────────────────────────────────────────────
@@ -207,16 +220,29 @@ def test_report_skips_when_disabled_mid_play() -> None:
 # ── local SQLite history ─────────────────────────────────────────────
 
 
-def test_local_schedule_arms_threshold_timer() -> None:
+def test_local_schedule_arms_threshold_timer_and_creates_claim() -> None:
     host = _host()
     _schedule_local(host)
     host.set_timer.assert_called_once()
     assert host.set_timer.call_args.args[0] == DEFAULT_HISTORY_MIN_LISTEN_SECONDS
+    claim = host._local_history_claim
+    assert claim is not None and claim.video_id == "vid1" and not claim.finalized
+
+
+def test_local_schedule_replaces_previous_claim() -> None:
+    """Each committed play gets its OWN claim — same-video replays included."""
+    host = _host()
+    _schedule_local(host)
+    first = host._local_history_claim
+    _schedule_local(host)  # same video_id, new play
+    assert host._local_history_claim is not first
 
 
 def test_local_report_repolls_until_position_exceeds_threshold() -> None:
     host = _host(position=DEFAULT_HISTORY_MIN_LISTEN_SECONDS)
-    _report_local(host)
+    claim = _claim()
+    host._local_history_claim = claim
+    _report_local(host, claim)
     host.run_worker.assert_not_called()
     host.set_timer.assert_called_once()
     assert host.set_timer.call_args.args[0] == _YTM_HISTORY_POLL_SECONDS
@@ -224,32 +250,42 @@ def test_local_report_repolls_until_position_exceeds_threshold() -> None:
 
 def test_local_report_inserts_once_position_exceeds_threshold() -> None:
     host = _host(position=DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 1)
-    _report_local(host)
+    claim = _claim()
+    host._local_history_claim = claim
+    _report_local(host, claim)
     host.run_worker.assert_called_once()
+    assert claim.insert_started is True
 
 
-def test_local_report_claim_clears_stale_pending_duration() -> None:
-    """A new claim must not inherit a prior play's stashed final duration."""
-    host = _host(play_generation=3, position=DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 1)
-    # Left over from a previous play that handed off to an insert worker.
-    host._local_history_pending_seconds = 90
+def test_local_report_stops_when_claim_superseded() -> None:
+    """A newer play replaced the claim: the old chain must die, not re-arm."""
+    host = _host(position=DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 1)
+    old = _claim()
+    host._local_history_claim = _claim()  # a different object
+    _report_local(host, old)
+    host.run_worker.assert_not_called()
+    host.set_timer.assert_not_called()
 
-    _report_local(host, generation=3)
 
-    # Claim stamped and the stale handoff cleared so it can't land on this row.
-    assert host._local_history_play_id == -1
-    assert host._local_history_video_id == "vid1"
-    assert host._local_history_pending_seconds is None
-    host.run_worker.assert_called_once()
+def test_local_report_stops_after_finalize() -> None:
+    """Bug (g): finalize direct-logged the row; the still-armed timer must
+    not claim + insert a second row for the same play."""
+    host = _host(position=DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 1)
+    claim = _claim(finalized=True)
+    host._local_history_claim = claim
+    _report_local(host, claim)
+    host.run_worker.assert_not_called()
+    host.set_timer.assert_not_called()
 
 
 def test_local_report_fires_even_when_current_track_cleared() -> None:
     """Natural advance: a duplicate mpv end-file clears player.current_track
-    while the track keeps playing. The report must still fire (generation is
-    the source of truth), otherwise the play is silently dropped."""
+    while the track keeps playing. The report must still fire."""
     host = _host(position=DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 1)
     host.player.current_track = None
-    _report_local(host)
+    claim = _claim()
+    host._local_history_claim = claim
+    _report_local(host, claim)
     host.run_worker.assert_called_once()
 
 
@@ -260,162 +296,223 @@ def test_ytm_report_fires_even_when_current_track_cleared() -> None:
     host.ytmusic.add_history_item.assert_called_once_with("vid1")
 
 
-async def test_local_insert_records_play_id() -> None:
+async def test_local_insert_records_row_id_on_claim() -> None:
     host = _host(play_generation=4)
-    # _report_local_play stamps the sentinel before scheduling the worker.
-    host._local_history_play_id = -1
-    host._local_history_video_id = "vid1"
+    claim = _claim(generation=4, insert_started=True)
+    host._local_history_claim = claim
     host.history.log_play = AsyncMock(return_value=123)
+    host._optimistic_local_history_add = MagicMock()
 
-    await PlaybackMixin._insert_local_history_play.__get__(host)(
-        {"video_id": "vid1"},
-        DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 1,
-        "vid1",
-        4,
-    )
+    await _insert(host, claim)
 
-    assert host._local_history_play_id == 123
-    assert host._local_history_video_id == "vid1"
+    assert claim.row_id == 123
+    host._optimistic_local_history_add.assert_called_once()
 
 
-async def test_local_insert_leaves_new_claim_when_ownership_lost_during_write() -> None:
-    """A newer track can claim the sentinel while log_play is awaited; the
-    stale worker must not consume the new claim's pending handoff or clobber
-    its state on the way out."""
+async def test_local_insert_still_logs_when_superseded_after_threshold() -> None:
+    """A skip right after crossing the threshold must not drop the row —
+    and must not optimistically render a stale play."""
+    host = _host(play_generation=5)
+    claim = _claim(generation=4, insert_started=True)
+    host._local_history_claim = claim
+    host.history.log_play = AsyncMock(return_value=123)
+    host._optimistic_local_history_add = MagicMock()
+
+    await _insert(host, claim)
+
+    host.history.log_play.assert_awaited_once()
+    assert claim.row_id == 123
+    host._optimistic_local_history_add.assert_not_called()
+
+
+async def test_stale_insert_still_logs_earned_row_and_preserves_new_claim() -> None:
+    """INVERTED from the old suite: a late worker for track A logs A's
+    earned row anyway, and cannot touch track B's claim (it only writes its
+    own object)."""
+    host = _host(play_generation=2)
+    claim_a = _claim("vidA", insert_started=True)  # stale: generation 1
+    claim_b = _claim("vidB", generation=2, insert_started=True, pending_seconds=42)
+    host._local_history_claim = claim_b
+    host.history.log_play = AsyncMock(return_value=999)
+    host._optimistic_local_history_add = MagicMock()
+
+    await _insert(host, claim_a)
+
+    host.history.log_play.assert_awaited_once()
+    assert claim_a.row_id == 999
+    assert host._local_history_claim is claim_b
+    assert claim_b.pending_seconds == 42
+    host._optimistic_local_history_add.assert_not_called()
+
+
+async def test_local_insert_survives_mid_write_reclaim() -> None:
+    """Bug (d)/(e) regression: track B claims while A's log_play is awaited;
+    A's worker must not wipe or consume B's state."""
     host = _host()
-    host._reset_local_history_state = PlaybackMixin._reset_local_history_state.__get__(host)
-    host._local_history_play_id = -1
-    host._local_history_video_id = "vid1"
+    claim_a = _claim("vidA", insert_started=True)
+    host._local_history_claim = claim_a
+    claim_b = _claim("vidB", generation=2, insert_started=True, pending_seconds=99)
 
     async def _log_play(*_a, **_k):
-        # Track B claims the shared state mid-write.
-        host._local_history_play_id = -1
-        host._local_history_video_id = "vidB"
-        host._local_history_pending_seconds = 99
+        host._local_history_claim = claim_b  # B claims mid-write
+        host._play_generation = 2
         return 123
 
     host.history.log_play = AsyncMock(side_effect=_log_play)
     host.history.update_play_listened_seconds = AsyncMock()
 
-    await PlaybackMixin._insert_local_history_play.__get__(host)(
-        {"video_id": "vid1"},
-        DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 1,
-        "vid1",
-        1,
-    )
+    await _insert(host, claim_a)
 
-    # B's pending handoff is untouched and its claim intact.
+    assert claim_a.row_id == 123
+    assert host._local_history_claim is claim_b
+    assert claim_b.pending_seconds == 99
     host.history.update_play_listened_seconds.assert_not_awaited()
-    assert host._local_history_play_id == -1
-    assert host._local_history_video_id == "vidB"
-    assert host._local_history_pending_seconds == 99
-
-
-async def test_local_insert_still_logs_when_superseded_after_threshold() -> None:
-    """A skip right after crossing the 5s threshold must not drop the row."""
-    host = _host(play_generation=4)
-    host._local_history_play_id = -1
-    host._local_history_video_id = "vid1"
-    host.history.log_play = AsyncMock(return_value=123)
-    # Track was superseded (skip) while the insert was scheduled.
-    host._play_generation = 5
-
-    await PlaybackMixin._insert_local_history_play.__get__(host)(
-        {"video_id": "vid1"},
-        DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 1,
-        "vid1",
-        4,
-    )
-
-    host.history.log_play.assert_awaited_once()
-    assert host._local_history_play_id == 123
-
-
-async def test_stale_insert_preserves_new_claim_on_mismatch() -> None:
-    """A late worker for track A must not wipe track B's claim.
-
-    Interleaving: A crosses the threshold (sentinel claimed, worker A queued
-    but stalls) -> A's finalize stashes a pending duration -> B crosses its
-    own threshold and claims the sentinel. When worker A finally runs it sees
-    the video_id mismatch and must return without touching B's state.
-    """
-    host = _host()
-    host._reset_local_history_state = PlaybackMixin._reset_local_history_state.__get__(host)
-    # B now owns the shared state (mid-play insert in flight).
-    host._local_history_play_id = -1
-    host._local_history_video_id = "vidB"
-    host._local_history_pending_seconds = 42
-    host.history.log_play = AsyncMock(return_value=999)
-
-    # Stale worker for A runs late.
-    await PlaybackMixin._insert_local_history_play.__get__(host)(
-        {"video_id": "vidA"},
-        DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 1,
-        "vidA",
-        1,
-    )
-
-    host.history.log_play.assert_not_awaited()
-    # B's claim is intact so its own worker can still finish the insert.
-    assert host._local_history_play_id == -1
-    assert host._local_history_video_id == "vidB"
-    assert host._local_history_pending_seconds == 42
 
 
 async def test_local_insert_applies_pending_duration() -> None:
     """Finalize ran while the insert was in flight; the final duration wins."""
     host = _host()
-    host._local_history_play_id = -1
-    host._local_history_video_id = "vid1"
-    host._local_history_pending_seconds = 90  # stashed by _log_local_listen
-    host._reset_local_history_state = PlaybackMixin._reset_local_history_state.__get__(host)
+    claim = _claim(insert_started=True, finalized=True, pending_seconds=90)
+    host._local_history_claim = claim
     host.history.log_play = AsyncMock(return_value=123)
     host.history.update_play_listened_seconds = AsyncMock()
 
-    await PlaybackMixin._insert_local_history_play.__get__(host)(
-        {"video_id": "vid1"},
-        DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 1,
-        "vid1",
-        1,
-    )
+    await _insert(host, claim)
 
     host.history.update_play_listened_seconds.assert_awaited_once_with(123, 90)
-    # State cleared: the play already ended, nothing left to track.
-    assert host._local_history_play_id is None
-    assert host._local_history_video_id == ""
-    assert host._local_history_pending_seconds is None
+    assert claim.pending_seconds is None
 
 
-async def test_final_local_log_hands_off_when_insert_in_flight() -> None:
-    """Finalize while sentinel is -1 stashes the duration and keeps the sentinel."""
-    host = _host(position=90)
-    host._local_history_play_id = -1
-    host._local_history_video_id = "vid1"
+async def test_superseded_insert_still_applies_pending_duration() -> None:
+    """Bug (f) regression: a NEW play claiming must not cost the in-flight
+    play its final duration — pending lives on the old play's own claim and
+    the worker applies it even though the claim was replaced."""
+    host = _host()
+    claim_a = _claim("vidA", insert_started=True, finalized=True, pending_seconds=90)
+    host._local_history_claim = _claim("vidB")  # B already claimed
+    host.history.log_play = AsyncMock(return_value=123)
     host.history.update_play_listened_seconds = AsyncMock()
-    host.history.log_play = AsyncMock()
 
-    await PlaybackMixin._log_local_listen.__get__(host)({"video_id": "vid1"})
+    await _insert(host, claim_a)
 
-    # No DB write here — handed off to the in-flight worker instead.
-    host.history.update_play_listened_seconds.assert_not_awaited()
-    host.history.log_play.assert_not_awaited()
-    assert host._local_history_pending_seconds == 90
-    # Sentinel preserved so the worker can attribute + apply the duration.
-    assert host._local_history_play_id == -1
-    assert host._local_history_video_id == "vid1"
+    host.history.update_play_listened_seconds.assert_awaited_once_with(123, 90)
+    assert claim_a.pending_seconds is None
+
+
+async def test_local_insert_failure_leaves_row_unset() -> None:
+    host = _host()
+    claim = _claim(insert_started=True)
+    host._local_history_claim = claim
+    host.history.log_play = AsyncMock(side_effect=OSError("db gone"))
+    host._optimistic_local_history_add = MagicMock()
+
+    await _insert(host, claim)
+
+    assert claim.row_id is None
+    host._optimistic_local_history_add.assert_not_called()
 
 
 async def test_final_local_log_updates_existing_row() -> None:
     host = _host(position=60)
-    host._local_history_play_id = 123
-    host._local_history_video_id = "vid1"
+    claim = _claim(row_id=123, insert_started=True)
+    host._local_history_claim = claim
     host.history.update_play_listened_seconds = AsyncMock()
 
-    await PlaybackMixin._log_local_listen.__get__(host)({"video_id": "vid1"})
+    await _finalize(host)
 
     host.history.update_play_listened_seconds.assert_awaited_once_with(123, 60)
-    assert host._local_history_play_id is None
-    assert host._local_history_video_id == ""
+    assert claim.finalized is True
+
+
+async def test_final_local_log_hands_off_when_insert_in_flight() -> None:
+    """Finalize while the worker is mid-insert stashes the duration on the
+    claim for the worker to apply."""
+    host = _host(position=90)
+    claim = _claim(insert_started=True)
+    host._local_history_claim = claim
+    host.history.update_play_listened_seconds = AsyncMock()
+    host.history.log_play = AsyncMock()
+
+    await _finalize(host)
+
+    host.history.update_play_listened_seconds.assert_not_awaited()
+    host.history.log_play.assert_not_awaited()
+    assert claim.pending_seconds == 90
+    assert claim.finalized is True
+
+
+async def test_finalize_consumes_claim_even_when_listened_zero() -> None:
+    """Bug (a) regression: mpv reads position 0.0 once idle, so natural-EOF
+    finalize computes listened <= 0. The claim must STILL be consumed or a
+    same-video replay (repeat-one) merges into the old row."""
+    host = _host(position=0.0)
+    claim = _claim(row_id=123, insert_started=True)
+    host._local_history_claim = claim
+    host.history.update_play_listened_seconds = AsyncMock()
+
+    await _finalize(host)
+
+    host.history.update_play_listened_seconds.assert_not_awaited()
+    assert claim.finalized is True
+
+
+def test_same_video_replay_gets_fresh_claim_and_new_insert() -> None:
+    """Bug (a)+(b): after a zero-listen finalize consumed the old claim,
+    replaying the same video schedules a fresh claim whose chain inserts
+    normally — no video_id-keyed bail, no lost replay. (The stale-finalize
+    race against a fresh same-video claim is closed in _on_track_end and
+    covered by TestTrackEndFinalize in test_playback.py.)"""
+    host = _host(position=DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 1)
+    host._local_history_claim = _claim(finalized=True)  # consumed old play
+    _schedule_local(host)  # replay of the same video
+    new_claim = host._local_history_claim
+    assert new_claim is not None and not new_claim.finalized
+    _report_local(host, new_claim)
+    host.run_worker.assert_called_once()
+
+
+async def test_second_finalize_is_noop() -> None:
+    """Duplicate end-file / concurrent supersede: the second finalize for the
+    same play must not write a second row."""
+    host = _host(position=60)
+    claim = _claim(row_id=123, insert_started=True, finalized=True)
+    host._local_history_claim = claim
+    host.history.update_play_listened_seconds = AsyncMock()
+    host.history.log_play = AsyncMock()
+
+    await _finalize(host)
+
+    host.history.update_play_listened_seconds.assert_not_awaited()
+    host.history.log_play.assert_not_awaited()
+
+
+async def test_finalize_direct_logs_when_claim_belongs_to_other_video() -> None:
+    """Late finalize for a track that never claimed: direct-log it (log_play
+    enforces the threshold) and leave the current claim untouched."""
+    host = _host(position=60)
+    claim_b = _claim("vidB", insert_started=True)
+    host._local_history_claim = claim_b
+    host.history.log_play = AsyncMock(return_value=7)
+    host.history.update_play_listened_seconds = AsyncMock()
+
+    await _finalize(host, video_id="vidA")
+
+    host.history.log_play.assert_awaited_once()
+    assert host.history.log_play.call_args.kwargs["track"] == {"video_id": "vidA"}
+    host.history.update_play_listened_seconds.assert_not_awaited()
+    assert claim_b.finalized is False
+
+
+async def test_finalize_direct_logs_when_no_claim_exists() -> None:
+    """No claim at all (below-threshold play that ended between polls):
+    finalize direct-logs; log_play's own threshold decides if it counts."""
+    host = _host(position=60)
+    host._local_history_claim = None
+    host.history.log_play = AsyncMock(return_value=7)
+
+    await _finalize(host)
+
+    host.history.log_play.assert_awaited_once()
 
 
 # ── optimistic cache update ──────────────────────────────────────────

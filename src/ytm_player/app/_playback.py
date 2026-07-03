@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from dataclasses import dataclass
 from typing import Any
 
 from ytm_player.app._base import YTMHostBase
@@ -25,6 +26,33 @@ _YTM_HISTORY_POLL_SECONDS = 1.0
 # Cap for the optimistic YT Music history cache — matches the row cap the
 # Recently Played page renders (RecentlyPlayedPage._MAX_TRACKS).
 _YTM_HISTORY_MAX = 100
+
+
+@dataclass
+class _LocalHistoryClaim:
+    """Ownership token for one play's local-history row.
+
+    One object per committed play — a same-video replay gets a fresh object,
+    so identity comparison can never alias two plays. The report timer chain,
+    the insert worker, and finalize all hold the same object; the only shared
+    app state is ``app._local_history_claim`` (which play is *current*), and
+    only scheduling/replacement writes it.
+    """
+
+    video_id: str
+    track: dict
+    generation: int
+    # SQLite row id once the insert worker lands it. None while the worker is
+    # in flight (or if the insert failed).
+    row_id: int | None = None
+    # Final listen duration stashed by finalize while the insert worker is in
+    # flight; the worker applies it once the row exists.
+    pending_seconds: int | None = None
+    # The report chain handed this play to the insert worker.
+    insert_started: bool = False
+    # A finalize consumed this claim: stops the report chain and blocks a
+    # second finalize from double-logging.
+    finalized: bool = False
 
 
 class PlaybackMixin(YTMHostBase):
@@ -393,10 +421,21 @@ class PlaybackMixin(YTMHostBase):
         self._advancing = True
         logger.debug("Track ended (event=%s), advancing to next", event)
         try:
+            ended_track = event.get("track") if isinstance(event, dict) else None
+            # A new play can commit between this end event and the callback
+            # running (Player clears current_track BEFORE dispatching, so it
+            # can only be non-None again if play() ran since). The whole
+            # event is then stale: finalizing could consume the new play's
+            # claim (same-video replay) or log with its position — while a
+            # natural-EOF finalize writes nothing anyway (mpv reads position
+            # 0.0 once idle) — and advancing would skip straight over the
+            # track that is already playing.
+            if self.player and self.player.current_track is not None:
+                logger.debug("Ignoring stale track-end; a newer play is already current")
+                return
             # Log listen time using the ended track passed in the event,
             # since player.current_track is already None by the time this
             # callback runs.
-            ended_track = event.get("track") if isinstance(event, dict) else None
             if ended_track:
                 await self._log_listen_for(ended_track)
             await self._play_next(ended_track=ended_track)
@@ -656,23 +695,38 @@ class PlaybackMixin(YTMHostBase):
         if not self.history or not self.player:
             return
 
+        video_id = get_video_id(track)
+        claim = self._local_history_claim
+        # Only a claim for THIS video belongs to the play being finalized; on
+        # a mismatch another play owns it — leave it alone and direct-log.
+        owned = claim if claim is not None and claim.video_id == video_id else None
+        if owned is not None:
+            if owned.finalized:
+                # Already finalized (duplicate end-file or a concurrent
+                # supersede) — a second write would duplicate the row.
+                return
+            # Consume before any await: stops the report timer chain and
+            # blocks a concurrent finalize. Same-video replays get a fresh
+            # claim object, so a consumed claim can't swallow a later play.
+            owned.finalized = True
+
         listened = int(self.player.position - self._track_start_position)
         if listened <= 0:
+            # Nothing to write (mpv reads position 0.0 once idle, so natural
+            # EOF lands here) — but the claim above is already consumed: a
+            # replay of the same video must get its own row, not merge into
+            # this one.
             return
-        video_id = get_video_id(track)
         try:
-            if self._local_history_play_id is not None and video_id == self._local_history_video_id:
-                if self._local_history_play_id > 0:
-                    await self.history.update_play_listened_seconds(
-                        self._local_history_play_id,
-                        listened,
-                    )
-                else:
-                    # Insert worker still in flight (sentinel -1). Hand off the
-                    # final duration so the worker applies it once the row
-                    # exists, and leave the sentinel in place for it to clear.
-                    self._local_history_pending_seconds = listened
-                    return
+            if owned is not None and owned.row_id is not None:
+                await self.history.update_play_listened_seconds(owned.row_id, listened)
+            elif owned is not None and owned.insert_started:
+                # Insert worker in flight: hand off the final duration for it
+                # to apply once the row exists. If the worker is already dead
+                # (insert failed, or cancelled at quit) this is a no-op — the
+                # row keeps its threshold-time value rather than risking a
+                # duplicate from a blind direct log.
+                owned.pending_seconds = listened
             else:
                 await self.history.log_play(
                     track=track,
@@ -682,12 +736,6 @@ class PlaybackMixin(YTMHostBase):
                 )
         except Exception:
             logger.exception("Failed to log play history")
-        finally:
-            # Preserve the sentinel + video id when a duration handoff is
-            # pending; the insert worker owns clearing them in that case.
-            if self._local_history_pending_seconds is None:
-                self._local_history_play_id = None
-                self._local_history_video_id = ""
 
     def _history_min_listen_seconds(self) -> int:
         """Configured minimum seconds before a play counts instead of a skip."""
@@ -708,65 +756,48 @@ class PlaybackMixin(YTMHostBase):
         """Insert the current play into SQLite once it crosses the threshold."""
         if not self.history or not video_id:
             return
+        claim = _LocalHistoryClaim(video_id=video_id, track=dict(track), generation=generation)
+        self._local_history_claim = claim
         self.set_timer(
             self._history_timer_delay(),
-            lambda: self._report_local_play(track, video_id, generation),
+            lambda: self._report_local_play(claim),
         )
 
-    def _report_local_play(self, track: dict, video_id: str, generation: int) -> None:
-        # The generation check alone proves this play is still current: a skip
-        # or auto-advance bumps the generation. We deliberately do NOT gate on
-        # player.current_track — on natural advance a duplicate mpv end-file can
-        # transiently clear current_track while the track keeps playing, which
-        # would otherwise drop the play from history.
-        if generation != self._play_generation:
-            return
-        if self._local_history_play_id is not None and video_id == self._local_history_video_id:
+    def _report_local_play(self, claim: _LocalHistoryClaim) -> None:
+        # Identity is the liveness check: every committed play replaces
+        # ``_local_history_claim`` and finalize marks the claim consumed;
+        # either ends this chain. We deliberately do NOT gate on
+        # player.current_track — on natural advance a duplicate mpv end-file
+        # can transiently clear current_track while the track keeps playing,
+        # which would otherwise drop the play from history.
+        if claim is not self._local_history_claim or claim.finalized:
             return
         if not self.history or not self.player:
             return
         listened = int(self.player.position - self._track_start_position)
-        min_listen = self._history_min_listen_seconds()
-        if listened <= min_listen:
+        if listened <= self._history_min_listen_seconds():
             self.set_timer(
                 _YTM_HISTORY_POLL_SECONDS,
-                lambda: self._report_local_play(track, video_id, generation),
+                lambda: self._report_local_play(claim),
             )
             return
-        # Mark immediately so a quick skip while the DB worker is in flight
-        # does not insert a duplicate final play row. Clear any stashed
-        # duration handoff from a previous play so it can't be applied to this
-        # new claim's row.
-        self._local_history_play_id = -1
-        self._local_history_video_id = video_id
-        self._local_history_pending_seconds = None
+        claim.insert_started = True
         self.run_worker(
-            self._insert_local_history_play(dict(track), listened, video_id, generation),
+            self._insert_local_history_play(claim, listened),
             group="local-history-report",
         )
 
-    async def _insert_local_history_play(
-        self,
-        track: dict,
-        listened: int,
-        video_id: str,
-        generation: int,
-    ) -> None:
+    async def _insert_local_history_play(self, claim: _LocalHistoryClaim, listened: int) -> None:
         # The play already crossed the listen threshold when this worker was
-        # scheduled, so a later skip (generation bump) must not drop it — the
-        # row is still earned. We only bail if this report was superseded by
-        # another track's report reusing the shared sentinel.
-        if self._local_history_video_id != video_id:
-            # A newer track already claimed the shared state; we no longer own
-            # it, so return without touching it (resetting would wipe the new
-            # claim and drop its play too).
-            return
+        # scheduled — the row is earned no matter what happened since (skip,
+        # same-video replay, newer claim). Insert unconditionally; this
+        # worker only ever writes fields of its own claim object, so it
+        # cannot clobber a newer play's state.
         if not self.history:
-            self._reset_local_history_state()
             return
         try:
             play_id = await self.history.log_play(
-                track,
+                claim.track,
                 listened,
                 source="tui",
                 min_listen_seconds=self._history_min_listen_seconds(),
@@ -774,41 +805,26 @@ class PlaybackMixin(YTMHostBase):
         except Exception:
             logger.exception("Failed to log play history")
             play_id = None
-        # Ownership can change while log_play is awaited: a newer track's
-        # report may have claimed the shared sentinel. If so, the row we just
-        # wrote is still earned, but we must not read the new claim's pending
-        # handoff or clobber its state on the way out.
-        if self._local_history_video_id != video_id:
-            return
+        claim.row_id = play_id
         if play_id is None:
-            self._reset_local_history_state()
             return
-        # A finalize (skip/track-end) ran while this insert was in flight and
-        # stashed the final duration. Apply it now that the row exists so the
-        # row isn't left at the threshold value, then clear the tracking state.
-        pending = self._local_history_pending_seconds
+        # Finalize may have stashed the final duration while the insert was
+        # in flight. No await sits between publishing row_id above and
+        # reading pending_seconds here, so a finalize either already saw
+        # row_id (and updated the row itself) or its stash is visible now.
+        pending = claim.pending_seconds
         if pending is not None:
-            self._local_history_pending_seconds = None
+            claim.pending_seconds = None
             if pending > listened:
                 try:
                     await self.history.update_play_listened_seconds(play_id, pending)
                 except Exception:
                     logger.exception("Failed to finalize play history")
-            self._reset_local_history_state()
             return
-        # Still playing this track: remember the row so finalize updates it.
-        self._local_history_play_id = play_id
-        self._local_history_video_id = video_id
-        # Reflect it live only if this play is still current. Use the
-        # generation (not player.current_track, which a duplicate end-file can
-        # transiently clear on natural advance) to decide.
-        if generation == self._play_generation:
-            self._optimistic_local_history_add(track)
-
-    def _reset_local_history_state(self) -> None:
-        self._local_history_play_id = None
-        self._local_history_video_id = ""
-        self._local_history_pending_seconds = None
+        # Reflect it live only if this play is still current (generation, not
+        # current_track, which a duplicate end-file can transiently clear).
+        if claim.generation == self._play_generation:
+            self._optimistic_local_history_add(claim.track)
 
     def _optimistic_local_history_add(self, track: dict) -> None:
         """Prepend the just-logged play to the Local tab if it is open.
