@@ -47,7 +47,7 @@ sync_history_to_ytmusic = true  # report TUI plays back to your YT Music account
 
 > `resume_on_launch` (added v1.7.0) stages the last-playing track + position into the playback bar on startup. Press space to continue from where you were. Set to `false` to start fresh every time.
 
-> `history_min_listen_seconds` controls the threshold for local history and YT Music account reporting. Tracks listened to for this many seconds or less are treated as skips. Set to `0` to count any positive playback time. Values are clamped to `0..3600`.
+> `history_min_listen_seconds` controls the threshold for local history and YT Music account reporting. Tracks listened to for this many seconds or less are treated as skips. Set to `0` to count any playback of at least one full second (sub-second listens still count as skips). Values are clamped to `0..3600`.
 
 > `sync_history_to_ytmusic` reports tracks you play in the TUI back to your YouTube Music account history (via ytmusicapi's `add_history_item`), so they show up in your history and feed recommendations like any other client. It uses `history_min_listen_seconds` as the reporting threshold. Set to `false` to keep TUI listening off your account.
 
