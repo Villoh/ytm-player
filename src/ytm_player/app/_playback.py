@@ -908,11 +908,24 @@ class PlaybackMixin(YTMHostBase):
                 lambda: self._report_ytm_play(track, video_id, generation, next_idle),
             )
             return
-        self._ytm_reported_generation = generation
         self.run_worker(
-            self.ytmusic.add_history_item(video_id),
+            self._push_ytm_history_report(track, video_id, generation),
             group="ytm-history-report",
         )
+
+    async def _push_ytm_history_report(self, track: dict, video_id: str, generation: int) -> None:
+        """Report the play; reflect it in the tab only if the server took it.
+
+        ``add_history_item`` is best-effort and returns False on any failure
+        (expired auth, missing playbackTracking, non-204) without raising —
+        marking the play reported or prepending it to the tab cache on
+        failure would show rows the account history never accepted.
+        """
+        if not self.ytmusic:
+            return
+        if not await self.ytmusic.add_history_item(video_id):
+            return
+        self._ytm_reported_generation = generation
         self._optimistic_ytm_history_add(track, video_id)
 
     def _optimistic_ytm_history_add(self, track: dict, video_id: str) -> None:

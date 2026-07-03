@@ -48,6 +48,9 @@ def _host(
     # self._report_*) exercise the real chain instead of a MagicMock no-op.
     host._report_local_play = PlaybackMixin._report_local_play.__get__(host)
     host._report_ytm_play = PlaybackMixin._report_ytm_play.__get__(host)
+    # Bind the push coroutine too: _report_ytm_play hands it to run_worker,
+    # and an auto-mocked method there would hide the real coroutine contract.
+    host._push_ytm_history_report = PlaybackMixin._push_ytm_history_report.__get__(host)
     return host
 
 
@@ -143,12 +146,13 @@ def test_schedule_skips_without_video_id() -> None:
 # ── timer callback ───────────────────────────────────────────────────
 
 
-def test_report_fires_once_position_crosses_threshold() -> None:
+def test_report_schedules_push_worker_once_threshold_crossed() -> None:
     host = _host(play_generation=3, position=DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 1)
     _report(host, generation=3)
-    host.ytmusic.add_history_item.assert_called_once_with("vid1")
     host.run_worker.assert_called_once()
-    assert host._ytm_reported_generation == 3
+    # Marking is deferred to the worker so failures are never shown as done.
+    assert host._ytm_reported_generation == -1
+    host.run_worker.call_args.args[0].close()  # unawaited coroutine cleanup
 
 
 def test_report_skips_stale_generation() -> None:
@@ -187,7 +191,8 @@ def test_zero_threshold_counts_positive_playback_time() -> None:
     host = _host(position=1)
     host.settings.playback.history_min_listen_seconds = 0
     _report(host)
-    host.ytmusic.add_history_item.assert_called_once_with("vid1")
+    host.run_worker.assert_called_once()
+    host.run_worker.call_args.args[0].close()  # unawaited coroutine cleanup
 
 
 def test_report_repolls_when_resumed_below_relative_threshold() -> None:
@@ -206,7 +211,8 @@ def test_report_fires_when_resumed_and_listened_past_threshold() -> None:
     host = _host(position=200.0, play_generation=3)
     host._track_start_position = float(200 - DEFAULT_HISTORY_MIN_LISTEN_SECONDS - 1)  # heard 6s
     _report(host, generation=3)
-    host.ytmusic.add_history_item.assert_called_once_with("vid1")
+    host.run_worker.assert_called_once()
+    host.run_worker.call_args.args[0].close()  # unawaited coroutine cleanup
 
 
 def test_report_skips_when_already_reported() -> None:
@@ -297,7 +303,38 @@ def test_ytm_report_fires_even_when_current_track_cleared() -> None:
     host = _host(position=DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 1)
     host.player.current_track = None
     _report(host)
-    host.ytmusic.add_history_item.assert_called_once_with("vid1")
+    host.run_worker.assert_called_once()
+    host.run_worker.call_args.args[0].close()  # unawaited coroutine cleanup
+
+
+async def test_push_marks_and_prepends_only_on_server_accept() -> None:
+    host = _host(play_generation=3, position=DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 1)
+    host.ytmusic.add_history_item = AsyncMock(return_value=True)
+    host._ytm_history = [{"video_id": "old"}]
+    host._get_current_page.return_value = MagicMock()  # not RecentlyPlayedPage
+    host._optimistic_ytm_history_add = PlaybackMixin._optimistic_ytm_history_add.__get__(host)
+
+    await PlaybackMixin._push_ytm_history_report.__get__(host)(
+        {"video_id": "vid1", "title": "X"}, "vid1", 3
+    )
+
+    host.ytmusic.add_history_item.assert_awaited_once_with("vid1")
+    assert host._ytm_reported_generation == 3
+    assert host._ytm_history[0]["video_id"] == "vid1"
+
+
+async def test_push_failure_leaves_tab_and_marking_untouched() -> None:
+    """Expired session: the tab must not show phantom rows all session."""
+    host = _host(play_generation=3, position=DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 1)
+    host.ytmusic.add_history_item = AsyncMock(return_value=False)
+    host._ytm_history = [{"video_id": "old"}]
+
+    await PlaybackMixin._push_ytm_history_report.__get__(host)(
+        {"video_id": "vid1", "title": "X"}, "vid1", 3
+    )
+
+    assert host._ytm_reported_generation == -1
+    assert host._ytm_history == [{"video_id": "old"}]
 
 
 def test_local_poll_terminates_on_stable_idle() -> None:
