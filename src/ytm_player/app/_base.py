@@ -111,6 +111,7 @@ if TYPE_CHECKING:
         _ytm_reported_generation: int
         _local_history_play_id: int | None
         _local_history_video_id: str
+        _local_history_pending_seconds: int | None
         _ytm_history: list[dict] | None
         _play_lock: asyncio.Lock
 

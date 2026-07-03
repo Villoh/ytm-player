@@ -35,6 +35,7 @@ def _host(
     host._ytm_history = None
     host._local_history_play_id = None
     host._local_history_video_id = ""
+    host._local_history_pending_seconds = None
     host._track_start_position = 0.0
     host.history = MagicMock()
     host.player.position = position
@@ -45,19 +46,23 @@ def _host(
 
 
 def _schedule(host, video_id="vid1", generation=1) -> None:
-    PlaybackMixin._schedule_ytm_history_report.__get__(host)(video_id, generation)
+    track = {"video_id": video_id}
+    PlaybackMixin._schedule_ytm_history_report.__get__(host)(track, video_id, generation)
 
 
 def _schedule_local(host, video_id="vid1", generation=1) -> None:
-    PlaybackMixin._schedule_local_history_log.__get__(host)(video_id, generation)
+    track = {"video_id": video_id}
+    PlaybackMixin._schedule_local_history_log.__get__(host)(track, video_id, generation)
 
 
 def _report(host, video_id="vid1", generation=1) -> None:
-    PlaybackMixin._report_ytm_play.__get__(host)(video_id, generation)
+    track = {"video_id": video_id}
+    PlaybackMixin._report_ytm_play.__get__(host)(track, video_id, generation)
 
 
 def _report_local(host, video_id="vid1", generation=1) -> None:
-    PlaybackMixin._report_local_play.__get__(host)(video_id, generation)
+    track = {"video_id": video_id}
+    PlaybackMixin._report_local_play.__get__(host)(track, video_id, generation)
 
 
 # ── scheduling ───────────────────────────────────────────────────────
@@ -115,6 +120,25 @@ def test_report_repolls_while_position_below_threshold() -> None:
     assert host.set_timer.call_args.args[0] == _YTM_HISTORY_POLL_SECONDS
 
 
+def test_report_repolls_when_resumed_below_relative_threshold() -> None:
+    """On resume-on-launch the track starts mid-file, so raw position is high
+    but the actual listen time (position - start) is still below threshold."""
+    host = _host(position=_YTM_HISTORY_MIN_SECONDS + 100)
+    host._track_start_position = float(_YTM_HISTORY_MIN_SECONDS + 100 - 1)  # heard ~1s
+    _report(host)
+    host.ytmusic.add_history_item.assert_not_called()
+    host.run_worker.assert_not_called()
+    host.set_timer.assert_called_once()
+    assert host.set_timer.call_args.args[0] == _YTM_HISTORY_POLL_SECONDS
+
+
+def test_report_fires_when_resumed_and_listened_past_threshold() -> None:
+    host = _host(position=200.0, play_generation=3)
+    host._track_start_position = float(200 - _YTM_HISTORY_MIN_SECONDS)  # heard 5s
+    _report(host, generation=3)
+    host.ytmusic.add_history_item.assert_called_once_with("vid1")
+
+
 def test_report_skips_when_already_reported() -> None:
     host = _host(play_generation=2, reported_generation=2)
     _report(host, generation=2)
@@ -151,8 +175,28 @@ def test_local_report_inserts_once_position_exceeds_threshold() -> None:
     host.run_worker.assert_called_once()
 
 
+def test_local_report_fires_even_when_current_track_cleared() -> None:
+    """Natural advance: a duplicate mpv end-file clears player.current_track
+    while the track keeps playing. The report must still fire (generation is
+    the source of truth), otherwise the play is silently dropped."""
+    host = _host(position=_YTM_HISTORY_MIN_SECONDS + 1)
+    host.player.current_track = None
+    _report_local(host)
+    host.run_worker.assert_called_once()
+
+
+def test_ytm_report_fires_even_when_current_track_cleared() -> None:
+    host = _host(position=_YTM_HISTORY_MIN_SECONDS)
+    host.player.current_track = None
+    _report(host)
+    host.ytmusic.add_history_item.assert_called_once_with("vid1")
+
+
 async def test_local_insert_records_play_id() -> None:
     host = _host(play_generation=4)
+    # _report_local_play stamps the sentinel before scheduling the worker.
+    host._local_history_play_id = -1
+    host._local_history_video_id = "vid1"
     host.history.log_play = AsyncMock(return_value=123)
 
     await PlaybackMixin._insert_local_history_play.__get__(host)(
@@ -163,6 +207,86 @@ async def test_local_insert_records_play_id() -> None:
     )
 
     assert host._local_history_play_id == 123
+    assert host._local_history_video_id == "vid1"
+
+
+async def test_local_insert_still_logs_when_superseded_after_threshold() -> None:
+    """A skip right after crossing the 5s threshold must not drop the row."""
+    host = _host(play_generation=4)
+    host._local_history_play_id = -1
+    host._local_history_video_id = "vid1"
+    host.history.log_play = AsyncMock(return_value=123)
+    # Track was superseded (skip) while the insert was scheduled.
+    host._play_generation = 5
+
+    await PlaybackMixin._insert_local_history_play.__get__(host)(
+        {"video_id": "vid1"},
+        _YTM_HISTORY_MIN_SECONDS + 1,
+        "vid1",
+        4,
+    )
+
+    host.history.log_play.assert_awaited_once()
+    assert host._local_history_play_id == 123
+
+
+async def test_local_insert_bails_when_superseded_by_other_report() -> None:
+    """Another track's report reused the sentinel; this stale insert is dropped."""
+    host = _host()
+    host._local_history_play_id = -1
+    host._local_history_video_id = "vid2"  # a newer report claimed the sentinel
+    host.history.log_play = AsyncMock(return_value=123)
+
+    await PlaybackMixin._insert_local_history_play.__get__(host)(
+        {"video_id": "vid1"},
+        _YTM_HISTORY_MIN_SECONDS + 1,
+        "vid1",
+        1,
+    )
+
+    host.history.log_play.assert_not_awaited()
+
+
+async def test_local_insert_applies_pending_duration() -> None:
+    """Finalize ran while the insert was in flight; the final duration wins."""
+    host = _host()
+    host._local_history_play_id = -1
+    host._local_history_video_id = "vid1"
+    host._local_history_pending_seconds = 90  # stashed by _log_local_listen
+    host._reset_local_history_state = PlaybackMixin._reset_local_history_state.__get__(host)
+    host.history.log_play = AsyncMock(return_value=123)
+    host.history.update_play_listened_seconds = AsyncMock()
+
+    await PlaybackMixin._insert_local_history_play.__get__(host)(
+        {"video_id": "vid1"},
+        _YTM_HISTORY_MIN_SECONDS + 1,
+        "vid1",
+        1,
+    )
+
+    host.history.update_play_listened_seconds.assert_awaited_once_with(123, 90)
+    # State cleared: the play already ended, nothing left to track.
+    assert host._local_history_play_id is None
+    assert host._local_history_video_id == ""
+    assert host._local_history_pending_seconds is None
+
+
+async def test_final_local_log_hands_off_when_insert_in_flight() -> None:
+    """Finalize while sentinel is -1 stashes the duration and keeps the sentinel."""
+    host = _host(position=90)
+    host._local_history_play_id = -1
+    host._local_history_video_id = "vid1"
+    host.history.update_play_listened_seconds = AsyncMock()
+    host.history.log_play = AsyncMock()
+
+    await PlaybackMixin._log_local_listen.__get__(host)({"video_id": "vid1"})
+
+    # No DB write here — handed off to the in-flight worker instead.
+    host.history.update_play_listened_seconds.assert_not_awaited()
+    host.history.log_play.assert_not_awaited()
+    assert host._local_history_pending_seconds == 90
+    # Sentinel preserved so the worker can attribute + apply the duration.
+    assert host._local_history_play_id == -1
     assert host._local_history_video_id == "vid1"
 
 
@@ -182,8 +306,10 @@ async def test_final_local_log_updates_existing_row() -> None:
 # ── optimistic cache update ──────────────────────────────────────────
 
 
-def _add(host, video_id="vid1") -> None:
-    PlaybackMixin._optimistic_ytm_history_add.__get__(host)(video_id)
+def _add(host, video_id="vid1", track=None) -> None:
+    if track is None:
+        track = {"video_id": video_id, "title": "X"}
+    PlaybackMixin._optimistic_ytm_history_add.__get__(host)(track, video_id)
 
 
 def test_optimistic_noop_when_cache_unfetched() -> None:
@@ -196,19 +322,28 @@ def test_optimistic_noop_when_cache_unfetched() -> None:
 def test_optimistic_prepends_and_dedups() -> None:
     host = MagicMock()
     host._ytm_history = [{"video_id": "a"}, {"video_id": "vid1"}, {"video_id": "b"}]
-    host.player.current_track = {"video_id": "vid1", "title": "X"}
     host._get_current_page.return_value = MagicMock()  # not a RecentlyPlayedPage
-    _add(host, "vid1")
+    _add(host, "vid1", {"video_id": "vid1", "title": "X"})
     ids = [t["video_id"] for t in host._ytm_history]
     assert ids == ["vid1", "a", "b"]
+
+
+def test_optimistic_uses_passed_track_not_current_track() -> None:
+    """On natural advance a duplicate end-file can clear player.current_track;
+    the optimistic add must still use the track captured at schedule time."""
+    host = MagicMock()
+    host._ytm_history = [{"video_id": "a"}]
+    host.player.current_track = None  # cleared by duplicate end-file
+    host._get_current_page.return_value = MagicMock()
+    _add(host, "vid1", {"video_id": "vid1", "title": "X"})
+    assert [t["video_id"] for t in host._ytm_history] == ["vid1", "a"]
 
 
 def test_optimistic_caps_length() -> None:
     host = MagicMock()
     host._ytm_history = [{"video_id": f"v{i}"} for i in range(_YTM_HISTORY_MAX)]
-    host.player.current_track = {"video_id": "new", "title": "X"}
     host._get_current_page.return_value = MagicMock()
-    _add(host, "new")
+    _add(host, "new", {"video_id": "new", "title": "X"})
     assert len(host._ytm_history) == _YTM_HISTORY_MAX
     assert host._ytm_history[0]["video_id"] == "new"
 

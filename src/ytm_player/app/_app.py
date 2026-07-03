@@ -271,6 +271,11 @@ class YTMPlayerApp(
         # inserting a duplicate play.
         self._local_history_play_id: int | None = None
         self._local_history_video_id: str = ""
+        # Final listen duration captured while the optimistic insert worker is
+        # still in flight (a quick skip/track-end before the row exists). The
+        # worker applies it once the row is written so we don't leave the row
+        # stuck at the threshold value. None = nothing pending.
+        self._local_history_pending_seconds: int | None = None
         # App-level cache of the normalized YT Music account history (the
         # Recently Played "YT Music" tab). Persists across page navigation so
         # we don't refetch on every visit, and is optimistically prepended to

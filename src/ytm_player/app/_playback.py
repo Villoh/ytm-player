@@ -175,8 +175,8 @@ class PlaybackMixin(YTMHostBase):
         if generation != self._play_generation:
             return
 
-        self._schedule_local_history_log(video_id, generation)
-        self._schedule_ytm_history_report(video_id, generation)
+        self._schedule_local_history_log(track, video_id, generation)
+        self._schedule_ytm_history_report(track, video_id, generation)
 
         # Apply pending resume position if this play matches the resumed track.
         # Only clear on a match — if the user plays a different track first,
@@ -672,6 +672,12 @@ class PlaybackMixin(YTMHostBase):
                         self._local_history_play_id,
                         listened,
                     )
+                else:
+                    # Insert worker still in flight (sentinel -1). Hand off the
+                    # final duration so the worker applies it once the row
+                    # exists, and leave the sentinel in place for it to clear.
+                    self._local_history_pending_seconds = listened
+                    return
             else:
                 await self.history.log_play(
                     track=track,
@@ -681,30 +687,38 @@ class PlaybackMixin(YTMHostBase):
         except Exception:
             logger.exception("Failed to log play history")
         finally:
-            self._local_history_play_id = None
-            self._local_history_video_id = ""
+            # Preserve the sentinel + video id when a duration handoff is
+            # pending; the insert worker owns clearing them in that case.
+            if self._local_history_pending_seconds is None:
+                self._local_history_play_id = None
+                self._local_history_video_id = ""
 
-    def _schedule_local_history_log(self, video_id: str, generation: int) -> None:
+    def _schedule_local_history_log(self, track: dict, video_id: str, generation: int) -> None:
         """Insert the current play into SQLite once it crosses the threshold."""
         if not self.history or not video_id:
             return
         self.set_timer(
             _YTM_HISTORY_MIN_SECONDS,
-            lambda: self._report_local_play(video_id, generation),
+            lambda: self._report_local_play(track, video_id, generation),
         )
 
-    def _report_local_play(self, video_id: str, generation: int) -> None:
+    def _report_local_play(self, track: dict, video_id: str, generation: int) -> None:
+        # The generation check alone proves this play is still current: a skip
+        # or auto-advance bumps the generation. We deliberately do NOT gate on
+        # player.current_track — on natural advance a duplicate mpv end-file can
+        # transiently clear current_track while the track keeps playing, which
+        # would otherwise drop the play from history.
         if generation != self._play_generation:
             return
         if self._local_history_play_id is not None and video_id == self._local_history_video_id:
             return
-        if not self.history or not self.player or not self.player.current_track:
+        if not self.history or not self.player:
             return
         listened = int(self.player.position - self._track_start_position)
         if listened <= _YTM_HISTORY_MIN_SECONDS:
             self.set_timer(
                 _YTM_HISTORY_POLL_SECONDS,
-                lambda: self._report_local_play(video_id, generation),
+                lambda: self._report_local_play(track, video_id, generation),
             )
             return
         # Mark immediately so a quick skip while the DB worker is in flight
@@ -712,9 +726,7 @@ class PlaybackMixin(YTMHostBase):
         self._local_history_play_id = -1
         self._local_history_video_id = video_id
         self.run_worker(
-            self._insert_local_history_play(
-                dict(self.player.current_track), listened, video_id, generation
-            ),
+            self._insert_local_history_play(dict(track), listened, video_id, generation),
             group="local-history-report",
         )
 
@@ -725,23 +737,48 @@ class PlaybackMixin(YTMHostBase):
         video_id: str,
         generation: int,
     ) -> None:
-        if not self.history or generation != self._play_generation:
+        # The play already crossed the listen threshold when this worker was
+        # scheduled, so a later skip (generation bump) must not drop it — the
+        # row is still earned. We only bail if this report was superseded by
+        # another track's report reusing the shared sentinel.
+        if not self.history or self._local_history_video_id != video_id:
+            self._reset_local_history_state()
             return
         try:
             play_id = await self.history.log_play(track, listened, source="tui")
         except Exception:
             logger.exception("Failed to log play history")
+            self._reset_local_history_state()
             return
-        current = self.player.current_track if self.player else None
-        current_video_id = get_video_id(current) if current else ""
-        if (
-            play_id is not None
-            and generation == self._play_generation
-            and current_video_id == video_id
-        ):
-            self._local_history_play_id = play_id
-            self._local_history_video_id = video_id
+        if play_id is None:
+            self._reset_local_history_state()
+            return
+        # A finalize (skip/track-end) ran while this insert was in flight and
+        # stashed the final duration. Apply it now that the row exists so the
+        # row isn't left at the threshold value, then clear the tracking state.
+        pending = self._local_history_pending_seconds
+        if pending is not None:
+            self._local_history_pending_seconds = None
+            if pending > listened:
+                try:
+                    await self.history.update_play_listened_seconds(play_id, pending)
+                except Exception:
+                    logger.exception("Failed to finalize play history")
+            self._reset_local_history_state()
+            return
+        # Still playing this track: remember the row so finalize updates it.
+        self._local_history_play_id = play_id
+        self._local_history_video_id = video_id
+        # Reflect it live only if this play is still current. Use the
+        # generation (not player.current_track, which a duplicate end-file can
+        # transiently clear on natural advance) to decide.
+        if generation == self._play_generation:
             self._optimistic_local_history_add(track)
+
+    def _reset_local_history_state(self) -> None:
+        self._local_history_play_id = None
+        self._local_history_video_id = ""
+        self._local_history_pending_seconds = None
 
     def _optimistic_local_history_add(self, track: dict) -> None:
         """Prepend the just-logged play to the Local tab if it is open.
@@ -755,7 +792,7 @@ class PlaybackMixin(YTMHostBase):
         if isinstance(page, RecentlyPlayedPage):
             page.optimistic_add(_TAB_LOCAL, track)
 
-    def _schedule_ytm_history_report(self, video_id: str, generation: int) -> None:
+    def _schedule_ytm_history_report(self, track: dict, video_id: str, generation: int) -> None:
         """Arm focus-independent history reporting for the current play.
 
         Position events can stop reaching the app when the terminal loses
@@ -769,10 +806,10 @@ class PlaybackMixin(YTMHostBase):
             return
         self.set_timer(
             _YTM_HISTORY_MIN_SECONDS,
-            lambda: self._report_ytm_play(video_id, generation),
+            lambda: self._report_ytm_play(track, video_id, generation),
         )
 
-    def _report_ytm_play(self, video_id: str, generation: int) -> None:
+    def _report_ytm_play(self, track: dict, video_id: str, generation: int) -> None:
         """Timer callback: report the play if it is still current.
 
         Best-effort and non-blocking. If playback started late or was paused,
@@ -788,10 +825,15 @@ class PlaybackMixin(YTMHostBase):
             return
         if not self.player:
             return
-        if self.player.position < _YTM_HISTORY_MIN_SECONDS:
+        # Measure listen time relative to where this track started, not the
+        # raw player position. On resume-on-launch the track starts mid-file
+        # (``_track_start_position`` > 0), so a bare ``position`` check would
+        # report the play immediately even if the user only heard a second.
+        listened = int(self.player.position - self._track_start_position)
+        if listened < _YTM_HISTORY_MIN_SECONDS:
             self.set_timer(
                 _YTM_HISTORY_POLL_SECONDS,
-                lambda: self._report_ytm_play(video_id, generation),
+                lambda: self._report_ytm_play(track, video_id, generation),
             )
             return
         self._ytm_reported_generation = generation
@@ -799,9 +841,9 @@ class PlaybackMixin(YTMHostBase):
             self.ytmusic.add_history_item(video_id),
             group="ytm-history-report",
         )
-        self._optimistic_ytm_history_add(video_id)
+        self._optimistic_ytm_history_add(track, video_id)
 
-    def _optimistic_ytm_history_add(self, video_id: str) -> None:
+    def _optimistic_ytm_history_add(self, track: dict, video_id: str) -> None:
         """Prepend the just-reported play to the cached YT Music history.
 
         Keeps the "YT Music" tab in sync without a fresh ``get_history()``:
@@ -814,7 +856,6 @@ class PlaybackMixin(YTMHostBase):
         cache = self._ytm_history
         if cache is None:
             return
-        track = self.player.current_track if self.player else None
         if not track:
             return
         entry = dict(track)
