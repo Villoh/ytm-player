@@ -41,9 +41,12 @@ gapless = true               # preload the next track for gapless transitions
 seek_step = 5                # seconds per +/- seek
 api_timeout = 15             # seconds for ytmusicapi calls before failover
 resume_on_launch = true      # restore last-playing track + position on app start; press space to continue
+sync_history_to_ytmusic = true  # report TUI plays back to your YT Music account history
 ```
 
 > `resume_on_launch` (added v1.7.0) stages the last-playing track + position into the playback bar on startup. Press space to continue from where you were. Set to `false` to start fresh every time.
+
+> `sync_history_to_ytmusic` reports tracks you play in the TUI back to your YouTube Music account history (via ytmusicapi's `add_history_item`), so they show up in your history and feed recommendations like any other client. Only plays listened to for ~5s or more are reported (skips are ignored). Set to `false` to keep TUI listening off your account.
 
 ### `[cache]`
 
