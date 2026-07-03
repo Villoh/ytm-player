@@ -115,8 +115,8 @@ async def test_ytm_tab_error_shows_load_failed_message(monkeypatch: pytest.Monke
     page, widgets = _make_page(active_tab=_TAB_YTM)
 
     fake_ytmusic = MagicMock()
-    fake_ytmusic.get_history = AsyncMock(return_value=[])
-    fake_ytmusic.last_history_error = True
+    # None signals a load failure (auth expired / network / server error).
+    fake_ytmusic.get_history = AsyncMock(return_value=None)
     fake_app = MagicMock()
     fake_app.ytmusic = fake_ytmusic
     fake_app._ytm_history = None

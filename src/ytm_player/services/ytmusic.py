@@ -171,7 +171,6 @@ class YTMusicService:
         self._no_inflight.set()
         self._last_discovery_source: int = 0
         self._last_chart_shelf: int = 0
-        self.last_history_error: bool = False
         # videoId -> server-assigned setVideoId from the most recent successful
         # add_playlist_items() call. Lets callers stamp freshly-added rows with
         # the setVideoId they need for later removal, without a reload.
@@ -1024,15 +1023,19 @@ class YTMusicService:
     # History
     # ------------------------------------------------------------------
 
-    async def get_history(self) -> list[dict[str, Any]]:
-        """Return the user's recently played tracks."""
-        self.last_history_error = False
+    async def get_history(self) -> list[dict[str, Any]] | None:
+        """Return the user's recently played tracks.
+
+        Returns ``None`` on failure (auth expired, network, server error) so
+        callers can distinguish a genuine empty history from an error without
+        relying on shared service state. An empty list means the account has
+        no history.
+        """
         try:
             return await self._call(self.client.get_history)
         except Exception:
-            self.last_history_error = True
             logger.exception("get_history failed")
-            return []
+            return None
 
     async def add_history_item(self, video_id: str) -> bool:
         """Register a play in the account's YouTube Music history.

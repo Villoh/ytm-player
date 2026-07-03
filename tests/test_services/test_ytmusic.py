@@ -547,18 +547,22 @@ class TestMutationFailureSuffix:
 
 
 class TestHistory:
-    async def test_get_history_marks_error_on_failure(self, ytmusic_service):
+    async def test_get_history_returns_none_on_failure(self, ytmusic_service):
         ytmusic_service._ytm.get_history = MagicMock(side_effect=RuntimeError("boom"))
 
-        assert await ytmusic_service.get_history() == []
-        assert ytmusic_service.last_history_error is True
+        # None (not []) so callers can tell an error from a genuinely empty
+        # history without relying on shared service state.
+        assert await ytmusic_service.get_history() is None
 
-    async def test_get_history_clears_error_on_success(self, ytmusic_service):
-        ytmusic_service.last_history_error = True
+    async def test_get_history_returns_rows_on_success(self, ytmusic_service):
         ytmusic_service._ytm.get_history = MagicMock(return_value=[{"videoId": "vid123"}])
 
         assert await ytmusic_service.get_history() == [{"videoId": "vid123"}]
-        assert ytmusic_service.last_history_error is False
+
+    async def test_get_history_returns_empty_list_for_empty_history(self, ytmusic_service):
+        ytmusic_service._ytm.get_history = MagicMock(return_value=[])
+
+        assert await ytmusic_service.get_history() == []
 
 
 class TestAddHistoryItem:

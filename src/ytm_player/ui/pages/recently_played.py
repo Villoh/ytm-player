@@ -272,17 +272,17 @@ class RecentlyPlayedPage(TrackFilterHost, Widget):
                 self._display_tracks([])
             return
 
-        # ``get_history`` requires auth; the service wrapper logs and returns
-        # [] on any failure (expired session, network, server error). The
-        # endpoint isn't paginated and hands back ~200 rows in one shot, so we
-        # cap it to _MAX_TRACKS to match the local tab and avoid overloading
-        # the TUI.
+        # ``get_history`` requires auth; the service logs and returns None on
+        # any failure (expired session, network, server error) so we can tell
+        # a genuine empty history from an error. The endpoint isn't paginated
+        # and hands back ~200 rows in one shot, so we cap it to _MAX_TRACKS to
+        # match the local tab and avoid overloading the TUI.
         raw = await ytmusic.get_history()
-        tracks = normalize_tracks(raw)[:_MAX_TRACKS]
-        if not tracks and getattr(ytmusic, "last_history_error", False) is True:
+        if raw is None:
             self._ytm_load_failed = True
-
-        if not self._ytm_load_failed:
+            tracks: list[dict] = []
+        else:
+            tracks = normalize_tracks(raw)[:_MAX_TRACKS]
             self._set_cache(_TAB_YTM, tracks)
         if self._active_tab == _TAB_YTM:
             self._display_tracks(tracks)
