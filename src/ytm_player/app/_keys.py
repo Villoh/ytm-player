@@ -260,12 +260,7 @@ class KeyHandlingMixin(YTMHostBase):
             case Action.GO_FORWARD:
                 await self.navigate_to("forward")
 
-            case Action.CLOSE_POPUP:
-                # Dismiss active popup if any; otherwise ignore.
-                pass
-
             case Action.QUIT:
-                self._clean_exit = True
                 self.exit()
 
             # -- Add to playlist (quick shortcut for current track) --
@@ -279,6 +274,13 @@ class KeyHandlingMixin(YTMHostBase):
             # -- Track actions (opens popup, handles result) --
             case Action.TRACK_ACTIONS:
                 await self._open_track_actions()
+
+            # -- Enqueue the focused track (works on every page) --
+            case Action.PLAY_NEXT:
+                self._play_focused_next()
+
+            case Action.ADD_TO_QUEUE:
+                self._add_focused_to_queue()
 
             case Action.LIKE_TOGGLE:
                 await self._toggle_like_current()
@@ -313,9 +315,6 @@ class KeyHandlingMixin(YTMHostBase):
                 | Action.GO_TOP
                 | Action.GO_BOTTOM
                 | Action.SELECT
-                | Action.CONTEXT_ACTIONS
-                | Action.SELECTED_ACTIONS
-                | Action.ADD_TO_QUEUE
                 | Action.DELETE_ITEM
                 | Action.FILTER
                 | Action.SORT_TITLE

@@ -80,6 +80,22 @@ class TestRestoreSessionResilience:
         h.player.set_volume.assert_awaited_once_with(42)
         h.queue.set_repeat.assert_called_once_with(RepeatMode.ALL)
 
+    async def test_garbage_volume_falls_back_to_default(self, tmp_path, monkeypatch):
+        h = _fresh_session_host()
+        bad = tmp_path / "session.json"
+        bad.write_text('{"schema_version": 1, "volume": "loud"}', encoding="utf-8")
+        monkeypatch.setattr("ytm_player.config.paths.SESSION_STATE_FILE", bad, raising=False)
+        await h._restore_session_state()
+        h.player.set_volume.assert_awaited_once_with(80)
+
+    async def test_out_of_range_volume_is_clamped(self, tmp_path, monkeypatch):
+        h = _fresh_session_host()
+        bad = tmp_path / "session.json"
+        bad.write_text('{"schema_version": 1, "volume": 500}', encoding="utf-8")
+        monkeypatch.setattr("ytm_player.config.paths.SESSION_STATE_FILE", bad, raising=False)
+        await h._restore_session_state()
+        h.player.set_volume.assert_awaited_once_with(100)
+
 
 class TestSchemaVersion:
     async def test_mismatched_schema_version_discards_state(self, tmp_path, monkeypatch):
@@ -291,8 +307,8 @@ class TestSaveSessionFailureVisibility:
         """An unserialisable value in state raises TypeError from json.dumps."""
         h = _save_session_host(tmp_path)
         h.notify = MagicMock()
-        # A custom object slipped into the theme attribute won't serialise.
-        h.theme = object()
+        # A custom object slipped into the persisted state won't serialise.
+        h._sidebar_per_page = {"library": object()}
         target = tmp_path / "session.json"
         monkeypatch.setattr("ytm_player.config.paths.SESSION_STATE_FILE", target, raising=False)
 

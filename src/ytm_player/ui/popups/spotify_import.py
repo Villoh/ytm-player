@@ -29,6 +29,7 @@ from textual.widgets import (
 # methods to avoid pulling in heavy optional deps (thefuzz, spotify_scraper)
 # at module load time.
 from ytm_player.ui.popups.base import BasePopup
+from ytm_player.ui.theme import get_theme
 from ytm_player.utils.formatting import extract_artist
 
 logger = logging.getLogger(__name__)
@@ -480,11 +481,13 @@ class SpotifyImportPopup(BasePopup[str | None]):
         try:
             playlist_name, spotify_tracks = await asyncio.to_thread(extract_spotify_tracks, url)
         except Exception as exc:
-            status.update(f"[red]Failed to fetch playlist:[/red] {exc}")
+            color = get_theme().error
+            status.update(f"[{color}]Failed to fetch playlist:[/{color}] {exc}")
             return
 
         if not spotify_tracks:
-            status.update("[yellow]No tracks found in the playlist.[/yellow]")
+            color = get_theme().warning
+            status.update(f"[{color}]No tracks found in the playlist.[/{color}]")
             return
 
         self._playlist_name = playlist_name
@@ -516,11 +519,11 @@ class SpotifyImportPopup(BasePopup[str | None]):
 
             display_text = f"{sp_track['name']} — {sp_track['artist']}"
             if result.match_type == MatchType.EXACT:
-                results_list.append(_ResultItem("✓", "green", display_text))
+                results_list.append(_ResultItem("✓", get_theme().success, display_text))
             elif result.match_type == MatchType.MULTIPLE:
-                results_list.append(_ResultItem("?", "yellow", display_text))
+                results_list.append(_ResultItem("?", get_theme().warning, display_text))
             else:
-                results_list.append(_ResultItem("✗", "red", display_text))
+                results_list.append(_ResultItem("✗", get_theme().error, display_text))
 
             progress_bar.update(progress=i)
             status.update(f"Matching on YouTube Music... ({i}/{total})")
@@ -645,12 +648,15 @@ class SpotifyImportPopup(BasePopup[str | None]):
             try:
                 part_name, spotify_tracks = await asyncio.to_thread(extract_spotify_tracks, url)
             except Exception as exc:
-                status.update(f"[red]Failed to fetch part {part_num}:[/red] {exc}")
+                color = get_theme().error
+                status.update(f"[{color}]Failed to fetch part {part_num}:[/{color}] {exc}")
                 return
 
             if not spotify_tracks:
                 results_list.append(
-                    _ResultItem("⚠", "yellow", f"Part {part_num}: no tracks found, skipping")
+                    _ResultItem(
+                        "⚠", get_theme().warning, f"Part {part_num}: no tracks found, skipping"
+                    )
                 )
                 continue
 
@@ -681,11 +687,11 @@ class SpotifyImportPopup(BasePopup[str | None]):
 
                 display_text = f"{sp_track['name']} — {sp_track['artist']}"
                 if result.match_type == MatchType.EXACT:
-                    results_list.append(_ResultItem("✓", "green", display_text))
+                    results_list.append(_ResultItem("✓", get_theme().success, display_text))
                 elif result.match_type == MatchType.MULTIPLE:
-                    results_list.append(_ResultItem("?", "yellow", display_text))
+                    results_list.append(_ResultItem("?", get_theme().warning, display_text))
                 else:
-                    results_list.append(_ResultItem("✗", "red", display_text))
+                    results_list.append(_ResultItem("✗", get_theme().error, display_text))
 
                 progress_bar.update(progress=i)
                 status.update(
@@ -856,9 +862,10 @@ class SpotifyImportPopup(BasePopup[str | None]):
         try:
             desc = f"Imported from Spotify: {self._playlist_name}"
             status.update(f"Creating '{name}' on YouTube Music...")
-            playlist_id = await ytmusic_svc.create_playlist(name, desc)
-            if not playlist_id:
-                status.update("[red]Failed to create playlist.[/red]")
+            create_status, playlist_id = await ytmusic_svc.create_playlist(name, desc)
+            if create_status != "success" or not playlist_id:
+                color = get_theme().error
+                status.update(f"[{color}]Failed to create playlist.[/{color}]")
                 return
 
             total_ids = len(self._video_ids)
@@ -934,7 +941,8 @@ class SpotifyImportPopup(BasePopup[str | None]):
 
         except Exception as exc:
             logger.exception("Failed to create playlist")
-            status.update(f"[red]Error:[/red] {exc}")
+            color = get_theme().error
+            status.update(f"[{color}]Error:[/{color}] {exc}")
 
     # ── Cancel ───────────────────────────────────────────────────────
 

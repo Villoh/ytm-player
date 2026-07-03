@@ -246,6 +246,9 @@ class YTMPlayerApp(
         # Last playlist played from Library (for auto-selecting on return).
         self._active_library_playlist_id: str | None = None
 
+        # Monotonic counter making each context page's widget id unique.
+        self._context_seq: int = 0
+
         # Track position tracking for history logging.
         self._track_start_position: float = 0.0
 
@@ -286,9 +289,6 @@ class YTMPlayerApp(
 
         # IPC server for CLI command channel.
         self._ipc_server: IPCServer | None = None
-
-        # Clean exit flag: True when user quits via q/C-q (no resume on next start).
-        self._clean_exit: bool = False
 
         # Sidebar state: per-page playlist sidebar visibility and global lyrics toggle.
         # Default True for all pages -- user can toggle off per-view.
@@ -675,7 +675,13 @@ class YTMPlayerApp(
             await self.lastfm.connect()
 
         # Pre-warm yt-dlp import in a thread so first playback isn't slow.
-        asyncio.get_running_loop().run_in_executor(None, StreamResolver.warm_import)
+        # Hold a reference and log any failure via a done callback — a
+        # discarded future that raised would otherwise be reported by the
+        # loop's default exception handler and written out as a crash file.
+        self._warm_import_future = asyncio.get_running_loop().run_in_executor(
+            None, StreamResolver.warm_import
+        )
+        self._warm_import_future.add_done_callback(self._on_warm_import_done)
 
         # Register player event handlers.
         self.player.on(PlayerEvent.TRACK_END, self._on_track_end)
@@ -730,6 +736,19 @@ class YTMPlayerApp(
                 self._first_run_hint_shown = True
 
             self.set_timer(1.5, _show_first_run_hint)
+
+    def _on_warm_import_done(self, future: asyncio.Future) -> None:
+        """Retrieve and log any error from the yt-dlp pre-warm task.
+
+        Retrieving the exception here keeps it from surfacing as an
+        unhandled-future crash file; a slow first playback is the only cost.
+        """
+        try:
+            exc = future.exception()
+        except asyncio.CancelledError:
+            return
+        if exc is not None:
+            logger.warning("yt-dlp pre-warm import failed: %s", exc)
 
     async def on_unmount(self) -> None:
         """Clean up services and remove PID file."""

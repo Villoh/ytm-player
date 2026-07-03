@@ -322,7 +322,7 @@ class ForYouSection(Widget):
             limit = get_settings().ui.home_shelves
             self._shelves = await ytmusic.get_home(limit=limit)
         except Exception:
-            logger.debug("Failed to load home recommendations", exc_info=True)
+            logger.exception("Failed to load home recommendations")
             self._show_error("Failed to load recommendations.")
             self.is_loading = False
             return

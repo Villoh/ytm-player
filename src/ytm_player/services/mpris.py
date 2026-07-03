@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import logging
 import sys
-from collections.abc import Callable, Coroutine
 from typing import Any
+
+from ytm_player.services._dispatch import PlayerCallback
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +49,6 @@ else:
 
 BUS_NAME = "org.mpris.MediaPlayer2.ytm_player"
 OBJECT_PATH = "/org/mpris/MediaPlayer2"
-
-# Type alias for the async callback functions the player provides.
-PlayerCallback = Callable[..., Coroutine[Any, Any, None]]
 
 
 def _empty_metadata() -> dict[str, Variant]:

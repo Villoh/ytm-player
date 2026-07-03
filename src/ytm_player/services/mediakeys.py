@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable, Coroutine
 from typing import Any
+
+from ytm_player.services._dispatch import PlayerCallback, dispatch_coro_threadsafe
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +23,6 @@ except ImportError:
     _PYNPUT_AVAILABLE = False
     Key = None  # type: ignore[assignment,misc]
     Listener = None  # type: ignore[assignment,misc]
-
-# Type alias matching MPRIS convention.
-PlayerCallback = Callable[..., Coroutine[Any, Any, None]]
 
 # Map pynput media Key enum members to callback action names (same as MPRIS).
 # Uses the Key enum directly — not str() — because pynput delivers Key enum
@@ -101,8 +99,5 @@ class MediaKeysService:
         if callback is None:
             return
 
-        # Dispatch to asyncio event loop from pynput's thread.
-        try:
-            self._loop.call_soon_threadsafe(lambda cb=callback: asyncio.ensure_future(cb()))
-        except RuntimeError:
-            logger.debug("Event loop closed, cannot dispatch media key event")
+        # Dispatch to the asyncio event loop from pynput's thread.
+        dispatch_coro_threadsafe(self._loop, callback)

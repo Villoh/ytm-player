@@ -55,7 +55,6 @@ class Action(str, Enum):
     FOCUS_PANE_CYCLE = "focus_pane_cycle"
     GO_BACK = "go_back"
     GO_FORWARD = "go_forward"
-    CLOSE_POPUP = "close_popup"
     QUIT = "quit"
 
     # Pages
@@ -79,8 +78,7 @@ class Action(str, Enum):
     DELETE_ITEM = "delete_item"
     TRACK_ACTIONS = "track_actions"
     LIKE_TOGGLE = "like_toggle"
-    CONTEXT_ACTIONS = "context_actions"
-    SELECTED_ACTIONS = "selected_actions"
+    PLAY_NEXT = "play_next"
     ADD_TO_QUEUE = "add_to_queue"
     ADD_TO_PLAYLIST = "add_to_playlist"
     DISCOVERY_MIX = "discovery_mix"
@@ -137,7 +135,6 @@ DEFAULT_BINDINGS: dict[str, list[str]] = {
     "focus_pane_cycle": ["C-w w"],
     "go_back": ["backspace"],
     "go_forward": ["S-backspace"],
-    "close_popup": ["escape"],
     "quit": ["q", "C-q"],
     # Pages
     "library": ["g l"],
@@ -158,8 +155,7 @@ DEFAULT_BINDINGS: dict[str, list[str]] = {
     "delete_item": ["delete", "d d"],
     "track_actions": ["a"],
     "like_toggle": ["l"],
-    "context_actions": ["g A"],
-    "selected_actions": ["g a", "C-space"],
+    "play_next": ["X", "C-x"],
     "add_to_queue": ["Z", "C-z"],
     "add_to_playlist": ["A"],
     "discovery_mix": ["D"],

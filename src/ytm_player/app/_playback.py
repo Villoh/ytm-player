@@ -642,9 +642,9 @@ class PlaybackMixin(YTMHostBase):
 
     async def _log_current_listen(self) -> None:
         """Log the listen duration for the currently playing track."""
-        if not self.history or not self.player or not self.player.current_track:
+        if not self.player or not self.player.current_track:
             return
-        await self._log_local_listen(self.player.current_track)
+        await self._log_listen_for(self.player.current_track)
 
     async def _log_listen_for(self, track: dict) -> None:
         """Log listen duration for an explicit track dict.

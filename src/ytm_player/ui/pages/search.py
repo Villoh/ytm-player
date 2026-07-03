@@ -17,6 +17,7 @@ from textual.widgets import Input, Label, ListItem, ListView, Static
 
 from ytm_player.config.keymap import Action
 from ytm_player.config.settings import get_settings
+from ytm_player.ui.theme import get_theme
 from ytm_player.ui.widgets.track_table import TrackTable
 from ytm_player.utils.formatting import (
     copy_to_clipboard,
@@ -399,13 +400,14 @@ class SearchPage(Widget):
         self._restoring = False
 
     def compose(self) -> ComposeResult:
+        mode_color = get_theme().primary
         with Vertical():
             with Horizontal(id="search-header"):
                 yield Input(
                     placeholder="Search YouTube Music...",
                     id="search-input",
                 )
-                yield Static("[red]▶[/red] Music", id="search-mode")
+                yield Static(f"[{mode_color}]▶[/{mode_color}] Music", id="search-mode")
             yield SuggestionList(id="suggestion-overlay")
             yield Static("", id="loading-msg", classes="loading-indicator")
             with Horizontal(id="search-results"):
@@ -429,7 +431,12 @@ class SearchPage(Widget):
 
         # Update mode label to match.
         mode_label = self.query_one("#search-mode", Static)
-        display = "[red]▶[/red] Music" if self.search_mode == "music" else "[red]▶[/red] All"
+        mode_color = get_theme().primary
+        display = (
+            f"[{mode_color}]▶[/{mode_color}] Music"
+            if self.search_mode == "music"
+            else f"[{mode_color}]▶[/{mode_color}] All"
+        )
         mode_label.update(display)
 
         # Restore previous search results if navigating back.
@@ -665,9 +672,17 @@ class SearchPage(Widget):
                 if self._debounce_timer is not None:
                     self._debounce_timer.stop()
                     self._debounce_timer = None
-                self._restoring = True
                 search_input = self.query_one("#search-input", Input)
-                search_input.value = query
+                # Setting .value only fires on_input_changed when the value
+                # actually changes. If the picked suggestion equals the current
+                # text, no Changed event arrives to reset _restoring — so only
+                # arm it when the value will change, else it leaks and swallows
+                # the user's next real keystroke.
+                if search_input.value != query:
+                    self._restoring = True
+                    search_input.value = query
+                else:
+                    self._restoring = False
                 self._hide_suggestions()
                 self._last_query = query
                 self.run_worker(self._execute_search(query), name="search", exclusive=True)
@@ -847,7 +862,12 @@ class SearchPage(Widget):
 
         # Update the mode indicator.
         mode_label = self.query_one("#search-mode", Static)
-        display = "[red]▶[/red] Music" if self.search_mode == "music" else "[red]▶[/red] All"
+        mode_color = get_theme().primary
+        display = (
+            f"[{mode_color}]▶[/{mode_color}] Music"
+            if self.search_mode == "music"
+            else f"[{mode_color}]▶[/{mode_color}] All"
+        )
         mode_label.update(display)
 
         # Re-run the last search with the new mode if we have a query.

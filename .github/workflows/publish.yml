@@ -20,6 +20,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # For tag-triggered runs, refuse to publish if the pushed tag doesn't
+      # match __version__ — a mistagged push would upload the WRONG version to
+      # PyPI, which is irreversible. Skipped for workflow_dispatch (no v-tag).
+      - name: Verify tag matches package version
+        if: github.event_name == 'push'
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION=$(grep -oP '__version__\s*=\s*"\K[^"]+' src/ytm_player/__init__.py || true)
+          echo "Pushed tag: v$TAG_VERSION | Package __version__: $PKG_VERSION"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag v$TAG_VERSION does not match __version__ ($PKG_VERSION). Refusing to publish."
+            exit 1
+          fi
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"

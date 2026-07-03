@@ -10,8 +10,9 @@ from __future__ import annotations
 import asyncio
 import importlib
 import logging
-from collections.abc import Callable, Coroutine
 from typing import Any
+
+from ytm_player.services._dispatch import PlayerCallback, dispatch_coro_threadsafe
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +23,6 @@ try:
 except ImportError:
     _MP = None
     _MEDIA_PLAYER_AVAILABLE = False
-
-PlayerCallback = Callable[..., Coroutine[Any, Any, None]]
 
 _STATUS_SUCCESS = 0
 _STATUS_FAILED = 200
@@ -169,10 +168,7 @@ class MacOSMediaService:
             if callback is None or self._loop is None or self._loop.is_closed():
                 return _STATUS_FAILED
 
-            try:
-                self._loop.call_soon_threadsafe(lambda cb=callback: asyncio.ensure_future(cb()))
-            except RuntimeError:
-                logger.debug("Event loop closed, cannot dispatch macOS media key event")
+            if not dispatch_coro_threadsafe(self._loop, callback):
                 return _STATUS_FAILED
             return _STATUS_SUCCESS
 

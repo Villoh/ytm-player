@@ -120,7 +120,10 @@ def _running_status() -> str:
         argv = cmdline.split()
         if not argv:
             continue
-        if "/ytm" in cmdline or argv[0].endswith("/ytm"):
+        # Match only the real entry points (the `ytm` script or
+        # `python -m ytm_player`), not unrelated processes whose cmdline
+        # merely contains a path like /ytm-player (e.g. an open editor).
+        if Path(argv[0]).name == "ytm" or "ytm_player" in argv:
             try:
                 status = (entry / "status").read_text(encoding="utf-8", errors="replace")
             except OSError:

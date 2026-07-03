@@ -264,16 +264,20 @@ class PlaylistPicker(BasePopup[str | None]):
         try:
             ytmusic = cast("YTMHostBase", self.app).ytmusic
             assert ytmusic is not None
-            playlist_id = await ytmusic.create_playlist(
+            from ytm_player.services.ytmusic import mutation_failure_suffix
+
+            create_status, playlist_id = await ytmusic.create_playlist(
                 name, description=description, privacy=privacy
             )
-            if not playlist_id:
-                self.notify("Failed to create playlist", severity="error")
+            if create_status != "success" or not playlist_id:
+                self.notify(
+                    f"Failed to create playlist — {mutation_failure_suffix(create_status)}",
+                    severity="error",
+                )
                 status.update("Creation failed")
                 return
 
             status.update(f"Adding tracks to '{name}'...")
-            from ytm_player.services.ytmusic import mutation_failure_suffix
 
             result = await ytmusic.add_playlist_items(playlist_id, self.video_ids)
             if result != "success":

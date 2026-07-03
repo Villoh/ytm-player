@@ -412,17 +412,6 @@ class RecentlyPlayedPage(TrackFilterHost, Widget):
         table = self.query_one("#recent-table", TrackTable)
 
         match action:
-            case Action.ADD_TO_QUEUE:
-                track = table.selected_track
-                if track:
-                    host = cast("YTMHostBase", self.app)
-                    host.queue.add(track)
-                    self.app.notify("Added to queue", timeout=2)
-            case Action.TRACK_ACTIONS:
-                track = table.selected_track
-                if track:
-                    host = cast("YTMHostBase", self.app)
-                    host._open_actions_for_track(track)
             case _:
                 await table.handle_action(action, count)
 

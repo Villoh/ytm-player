@@ -34,6 +34,7 @@ ALBUM_ACTIONS: list[tuple[str, str]] = [
     ("play_all", "Play All"),
     ("shuffle_play", "Shuffle Play"),
     ("add_to_library", "Add to Library"),
+    ("play_next", "Play Next"),
     ("add_to_queue", "Add to Queue"),
     ("go_to_artist", "Go to Artist"),
     ("copy_link", "Copy Link"),
@@ -51,6 +52,7 @@ ARTIST_ACTIONS: list[tuple[str, str]] = [
 PLAYLIST_ACTIONS: list[tuple[str, str]] = [
     ("play_all", "Play All"),
     ("shuffle_play", "Shuffle Play"),
+    ("play_next", "Play Next"),
     ("add_to_queue", "Add to Queue"),
     ("start_radio", "Start Radio"),
     ("copy_link", "Copy Link"),

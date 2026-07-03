@@ -468,6 +468,54 @@ class TestMutationMethodsReturnTypedResult:
         assert result == "success"
         assert calls == [{"title": "T"}]
 
+    async def test_create_playlist_returns_success_with_id(self, ytmusic_service, monkeypatch):
+        async def fake_call(func, *_args, **_kwargs):
+            return "PL_new_123"
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.create_playlist("My Playlist")
+        assert result == ("success", "PL_new_123")
+
+    async def test_create_playlist_returns_server_error_on_non_str(
+        self, ytmusic_service, monkeypatch
+    ):
+        async def fake_call(func, *_args, **_kwargs):
+            return {"unexpected": "shape"}
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.create_playlist("My Playlist")
+        assert result == ("server_error", "")
+
+    async def test_create_playlist_returns_network_on_timeout(self, ytmusic_service, monkeypatch):
+        async def fake_call(func, *_args, **_kwargs):
+            raise asyncio.TimeoutError("timed out")
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.create_playlist("My Playlist")
+        assert result == ("network", "")
+
+    async def test_create_playlist_returns_auth_expired_on_http_401(
+        self, ytmusic_service, monkeypatch
+    ):
+        from ytmusicapi.exceptions import YTMusicServerError
+
+        async def fake_call(func, *_args, **_kwargs):
+            raise YTMusicServerError("Server returned HTTP 401: Unauthorized.\n")
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        result = await ytmusic_service.create_playlist("My Playlist")
+        assert result == ("auth_expired", "")
+
+    async def test_create_playlist_propagates_unexpected_exceptions(
+        self, ytmusic_service, monkeypatch
+    ):
+        async def fake_call(func, *_args, **_kwargs):
+            raise TypeError("programming bug")
+
+        monkeypatch.setattr(ytmusic_service, "_call", fake_call)
+        with pytest.raises(TypeError, match="programming bug"):
+            await ytmusic_service.create_playlist("My Playlist")
+
 
 class TestMutationFailureSuffix:
     """Task 4.11: cascade sites compose toast text via mutation_failure_suffix."""

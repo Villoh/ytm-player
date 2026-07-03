@@ -22,6 +22,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_LIKED_LOAD_FAILED_MSG = (
+    "Couldn't load liked songs. Check the log at ~/.config/ytm-player/logs/ytm.log for details."
+)
+
 
 class LikedSongsPage(TrackFilterHost, Widget):
     """Displays the user's Liked Music playlist."""
@@ -80,10 +84,15 @@ class LikedSongsPage(TrackFilterHost, Widget):
     )
 
     track_count: reactive[int] = reactive(0)
+    _load_failed: bool
 
     def __init__(self, *, cursor_row: int | None = None, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._restore_cursor_row = cursor_row
+        # Set when ``_load_liked_songs`` catches a fetch failure so
+        # ``_display_tracks`` renders the failure message instead of the
+        # genuine empty-state copy.
+        self._load_failed = False
 
     def compose(self) -> ComposeResult:
         with Vertical(id="liked-header", classes="liked-header"):
@@ -111,9 +120,11 @@ class LikedSongsPage(TrackFilterHost, Widget):
         try:
             raw_tracks = await ytmusic.get_liked_songs(limit=self._FIRST_BATCH)
             tracks = normalize_tracks(raw_tracks)
+            self._load_failed = False
         except Exception:
             logger.exception("Failed to load liked songs")
             tracks = []
+            self._load_failed = True
 
         self._display_tracks(tracks)
 
@@ -128,7 +139,10 @@ class LikedSongsPage(TrackFilterHost, Widget):
 
         if not tracks:
             table.display = False
-            loading.update("No liked songs found.")
+            if self._load_failed:
+                loading.update(_LIKED_LOAD_FAILED_MSG)
+            else:
+                loading.update("No liked songs found.")
             loading.display = True
             return
 
@@ -218,17 +232,6 @@ class LikedSongsPage(TrackFilterHost, Widget):
         table = self.query_one("#liked-table", TrackTable)
 
         match action:
-            case Action.ADD_TO_QUEUE:
-                track = table.selected_track
-                if track:
-                    host = cast("YTMHostBase", self.app)
-                    host.queue.add(track)
-                    self.app.notify("Added to queue", timeout=2)
-            case Action.TRACK_ACTIONS:
-                track = table.selected_track
-                if track:
-                    host = cast("YTMHostBase", self.app)
-                    host._open_actions_for_track(track)
             case _:
                 await table.handle_action(action, count)
 

@@ -72,6 +72,33 @@ def _ipc(command: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
         _error("TUI is not responding. Is ytm-player running?")
 
 
+def _ipc_action(command: str, success: str, args: dict[str, Any] | None = None) -> None:
+    """Run a TUI-only IPC command and echo *success*, or exit on error."""
+    _require_tui()
+    resp = _ipc(command, args)
+    if resp.get("ok"):
+        click.echo(success)
+    else:
+        _error(resp.get("error", "unknown error"))
+
+
+def _query_history(query: str, limit: int, error_label: str) -> list[dict]:
+    """Run a parameterised history query, returning rows as dicts.
+
+    Returns an empty list when the database file doesn't exist yet; exits
+    via ``_error`` (labelled *error_label*) on any SQLite failure.
+    """
+    if not HISTORY_DB.exists():
+        return []
+    try:
+        with sqlite3.connect(str(HISTORY_DB)) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(query, (limit,)).fetchall()
+            return [dict(row) for row in rows]
+    except sqlite3.Error as exc:
+        _error(f"Failed to read {error_label} database: {exc}")
+
+
 def _require_auth() -> Path:
     """Return the auth file path, or exit if not authenticated."""
     auth = AuthManager(cookies_file=get_settings().yt_dlp.cookies_file)
@@ -233,45 +260,25 @@ def setup(manual: bool, browser: str | None) -> None:
 @main.command()
 def play() -> None:
     """Resume playback."""
-    _require_tui()
-    resp = _ipc("play")
-    if resp.get("ok"):
-        click.echo("Resumed.")
-    else:
-        _error(resp.get("error", "unknown error"))
+    _ipc_action("play", "Resumed.")
 
 
 @main.command()
 def pause() -> None:
     """Pause playback."""
-    _require_tui()
-    resp = _ipc("pause")
-    if resp.get("ok"):
-        click.echo("Paused.")
-    else:
-        _error(resp.get("error", "unknown error"))
+    _ipc_action("pause", "Paused.")
 
 
 @main.command("next")
 def next_track() -> None:
     """Skip to the next track."""
-    _require_tui()
-    resp = _ipc("next")
-    if resp.get("ok"):
-        click.echo("Skipped to next.")
-    else:
-        _error(resp.get("error", "unknown error"))
+    _ipc_action("next", "Skipped to next.")
 
 
 @main.command("prev")
 def prev_track() -> None:
     """Go back to the previous track."""
-    _require_tui()
-    resp = _ipc("prev")
-    if resp.get("ok"):
-        click.echo("Went to previous.")
-    else:
-        _error(resp.get("error", "unknown error"))
+    _ipc_action("prev", "Went to previous.")
 
 
 @main.command()
@@ -281,12 +288,7 @@ def seek(offset: str) -> None:
 
     OFFSET can be relative ("+10", "-10" for seconds) or absolute ("1:30").
     """
-    _require_tui()
-    resp = _ipc("seek", {"offset": offset})
-    if resp.get("ok"):
-        click.echo(f"Seeked to {offset}.")
-    else:
-        _error(resp.get("error", "unknown error"))
+    _ipc_action("seek", f"Seeked to {offset}.", {"offset": offset})
 
 
 # ---------------------------------------------------------------------------
@@ -323,34 +325,19 @@ def status(ctx: click.Context) -> None:
 @main.command()
 def like() -> None:
     """Like the current track."""
-    _require_tui()
-    resp = _ipc("like")
-    if resp.get("ok"):
-        click.echo("Liked current track.")
-    else:
-        _error(resp.get("error", "unknown error"))
+    _ipc_action("like", "Liked current track.")
 
 
 @main.command()
 def dislike() -> None:
     """Dislike the current track."""
-    _require_tui()
-    resp = _ipc("dislike")
-    if resp.get("ok"):
-        click.echo("Disliked current track.")
-    else:
-        _error(resp.get("error", "unknown error"))
+    _ipc_action("dislike", "Disliked current track.")
 
 
 @main.command()
 def unlike() -> None:
     """Remove like/dislike from the current track."""
-    _require_tui()
-    resp = _ipc("unlike")
-    if resp.get("ok"):
-        click.echo("Removed like/dislike from current track.")
-    else:
-        _error(resp.get("error", "unknown error"))
+    _ipc_action("unlike", "Removed like/dislike from current track.")
 
 
 # ---------------------------------------------------------------------------
@@ -412,23 +399,13 @@ def queue(ctx: click.Context) -> None:
 @click.argument("video_id")
 def queue_add(video_id: str) -> None:
     """Add a track to the queue by VIDEO_ID."""
-    _require_tui()
-    resp = _ipc("queue_add", {"video_id": video_id})
-    if resp.get("ok"):
-        click.echo(f"Added {video_id} to queue.")
-    else:
-        _error(resp.get("error", "unknown error"))
+    _ipc_action("queue_add", f"Added {video_id} to queue.", {"video_id": video_id})
 
 
 @queue.command("clear")
 def queue_clear() -> None:
     """Clear the play queue."""
-    _require_tui()
-    resp = _ipc("queue_clear")
-    if resp.get("ok"):
-        click.echo("Queue cleared.")
-    else:
-        _error(resp.get("error", "unknown error"))
+    _ipc_action("queue_clear", "Queue cleared.")
 
 
 # ---------------------------------------------------------------------------
@@ -447,22 +424,9 @@ def history(ctx: click.Context, limit: int, compact_json: bool) -> None:
     if ctx.invoked_subcommand is not None:
         return
 
-    if not HISTORY_DB.exists():
-        _json_output([], compact=compact_json)
-        return
-
-    data: list[dict] = []
-    try:
-        with sqlite3.connect(str(HISTORY_DB)) as conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                "SELECT * FROM play_history ORDER BY played_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
-            data = [dict(row) for row in rows]
-    except sqlite3.Error as exc:
-        _error(f"Failed to read history database: {exc}")
-
+    data = _query_history(
+        "SELECT * FROM play_history ORDER BY played_at DESC LIMIT ?", limit, "history"
+    )
     _json_output(data, compact=compact_json)
 
 
@@ -478,22 +442,11 @@ def history(ctx: click.Context, limit: int, compact_json: bool) -> None:
 @click.option("--json", "compact_json", is_flag=True, help="Compact JSON output.")
 def history_search(limit: int, compact_json: bool) -> None:
     """Show recent search history (JSON)."""
-    if not HISTORY_DB.exists():
-        _json_output([], compact=compact_json)
-        return
-
-    data: list[dict] = []
-    try:
-        with sqlite3.connect(str(HISTORY_DB)) as conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                "SELECT * FROM search_history ORDER BY last_searched DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
-            data = [dict(row) for row in rows]
-    except sqlite3.Error as exc:
-        _error(f"Failed to read search history database: {exc}")
-
+    data = _query_history(
+        "SELECT * FROM search_history ORDER BY last_searched DESC LIMIT ?",
+        limit,
+        "search history",
+    )
     _json_output(data, compact=compact_json)
 
 

@@ -562,6 +562,8 @@ class TestDispatchEntityAction:
         host._play_playlist = AsyncMock()
         host._add_album_to_queue = AsyncMock()
         host._add_playlist_to_queue = AsyncMock()
+        host._add_album_next = AsyncMock()
+        host._add_playlist_next = AsyncMock()
         host._start_artist_radio = AsyncMock()
         host._start_playlist_radio = AsyncMock()
         host._play_artist_top_songs = AsyncMock()
@@ -694,6 +696,36 @@ class TestDispatchEntityAction:
         )
         assert result is True
         host._add_playlist_to_queue.assert_awaited_once_with("PL1", "Playlist")
+
+    async def test_play_next_album_dispatches(self):
+        host = self._make_host()
+        item = {"browseId": "ALB1", "title": "Album"}
+        result = await TrackActionsMixin._dispatch_entity_action(host, "play_next", item, "album")
+        assert result is True
+        host._add_album_next.assert_awaited_once_with("ALB1", "Album")
+
+    async def test_play_next_playlist_dispatches(self):
+        host = self._make_host()
+        item = {"playlistId": "PL1", "title": "Playlist"}
+        result = await TrackActionsMixin._dispatch_entity_action(
+            host, "play_next", item, "playlist"
+        )
+        assert result is True
+        host._add_playlist_next.assert_awaited_once_with("PL1", "Playlist")
+
+    async def test_play_next_album_no_id_notifies(self):
+        host = self._make_host()
+        item = {"title": "No ID"}
+        result = await TrackActionsMixin._dispatch_entity_action(host, "play_next", item, "album")
+        assert result is True
+        host.notify.assert_called_once()
+        host._add_album_next.assert_not_awaited()
+
+    async def test_play_next_track_returns_false(self):
+        host = self._make_host()
+        item = {"browseId": "X", "title": "X"}
+        result = await TrackActionsMixin._dispatch_entity_action(host, "play_next", item, "track")
+        assert result is False
 
 
 # ── _open_actions_for_artist / _open_actions_for_album tests ─────────
@@ -933,6 +965,8 @@ class TestDispatchEntityActionExtended:
         host._play_playlist = AsyncMock()
         host._add_album_to_queue = AsyncMock()
         host._add_playlist_to_queue = AsyncMock()
+        host._add_album_next = AsyncMock()
+        host._add_playlist_next = AsyncMock()
         host._start_artist_radio = AsyncMock()
         host._start_playlist_radio = AsyncMock()
         host._play_artist_top_songs = AsyncMock()
@@ -1038,3 +1072,32 @@ class TestDispatchEntityActionExtended:
         host.navigate_to.assert_awaited_once_with(
             "context", context_type="artist", context_id="UC1"
         )
+
+
+class TestIdHelpers:
+    """Precedence contracts for the shared id-extraction helpers."""
+
+    def test_first_artist_id_prefers_id_over_browse_id(self):
+        from ytm_player.app._track_actions import _first_artist_id
+
+        assert _first_artist_id({"artists": [{"id": "UC1", "browseId": "UC2"}]}) == "UC1"
+        assert _first_artist_id({"artists": [{"browseId": "UC2"}]}) == "UC2"
+        assert _first_artist_id({"artists": []}) == ""
+        assert _first_artist_id({"artists": ["not-a-dict"]}) == ""
+
+    def test_album_browse_id_nested_album_outranks_top_level_browse_id(self):
+        from ytm_player.app._track_actions import _album_browse_id
+
+        # A track dict can carry a non-album browseId; the nested album id
+        # must win (the old popup path never consulted browseId at all).
+        track = {"album": {"id": "MPREb_album"}, "browseId": "UC_artist"}
+        assert _album_browse_id(track) == "MPREb_album"
+
+    def test_album_browse_id_full_precedence(self):
+        from ytm_player.app._track_actions import _album_browse_id
+
+        assert _album_browse_id({"album_id": "A", "album": {"id": "B"}, "browseId": "C"}) == "A"
+        assert _album_browse_id({"album": {"id": "B"}, "browseId": "C"}) == "B"
+        # Album entities have no nested album dict and resolve via browseId.
+        assert _album_browse_id({"browseId": "C"}) == "C"
+        assert _album_browse_id({}) == ""

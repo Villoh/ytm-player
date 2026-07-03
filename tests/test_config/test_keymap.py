@@ -78,3 +78,25 @@ def test_missing_file_uses_defaults(tmp_path):
     km = KeyMap.load(path)
     assert km.match(("space",)) == (MatchResult.EXACT, Action.PLAY_PAUSE)
     assert not path.with_suffix(".toml.bak").exists()
+
+
+def test_play_next_default_binding():
+    """PLAY_NEXT binds to X / C-x by default (adjacent to add_to_queue's Z / C-z)."""
+    km = KeyMap()
+    km._load_defaults()
+    assert km.match(("X",)) == (MatchResult.EXACT, Action.PLAY_NEXT)
+    assert km.match(("C-x",)) == (MatchResult.EXACT, Action.PLAY_NEXT)
+
+
+def test_removed_actions_are_gone():
+    """CONTEXT_ACTIONS / SELECTED_ACTIONS / CLOSE_POPUP were retired — no bindings."""
+    km = KeyMap()
+    km._load_defaults()
+    # The Action members no longer exist.
+    for name in ("CONTEXT_ACTIONS", "SELECTED_ACTIONS", "CLOSE_POPUP"):
+        assert not hasattr(Action, name)
+    # Their old default keys resolve to nothing now.
+    assert km.match(("g", "A")) == (MatchResult.NO_MATCH, None)
+    assert km.match(("g", "a")) == (MatchResult.NO_MATCH, None)
+    assert km.match(("C-space",)) == (MatchResult.NO_MATCH, None)
+    assert km.match(("escape",)) == (MatchResult.NO_MATCH, None)

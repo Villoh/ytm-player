@@ -45,7 +45,7 @@ dependencies = [
     # sys_platform marker keeps it off macOS/Windows, where it can't even
     # import (socket.CMSG_LEN) and which use their own media integrations
     # (#106, #110).
-    "dbus-fast>=4.0.0; sys_platform == 'linux'",
+    "dbus-fast>=5.0.0; sys_platform == 'linux'",
 ]
 
 [project.optional-dependencies]
@@ -69,7 +69,6 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
     "pytest-cov",
-    "responses>=0.25.0",
     "ruff",
     "anyascii>=0.3.0",
     "pre-commit>=4.6",

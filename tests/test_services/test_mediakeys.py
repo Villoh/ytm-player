@@ -202,16 +202,12 @@ class TestOnPress:
             service._on_press(_PLAY_PAUSE)
         assert "Event loop closed" in caplog.text
 
-    def test_lambda_dispatches_correct_callback(self, service):
-        """Verify the lambda captures the right callback via default arg."""
-        captured = []
-        service._loop.call_soon_threadsafe.side_effect = lambda fn: captured.append(fn)
-
-        with patch("ytm_player.services.mediakeys._KEY_MAP", _TEST_KEY_MAP):
+    def test_forwards_correct_callback_to_dispatcher(self, service):
+        """_on_press hands the matched callback to the shared dispatcher."""
+        with (
+            patch("ytm_player.services.mediakeys._KEY_MAP", _TEST_KEY_MAP),
+            patch("ytm_player.services.mediakeys.dispatch_coro_threadsafe") as mock_dispatch,
+        ):
             service._on_press(_NEXT)
 
-        assert len(captured) == 1
-        with patch("ytm_player.services.mediakeys.asyncio") as mock_aio:
-            captured[0]()
-            mock_aio.ensure_future.assert_called_once()
-            service._callbacks["next"].assert_called_once()
+        mock_dispatch.assert_called_once_with(service._loop, service._callbacks["next"])

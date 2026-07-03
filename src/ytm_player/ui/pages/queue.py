@@ -262,12 +262,6 @@ class QueuePage(TrackFilterHost, Widget):
             # app/_keys.py and never delegated here, so no QueuePage case
             # for it.
 
-            case Action.TRACK_ACTIONS:
-                track = table.selected_track
-                if track:
-                    host = cast("YTMHostBase", self.app)
-                    host._open_actions_for_track(track)
-
             case _:
                 await table.handle_action(action, count)
 
