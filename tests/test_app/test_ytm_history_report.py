@@ -278,6 +278,39 @@ async def test_local_insert_records_play_id() -> None:
     assert host._local_history_video_id == "vid1"
 
 
+async def test_local_insert_leaves_new_claim_when_ownership_lost_during_write() -> None:
+    """A newer track can claim the sentinel while log_play is awaited; the
+    stale worker must not consume the new claim's pending handoff or clobber
+    its state on the way out."""
+    host = _host()
+    host._reset_local_history_state = PlaybackMixin._reset_local_history_state.__get__(host)
+    host._local_history_play_id = -1
+    host._local_history_video_id = "vid1"
+
+    async def _log_play(*_a, **_k):
+        # Track B claims the shared state mid-write.
+        host._local_history_play_id = -1
+        host._local_history_video_id = "vidB"
+        host._local_history_pending_seconds = 99
+        return 123
+
+    host.history.log_play = AsyncMock(side_effect=_log_play)
+    host.history.update_play_listened_seconds = AsyncMock()
+
+    await PlaybackMixin._insert_local_history_play.__get__(host)(
+        {"video_id": "vid1"},
+        DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 1,
+        "vid1",
+        1,
+    )
+
+    # B's pending handoff is untouched and its claim intact.
+    host.history.update_play_listened_seconds.assert_not_awaited()
+    assert host._local_history_play_id == -1
+    assert host._local_history_video_id == "vidB"
+    assert host._local_history_pending_seconds == 99
+
+
 async def test_local_insert_still_logs_when_superseded_after_threshold() -> None:
     """A skip right after crossing the 5s threshold must not drop the row."""
     host = _host(play_generation=4)

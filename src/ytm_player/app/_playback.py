@@ -773,7 +773,12 @@ class PlaybackMixin(YTMHostBase):
             )
         except Exception:
             logger.exception("Failed to log play history")
-            self._reset_local_history_state()
+            play_id = None
+        # Ownership can change while log_play is awaited: a newer track's
+        # report may have claimed the shared sentinel. If so, the row we just
+        # wrote is still earned, but we must not read the new claim's pending
+        # handoff or clobber its state on the way out.
+        if self._local_history_video_id != video_id:
             return
         if play_id is None:
             self._reset_local_history_state()
