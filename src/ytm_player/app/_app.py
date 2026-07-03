@@ -770,19 +770,6 @@ class YTMPlayerApp(
             self.player.clear_callbacks()
             self.player.shutdown()
 
-        # Drain any in-flight local-history insert worker so it can apply a
-        # pending final duration (stashed by the finalize above) before we
-        # close the DB out from under it. Bounded so a wedged DB worker can't
-        # hang quit.
-        history_workers = [
-            worker for worker in self.workers if worker.group == "local-history-report"
-        ]
-        if history_workers:
-            try:
-                await asyncio.wait_for(self.workers.wait_for_complete(history_workers), timeout=5)
-            except TimeoutError:
-                logger.warning("Timed out draining local-history workers on quit")
-
         if self.stream_resolver:
             self.stream_resolver.clear_cache()
 
