@@ -198,8 +198,12 @@ class PlaybackMixin(YTMHostBase):
         if generation != self._play_generation:
             return
 
-        self._schedule_local_history_log(track, video_id, generation)
-        self._schedule_ytm_history_report(track, video_id, generation)
+        # Only arm history reporting when the load actually started: play()
+        # swallows load failures (clears current_track, dispatches ERROR with
+        # no app-side handler), so reaching here doesn't mean playback is on.
+        if self.player.current_track is not None:
+            self._schedule_local_history_log(track, video_id, generation)
+            self._schedule_ytm_history_report(track, video_id, generation)
 
         # Apply pending resume position if this play matches the resumed track.
         # Only clear on a match — if the user plays a different track first,
@@ -763,7 +767,7 @@ class PlaybackMixin(YTMHostBase):
             lambda: self._report_local_play(claim),
         )
 
-    def _report_local_play(self, claim: _LocalHistoryClaim) -> None:
+    def _report_local_play(self, claim: _LocalHistoryClaim, idle_polls: int = 0) -> None:
         # Identity is the liveness check: every committed play replaces
         # ``_local_history_claim`` and finalize marks the claim consumed;
         # either ends this chain. We deliberately do NOT gate on
@@ -776,9 +780,20 @@ class PlaybackMixin(YTMHostBase):
             return
         listened = int(self.player.position - self._track_start_position)
         if listened <= self._history_min_listen_seconds():
+            # End the chain once the player is idle for two consecutive
+            # polls: stream errors, stop and end-of-queue never bump the
+            # generation or replace the claim, so nothing else would stop it.
+            # Two polls (not one) so the transient current_track clear from a
+            # duplicate end-file on natural advance can't kill a live chain.
+            if self.player.current_track is None:
+                if idle_polls + 1 >= 2:
+                    return
+                next_idle = idle_polls + 1
+            else:
+                next_idle = 0
             self.set_timer(
                 _YTM_HISTORY_POLL_SECONDS,
-                lambda: self._report_local_play(claim),
+                lambda: self._report_local_play(claim, next_idle),
             )
             return
         claim.insert_started = True
@@ -855,7 +870,9 @@ class PlaybackMixin(YTMHostBase):
             lambda: self._report_ytm_play(track, video_id, generation),
         )
 
-    def _report_ytm_play(self, track: dict, video_id: str, generation: int) -> None:
+    def _report_ytm_play(
+        self, track: dict, video_id: str, generation: int, idle_polls: int = 0
+    ) -> None:
         """Timer callback: report the play if it is still current.
 
         Best-effort and non-blocking. If playback started late or was paused,
@@ -877,9 +894,18 @@ class PlaybackMixin(YTMHostBase):
         # report the play immediately even if the user only heard a second.
         listened = int(self.player.position - self._track_start_position)
         if listened <= self._history_min_listen_seconds():
+            # Same stable-idle termination as _report_local_play: two
+            # consecutive idle polls end the chain; one may be the transient
+            # duplicate-end-file clear.
+            if self.player.current_track is None:
+                if idle_polls + 1 >= 2:
+                    return
+                next_idle = idle_polls + 1
+            else:
+                next_idle = 0
             self.set_timer(
                 _YTM_HISTORY_POLL_SECONDS,
-                lambda: self._report_ytm_play(track, video_id, generation),
+                lambda: self._report_ytm_play(track, video_id, generation, next_idle),
             )
             return
         self._ytm_reported_generation = generation

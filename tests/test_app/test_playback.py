@@ -631,3 +631,49 @@ class TestTrackEndFinalize:
 
         host._log_listen_for.assert_awaited_once_with({"video_id": "old"})
         host._play_next.assert_awaited_once()
+
+
+class TestHistoryArming:
+    def _stream_info(self):
+        from ytm_player.services.stream import StreamInfo
+
+        return StreamInfo(
+            url="http://x",
+            video_id="abc",
+            format="opus",
+            bitrate=128,
+            duration=200,
+            expires_at=float("inf"),
+            thumbnail_url=None,
+        )
+
+    async def test_history_not_armed_when_play_load_fails(self):
+        """play() swallows load failures (current_track stays None); history
+        reporting must not be armed for a play that never started."""
+        host = _fresh_playback_host()
+        host.history = MagicMock()
+        host.settings.playback.sync_history_to_ytmusic = False
+        host.settings.playback.history_min_listen_seconds = 5
+        host.stream_resolver.resolve = AsyncMock(return_value=self._stream_info())
+        # player.play mock returns without setting current_track — load failed.
+        await host.play_track({"video_id": "abc", "title": "X"})
+
+        host.set_timer.assert_not_called()
+        assert host._local_history_claim is None
+
+    async def test_history_armed_when_play_starts(self):
+        host = _fresh_playback_host()
+        host.history = MagicMock()
+        host.settings.playback.sync_history_to_ytmusic = False
+        host.settings.playback.history_min_listen_seconds = 5
+        host.stream_resolver.resolve = AsyncMock(return_value=self._stream_info())
+        track = {"video_id": "abc", "title": "X"}
+
+        async def _play(url, t):
+            host.player.current_track = t
+
+        host.player.play = AsyncMock(side_effect=_play)
+        await host.play_track(track)
+
+        host.set_timer.assert_called_once()
+        assert host._local_history_claim is not None

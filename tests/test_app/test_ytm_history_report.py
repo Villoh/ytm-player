@@ -44,6 +44,10 @@ def _host(
     host.run_worker = MagicMock()
     host._history_min_listen_seconds = PlaybackMixin._history_min_listen_seconds.__get__(host)
     host._history_timer_delay = PlaybackMixin._history_timer_delay.__get__(host)
+    # Bind the real poll callbacks so re-armed timer lambdas (which call
+    # self._report_*) exercise the real chain instead of a MagicMock no-op.
+    host._report_local_play = PlaybackMixin._report_local_play.__get__(host)
+    host._report_ytm_play = PlaybackMixin._report_ytm_play.__get__(host)
     return host
 
 
@@ -294,6 +298,47 @@ def test_ytm_report_fires_even_when_current_track_cleared() -> None:
     host.player.current_track = None
     _report(host)
     host.ytmusic.add_history_item.assert_called_once_with("vid1")
+
+
+def test_local_poll_terminates_on_stable_idle() -> None:
+    """Stream error / stop / end-of-queue: two consecutive idle polls end
+    the chain instead of re-arming 1 Hz timers forever."""
+    host = _host(position=0.0)
+    host.player.current_track = None
+    claim = _claim()
+    host._local_history_claim = claim
+    _report_local(host, claim)  # idle poll #1 → re-arms once more
+    assert host.set_timer.call_count == 1
+    host.set_timer.call_args.args[1]()  # fires poll #2, still idle → STOP
+    assert host.set_timer.call_count == 1
+    host.run_worker.assert_not_called()
+
+
+def test_local_poll_survives_transient_current_track_clear() -> None:
+    """One idle poll (the documented duplicate-end-file transient) must NOT
+    kill the chain; the counter resets when the track is back."""
+    host = _host(position=1.0)
+    claim = _claim()
+    host._local_history_claim = claim
+    host.player.current_track = None  # transient clear
+    _report_local(host, claim)  # idle #1 → re-arm
+    assert host.set_timer.call_count == 1
+    host.player.current_track = {"video_id": "vid1"}  # track is back
+    host.set_timer.call_args.args[1]()  # poll: resets idle
+    assert host.set_timer.call_count == 2
+    host.player.current_track = None  # idle again (fresh)
+    host.set_timer.call_args.args[1]()  # idle #1 again → re-arm
+    assert host.set_timer.call_count == 3
+
+
+def test_ytm_poll_terminates_on_stable_idle() -> None:
+    host = _host(position=0.0)
+    host.player.current_track = None
+    _report(host)  # idle poll #1 → re-arms once more
+    assert host.set_timer.call_count == 1
+    host.set_timer.call_args.args[1]()  # poll #2, still idle → STOP
+    assert host.set_timer.call_count == 1
+    host.run_worker.assert_not_called()
 
 
 async def test_local_insert_records_row_id_on_claim() -> None:
