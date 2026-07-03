@@ -321,7 +321,7 @@ class RecentlyPlayedPage(TrackFilterHost, Widget):
             if row is not None:
                 self._restore_cursor_row = min(row + 1, len(cache) - 1)
         except Exception:
-            pass
+            logger.debug("Failed to preserve cursor on tab refresh", exc_info=True)
         self._display_tracks(cache)
 
     def _display_tracks(self, tracks: list[dict]) -> None:
@@ -375,7 +375,7 @@ class RecentlyPlayedPage(TrackFilterHost, Widget):
             if table.cursor_row is not None and table.cursor_row > 0:
                 state["cursor_row"] = table.cursor_row
         except Exception:
-            pass
+            logger.debug("Failed to capture cursor for nav state", exc_info=True)
         return state
 
     _CONTEXT_ID = "__RECENTLY_PLAYED__"
@@ -456,7 +456,7 @@ class RecentlyPlayedPage(TrackFilterHost, Widget):
             f.value = ""
             f.remove_class("visible")
         except Exception:
-            pass
+            logger.debug("Failed to reset track filter", exc_info=True)
 
     def _show_loading(self) -> None:
         self.query_one("#recent-table", TrackTable).display = False
