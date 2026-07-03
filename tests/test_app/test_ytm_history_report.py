@@ -211,3 +211,26 @@ def test_optimistic_caps_length() -> None:
     _add(host, "new")
     assert len(host._ytm_history) == _YTM_HISTORY_MAX
     assert host._ytm_history[0]["video_id"] == "new"
+
+
+# ── optimistic local update ──────────────────────────────────────────
+
+
+def test_optimistic_local_add_calls_page_when_open() -> None:
+    from ytm_player.ui.pages.recently_played import _TAB_LOCAL, RecentlyPlayedPage
+
+    host = MagicMock()
+    page = MagicMock(spec=RecentlyPlayedPage)
+    host._get_current_page.return_value = page
+    track = {"video_id": "vid1", "title": "X"}
+
+    PlaybackMixin._optimistic_local_history_add.__get__(host)(track)
+
+    page.optimistic_add.assert_called_once_with(_TAB_LOCAL, track)
+
+
+def test_optimistic_local_add_noop_when_page_closed() -> None:
+    host = MagicMock()
+    host._get_current_page.return_value = MagicMock()  # not a RecentlyPlayedPage
+    PlaybackMixin._optimistic_local_history_add.__get__(host)({"video_id": "vid1"})
+    # No RecentlyPlayedPage → nothing to assert beyond no exception.

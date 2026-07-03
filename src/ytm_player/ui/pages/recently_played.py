@@ -23,7 +23,7 @@ from textual.widgets import Input, Label, Static
 from ytm_player.config.keymap import Action
 from ytm_player.ui.track_filter import TRACK_FILTER_CSS, TrackFilterHost
 from ytm_player.ui.widgets.track_table import TrackTable
-from ytm_player.utils.formatting import normalize_tracks
+from ytm_player.utils.formatting import get_video_id, normalize_tracks
 
 if TYPE_CHECKING:
     from ytm_player.app._base import YTMHostBase
@@ -287,16 +287,32 @@ class RecentlyPlayedPage(TrackFilterHost, Widget):
         if self._active_tab == _TAB_YTM:
             self._display_tracks(tracks)
 
-    def refresh_ytm_tab(self) -> None:
-        """Re-render the YT Music tab from the (optimistically updated) cache.
+    def optimistic_add(self, index: int, track: dict) -> None:
+        """Prepend a just-played track to a tab's cache and re-render live.
 
-        Called when a play is reported while this page is open on the YT Music
-        tab. Keeps the current selection put (a row was prepended, so the
-        cursor shifts down one to stay on the same track).
+        Mirrors the server's most-recent-first dedup: drops any existing
+        entry for the same track, inserts the current one at the top, and
+        caps the list at ``_MAX_TRACKS``. No-op until the tab has a cache
+        (the first visit fetches the real list). If the tab is showing, it
+        refreshes with the cursor kept on the same track.
         """
-        if self._active_tab != _TAB_YTM:
+        cache = self._get_cache(index)
+        if cache is None:
             return
-        cache = self._get_cache(_TAB_YTM)
+        video_id = get_video_id(track)
+        updated = [dict(track)] + [t for t in cache if get_video_id(t) != video_id]
+        del updated[_MAX_TRACKS:]
+        self._set_cache(index, updated)
+        self._refresh_tab_from_cache(index)
+
+    def _refresh_tab_from_cache(self, index: int) -> None:
+        """Re-render *index* from its cache, keeping the cursor on the same track.
+
+        A row was prepended, so the cursor shifts down one to stay put.
+        """
+        if self._active_tab != index:
+            return
+        cache = self._get_cache(index)
         if cache is None:
             return
         try:

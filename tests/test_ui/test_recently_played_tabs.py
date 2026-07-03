@@ -165,6 +165,42 @@ async def test_local_tab_requests_max_tracks(monkeypatch: pytest.MonkeyPatch) ->
     fake_history.get_recently_played.assert_awaited_once_with(limit=_MAX_TRACKS)
 
 
+# ── Optimistic add ───────────────────────────────────────────────────
+
+
+async def test_optimistic_add_prepends_dedups_and_rerenders(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A just-played track is prepended to the tab cache (deduped) and the
+    Local tab re-renders live, matching the YT Music behaviour."""
+    page, widgets = _make_page(active_tab=_TAB_LOCAL)
+    fake_app = MagicMock()
+    _attach_fake_app(page, fake_app, monkeypatch)
+
+    page._tab_cache[_TAB_LOCAL] = [
+        {"video_id": "a"},
+        {"video_id": "vid1"},
+        {"video_id": "b"},
+    ]
+
+    page.optimistic_add(_TAB_LOCAL, {"video_id": "vid1", "title": "X"})
+
+    ids = [t["video_id"] for t in page._tab_cache[_TAB_LOCAL]]
+    assert ids == ["vid1", "a", "b"]
+    widgets["#recent-table"].load_tracks.assert_called_once()
+
+
+def test_optimistic_add_noop_without_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    page, widgets = _make_page(active_tab=_TAB_LOCAL)
+    fake_app = MagicMock()
+    _attach_fake_app(page, fake_app, monkeypatch)
+
+    page.optimistic_add(_TAB_LOCAL, {"video_id": "vid1"})
+
+    assert _TAB_LOCAL not in page._tab_cache
+    widgets["#recent-table"].load_tracks.assert_not_called()
+
+
 # ── Keyboard tab switching ───────────────────────────────────────────
 
 

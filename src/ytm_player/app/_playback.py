@@ -741,6 +741,19 @@ class PlaybackMixin(YTMHostBase):
         ):
             self._local_history_play_id = play_id
             self._local_history_video_id = video_id
+            self._optimistic_local_history_add(track)
+
+    def _optimistic_local_history_add(self, track: dict) -> None:
+        """Prepend the just-logged play to the Local tab if it is open.
+
+        The local cache is per-page (cheap SQLite reads), so this only
+        matters while the Recently Played page is mounted on the Local tab.
+        """
+        from ytm_player.ui.pages.recently_played import _TAB_LOCAL, RecentlyPlayedPage
+
+        page = self._get_current_page()
+        if isinstance(page, RecentlyPlayedPage):
+            page.optimistic_add(_TAB_LOCAL, track)
 
     def _schedule_ytm_history_report(self, video_id: str, generation: int) -> None:
         """Arm focus-independent history reporting for the current play.
@@ -809,11 +822,11 @@ class PlaybackMixin(YTMHostBase):
         del self._ytm_history[_YTM_HISTORY_MAX:]
 
         # If the Recently Played page is open on the YT Music tab, reflect it live.
-        from ytm_player.ui.pages.recently_played import RecentlyPlayedPage
+        from ytm_player.ui.pages.recently_played import _TAB_YTM, RecentlyPlayedPage
 
         page = self._get_current_page()
         if isinstance(page, RecentlyPlayedPage):
-            page.refresh_ytm_tab()
+            page._refresh_tab_from_cache(_TAB_YTM)
 
     # ── Like toggle ──────────────────────────────────────────────────
 
