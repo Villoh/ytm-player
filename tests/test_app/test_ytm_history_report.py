@@ -348,6 +348,36 @@ def test_optimistic_caps_length() -> None:
     assert host._ytm_history[0]["video_id"] == "new"
 
 
+def test_optimistic_entry_matches_server_row_schema() -> None:
+    """Optimistically-added rows and server rows (normalize_tracks output) both
+    feed the same cache/TrackTable, so they must share the display schema.
+    Tracks flowing through playback are already normalized; this locks that
+    contract so the two data paths can't silently diverge.
+    """
+    from ytm_player.utils.formatting import normalize_tracks
+
+    raw = {
+        "videoId": "vid1",
+        "title": "Song",
+        "artists": [{"name": "Artist"}],
+        "album": {"name": "Album"},
+        "duration": "3:00",
+    }
+    server_row = normalize_tracks([raw])[0]
+
+    host = MagicMock()
+    host._ytm_history = []
+    host._get_current_page.return_value = MagicMock()
+    # A track flowing through playback is a normalized dict (same as server_row).
+    _add(host, "vid1", dict(server_row))
+    entry = host._ytm_history[0]
+
+    # The keys TrackTable renders from must be present on optimistic entries.
+    display_keys = {"video_id", "title", "artist", "artists", "album", "duration"}
+    assert display_keys <= entry.keys()
+    assert display_keys <= server_row.keys()
+
+
 # ── optimistic local update ──────────────────────────────────────────
 
 
