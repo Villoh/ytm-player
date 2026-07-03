@@ -270,8 +270,8 @@ class TestSaveSessionFailureVisibility:
     """When the session.json write fails, the user must be notified.
 
     Previously failures were swallowed with a logger.warning — the user's
-    queue, position, and theme would silently reset on next launch with
-    no signal anything went wrong. The narrowed catch surfaces the
+    queue and position would silently reset on next launch with no
+    signal anything went wrong. The narrowed catch surfaces the
     failure via self.notify and lets unexpected exceptions propagate.
     """
 

@@ -45,6 +45,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **Liked Songs distinguishes "empty" from "failed"** — a fetch failure now shows a check-the-log message instead of the misleading "No liked songs found."
 - **Two swallowed-input quirks** — a right-click that didn't open a popup no longer eats your next Enter/click, and picking a search suggestion identical to the current input no longer eats the next keystroke.
 - **`ytm doctor` stops counting bystanders** — any process whose command line contained a `/ytm…` path (an editor open on the repo, say) counted as a running instance; only the real `ytm` / `python -m ytm_player` entry points match now.
+- **A crashed session can't lock you out** — if the OS handed a crashed instance's PID to an unrelated process, `ytm` refused to launch until `ytm.pid` was deleted by hand; the single-instance guard now checks that the recorded process is actually ytm-player and cleans the stale file itself.
 - **Parser drift isn't blamed on your connection** — when YouTube changes a response shape mid-operation, the error now reads as a server problem instead of "check your internet connection".
 - **No phantom crash file from the yt-dlp pre-warm** — a failure in the background yt-dlp import was written out as a crash file; it now logs a warning, and the only real cost is a slower first play.
 

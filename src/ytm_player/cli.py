@@ -141,8 +141,11 @@ def main(ctx: click.Context, compact_json: bool, debug: bool) -> None:
         # overwrite its PID file, and fight over session.json (last writer
         # wins). try_claim_pid() claims the PID file atomically, so two
         # simultaneous launches can't both pass; a stale file (recorded
-        # process dead) is cleaned up automatically, so recovery after a
-        # crash needs nothing manual.
+        # process dead, or its PID recycled by an unrelated process) is
+        # cleaned up automatically. Residual manual case: a recycled PID
+        # whose new owner can't be told apart from ytm (e.g. a bare
+        # python.exe image name on Windows) still blocks — the error
+        # below names the file to delete.
         existing_pid = try_claim_pid()
         if existing_pid is not None:
             _error(
