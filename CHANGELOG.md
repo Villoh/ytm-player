@@ -23,6 +23,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 **Fixes**
 
+- **`history_min_listen_seconds = 0` no longer breaks history logging** — the "count any playback" setting armed the report timer with a 0-second delay, which raised `ZeroDivisionError` inside Textual and killed the timer, so nothing was logged during playback and only the skip-finalize path (which then logged sub-second plays) ran. The timer is now always armed with a positive delay while the 0 threshold still counts any playback.
+- **Local history bookkeeping under load** — a slow/locked SQLite insert could let a stale insert worker wipe the next track's history claim (dropping both plays) or apply one track's final listen duration to another's row; and quitting while an insert was still in flight could lose or truncate the last play. Stale workers now bail without touching a newer claim, a fresh claim clears any stashed handoff, and quit drains the pending insert before closing the database.
 - **MPRIS survives broken dbus-fast builds** — a dbus-fast that raises `TypeError` at import (dbus-fast 4.x on Python 3.14) now disables MPRIS with a notice instead of crashing at startup. Thanks @dsafxP (#113).
 - **Queue: `d`/`J`/`K` after sort or filter** — deleting or reordering on a sorted/filtered Queue page acted on the wrong underlying track; the row→track mapping is now correct.
 - **Playing a selected track works the same on every page** — Search and Browse now rebuild the queue the way Library and Context always did, fixing stale Queue-page contents and duplicate plays from double-fired events.

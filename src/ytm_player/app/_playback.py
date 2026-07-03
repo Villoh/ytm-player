@@ -694,12 +694,22 @@ class PlaybackMixin(YTMHostBase):
         value = self.settings.playback.history_min_listen_seconds
         return max(0, int(value))
 
+    def _history_timer_delay(self) -> float:
+        """Initial arm delay for the report timers.
+
+        Mirrors the listen threshold, but never returns 0: a threshold of 0
+        "count any playback" is valid gating, yet ``set_timer(0)`` triggers a
+        ZeroDivisionError inside Textual's timer. Fall back to the poll
+        interval so the first check still runs promptly.
+        """
+        return max(float(self._history_min_listen_seconds()), _YTM_HISTORY_POLL_SECONDS)
+
     def _schedule_local_history_log(self, track: dict, video_id: str, generation: int) -> None:
         """Insert the current play into SQLite once it crosses the threshold."""
         if not self.history or not video_id:
             return
         self.set_timer(
-            self._history_min_listen_seconds(),
+            self._history_timer_delay(),
             lambda: self._report_local_play(track, video_id, generation),
         )
 
@@ -724,9 +734,12 @@ class PlaybackMixin(YTMHostBase):
             )
             return
         # Mark immediately so a quick skip while the DB worker is in flight
-        # does not insert a duplicate final play row.
+        # does not insert a duplicate final play row. Clear any stashed
+        # duration handoff from a previous play so it can't be applied to this
+        # new claim's row.
         self._local_history_play_id = -1
         self._local_history_video_id = video_id
+        self._local_history_pending_seconds = None
         self.run_worker(
             self._insert_local_history_play(dict(track), listened, video_id, generation),
             group="local-history-report",
@@ -743,7 +756,12 @@ class PlaybackMixin(YTMHostBase):
         # scheduled, so a later skip (generation bump) must not drop it — the
         # row is still earned. We only bail if this report was superseded by
         # another track's report reusing the shared sentinel.
-        if not self.history or self._local_history_video_id != video_id:
+        if self._local_history_video_id != video_id:
+            # A newer track already claimed the shared state; we no longer own
+            # it, so return without touching it (resetting would wipe the new
+            # claim and drop its play too).
+            return
+        if not self.history:
             self._reset_local_history_state()
             return
         try:
@@ -812,7 +830,7 @@ class PlaybackMixin(YTMHostBase):
         if not self.ytmusic or not video_id:
             return
         self.set_timer(
-            self._history_min_listen_seconds(),
+            self._history_timer_delay(),
             lambda: self._report_ytm_play(track, video_id, generation),
         )
 

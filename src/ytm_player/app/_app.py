@@ -776,6 +776,15 @@ class YTMPlayerApp(
             self.player.clear_callbacks()
             self.player.shutdown()
 
+        # Drain any in-flight local-history insert worker so it can apply a
+        # pending final duration (stashed by the finalize above) before we
+        # close the DB out from under it.
+        history_workers = [
+            worker for worker in self.workers if worker.group == "local-history-report"
+        ]
+        if history_workers:
+            await self.workers.wait_for_complete(history_workers)
+
         if self.stream_resolver:
             self.stream_resolver.clear_cache()
 

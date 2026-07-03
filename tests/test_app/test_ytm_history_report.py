@@ -44,6 +44,7 @@ def _host(
     host.set_timer = MagicMock()
     host.run_worker = MagicMock()
     host._history_min_listen_seconds = PlaybackMixin._history_min_listen_seconds.__get__(host)
+    host._history_timer_delay = PlaybackMixin._history_timer_delay.__get__(host)
     return host
 
 
@@ -83,6 +84,25 @@ def test_schedule_uses_configured_history_threshold() -> None:
     _schedule(host)
     host.set_timer.assert_called_once()
     assert host.set_timer.call_args.args[0] == 30
+
+
+def test_schedule_never_arms_timer_with_zero_delay() -> None:
+    """threshold=0 ("count any playback") is valid gating, but set_timer(0)
+    raises ZeroDivisionError inside Textual and kills the report timer."""
+    host = _host()
+    host.settings.playback.history_min_listen_seconds = 0
+    _schedule(host)
+    _schedule_local(host)
+    for call in host.set_timer.call_args_list:
+        assert call.args[0] > 0
+
+
+def test_local_schedule_never_arms_timer_with_zero_delay() -> None:
+    host = _host()
+    host.settings.playback.history_min_listen_seconds = 0
+    _schedule_local(host)
+    host.set_timer.assert_called_once()
+    assert host.set_timer.call_args.args[0] > 0
 
 
 def test_schedule_skips_when_disabled() -> None:
@@ -208,6 +228,21 @@ def test_local_report_inserts_once_position_exceeds_threshold() -> None:
     host.run_worker.assert_called_once()
 
 
+def test_local_report_claim_clears_stale_pending_duration() -> None:
+    """A new claim must not inherit a prior play's stashed final duration."""
+    host = _host(play_generation=3, position=DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 1)
+    # Left over from a previous play that handed off to an insert worker.
+    host._local_history_pending_seconds = 90
+
+    _report_local(host, generation=3)
+
+    # Claim stamped and the stale handoff cleared so it can't land on this row.
+    assert host._local_history_play_id == -1
+    assert host._local_history_video_id == "vid1"
+    assert host._local_history_pending_seconds is None
+    host.run_worker.assert_called_once()
+
+
 def test_local_report_fires_even_when_current_track_cleared() -> None:
     """Natural advance: a duplicate mpv end-file clears player.current_track
     while the track keeps playing. The report must still fire (generation is
@@ -263,21 +298,35 @@ async def test_local_insert_still_logs_when_superseded_after_threshold() -> None
     assert host._local_history_play_id == 123
 
 
-async def test_local_insert_bails_when_superseded_by_other_report() -> None:
-    """Another track's report reused the sentinel; this stale insert is dropped."""
-    host = _host()
-    host._local_history_play_id = -1
-    host._local_history_video_id = "vid2"  # a newer report claimed the sentinel
-    host.history.log_play = AsyncMock(return_value=123)
+async def test_stale_insert_preserves_new_claim_on_mismatch() -> None:
+    """A late worker for track A must not wipe track B's claim.
 
+    Interleaving: A crosses the threshold (sentinel claimed, worker A queued
+    but stalls) -> A's finalize stashes a pending duration -> B crosses its
+    own threshold and claims the sentinel. When worker A finally runs it sees
+    the video_id mismatch and must return without touching B's state.
+    """
+    host = _host()
+    host._reset_local_history_state = PlaybackMixin._reset_local_history_state.__get__(host)
+    # B now owns the shared state (mid-play insert in flight).
+    host._local_history_play_id = -1
+    host._local_history_video_id = "vidB"
+    host._local_history_pending_seconds = 42
+    host.history.log_play = AsyncMock(return_value=999)
+
+    # Stale worker for A runs late.
     await PlaybackMixin._insert_local_history_play.__get__(host)(
-        {"video_id": "vid1"},
+        {"video_id": "vidA"},
         DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 1,
-        "vid1",
+        "vidA",
         1,
     )
 
     host.history.log_play.assert_not_awaited()
+    # B's claim is intact so its own worker can still finish the insert.
+    assert host._local_history_play_id == -1
+    assert host._local_history_video_id == "vidB"
+    assert host._local_history_pending_seconds == 42
 
 
 async def test_local_insert_applies_pending_duration() -> None:
