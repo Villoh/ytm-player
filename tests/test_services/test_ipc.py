@@ -60,6 +60,9 @@ class TestGetRunningPid:
     def test_live_process_returns_pid(self, pid_file, monkeypatch):
         pid_file.write_text("12345", encoding="utf-8")
         monkeypatch.setattr("ytm_player.ipc._is_pid_alive", lambda pid: True)
+        # Identity pinned to "ours" — this test covers liveness resolution;
+        # TestPidIdentityCheck covers the recycled-PID paths.
+        monkeypatch.setattr("ytm_player.ipc._is_ytm_process", lambda pid: True)
         assert get_running_pid() == 12345
         assert pid_file.exists()
 
@@ -77,6 +80,7 @@ class TestGetRunningPid:
     def test_is_tui_running_delegates(self, pid_file, monkeypatch):
         pid_file.write_text("777", encoding="utf-8")
         monkeypatch.setattr("ytm_player.ipc._is_pid_alive", lambda pid: True)
+        monkeypatch.setattr("ytm_player.ipc._is_ytm_process", lambda pid: True)
         assert is_tui_running() is True
 
 
@@ -95,10 +99,16 @@ class TestTryClaimPid:
         assert try_claim_pid() is None
         assert pid_file.read_text(encoding="utf-8") == str(os.getpid())
 
-    def test_second_claim_returns_holders_pid(self, pid_file):
-        """Our own PID is genuinely alive, so no liveness mocking needed."""
+    def test_second_claim_returns_holders_pid(self, pid_file, monkeypatch):
+        """Our own PID is genuinely alive, so no liveness mocking needed.
+
+        Identity is pinned to "ours" because the recorded PID here is the
+        pytest process, not a real ytm entry point (in production the
+        holder IS a ytm process).
+        """
         import os
 
+        monkeypatch.setattr("ytm_player.ipc._is_ytm_process", lambda pid: True)
         assert try_claim_pid() is None
         assert try_claim_pid() == os.getpid()
 
@@ -122,6 +132,159 @@ class TestTryClaimPid:
         assert try_claim_pid() is None
         remove_pid()
         assert not pid_file.exists()
+
+
+class TestPidIdentityCheck:
+    """Recycled-PID handling: a live PID that is not a ytm process is stale.
+
+    After a crash leaves ytm.pid behind, the OS may hand the recorded PID to
+    an unrelated process; the guard must not block launch forever on it
+    (previously the user had to delete ytm.pid by hand).
+    """
+
+    @pytest.fixture
+    def pid_file(self, tmp_path, monkeypatch):
+        pid_file = tmp_path / "ytm.pid"
+        monkeypatch.setattr("ytm_player.ipc.PID_FILE", pid_file)
+        monkeypatch.setattr("ytm_player.ipc._is_pid_alive", lambda pid: True)
+        return pid_file
+
+    def test_recycled_pid_of_unrelated_process_is_cleaned(self, pid_file, monkeypatch):
+        pid_file.write_text("12345", encoding="utf-8")
+        # raising=False so this test fails on behavior (not on setup) against
+        # code that has no _cmdline_of seam at all.
+        monkeypatch.setattr(
+            "ytm_player.ipc._cmdline_of",
+            lambda pid: ["/usr/lib/systemd/systemd-oomd"],
+            raising=False,
+        )
+        assert get_running_pid() is None
+        assert not pid_file.exists()
+
+    def test_recycled_pid_is_reclaimed_by_launch(self, pid_file, monkeypatch):
+        import os
+
+        pid_file.write_text("54321", encoding="utf-8")
+        monkeypatch.setattr(
+            "ytm_player.ipc._cmdline_of",
+            lambda pid: ["/usr/bin/unrelated-daemon"],
+            raising=False,
+        )
+        assert try_claim_pid() is None
+        assert pid_file.read_text(encoding="utf-8") == str(os.getpid())
+
+    def test_live_ytm_process_still_blocks(self, pid_file, monkeypatch):
+        pid_file.write_text("12345", encoding="utf-8")
+        monkeypatch.setattr(
+            "ytm_player.ipc._cmdline_of",
+            lambda pid: ["/usr/bin/python3", "-m", "ytm_player"],
+            raising=False,
+        )
+        assert get_running_pid() == 12345
+        assert pid_file.exists()
+
+    def test_unknown_cmdline_counts_as_ytm(self, pid_file, monkeypatch):
+        """Only positive evidence of NOT-ours may unblock; unknown blocks."""
+        pid_file.write_text("12345", encoding="utf-8")
+        monkeypatch.setattr("ytm_player.ipc._cmdline_of", lambda pid: None, raising=False)
+        assert get_running_pid() == 12345
+        assert pid_file.exists()
+
+
+class TestStaleEvictionSafety:
+    """Stale cleanup must never delete a claim it did not judge stale.
+
+    Two launchers can both judge the same file stale; the slower one's
+    cleanup must not destroy the faster one's freshly published claim.
+    """
+
+    @pytest.fixture
+    def pid_file(self, tmp_path, monkeypatch):
+        pid_file = tmp_path / "ytm.pid"
+        monkeypatch.setattr("ytm_player.ipc.PID_FILE", pid_file)
+        return pid_file
+
+    def test_fresh_claim_survives_racing_eviction(self, pid_file):
+        import ytm_player.ipc as ipc_mod
+
+        # We judged "999" stale; before our unlink lands, another launcher
+        # evicted the file and claimed it — the content no longer matches.
+        pid_file.write_text("31337", encoding="utf-8")
+        assert ipc_mod._unlink_pid_if_still("999") is False
+        assert pid_file.read_text(encoding="utf-8") == "31337"
+
+    def test_matching_stale_content_is_removed(self, pid_file):
+        import ytm_player.ipc as ipc_mod
+
+        pid_file.write_text("999", encoding="utf-8")
+        assert ipc_mod._unlink_pid_if_still("999") is True
+        assert not pid_file.exists()
+
+    def test_missing_file_is_noop(self, pid_file):
+        import ytm_player.ipc as ipc_mod
+
+        assert ipc_mod._unlink_pid_if_still("999") is False  # must not raise
+        assert not pid_file.exists()
+
+    def test_stale_branch_respects_claim_landed_mid_probe(self, pid_file, monkeypatch):
+        """The dead-PID cleanup in get_running_pid must re-check content.
+
+        The liveness/identity probes take real time; a concurrent launcher
+        can evict the same stale file and publish a fresh claim in that
+        window. Simulated here by swapping the file content from inside
+        the liveness probe.
+        """
+        pid_file.write_text("999", encoding="utf-8")
+
+        def dies_but_someone_claims(pid):
+            pid_file.write_text("31337", encoding="utf-8")
+            return False
+
+        monkeypatch.setattr("ytm_player.ipc._is_pid_alive", dies_but_someone_claims)
+        assert get_running_pid() is None
+        assert pid_file.read_text(encoding="utf-8") == "31337"
+
+
+class TestLooksLikeYtm:
+    """Conservative match rule: False only on positive not-ours evidence.
+
+    A false "ours" merely preserves the old always-block behavior; a false
+    "not ours" would let a second instance steal a live TUI's PID file.
+    """
+
+    @pytest.mark.parametrize(
+        ("argv", "expected"),
+        [
+            # Real entry points.
+            (["/home/u/.venv/bin/python", "/home/u/.venv/bin/ytm"], True),
+            (["/usr/bin/python3", "-m", "ytm_player"], True),
+            (["C:\\Users\\u\\venv\\Scripts\\ytm.exe"], True),
+            # Windows image-name-only probe: a bare interpreter path cannot
+            # rule out `python -m ytm_player`.
+            (["C:\\Python312\\python.exe"], True),
+            # Positive not-ours evidence unblocks.
+            (["C:\\Windows\\System32\\svchost.exe"], False),
+            (["/usr/lib/systemd/systemd-oomd"], False),
+            (["/usr/bin/python3", "/home/u/scripts/backup.py"], False),
+            # An editor with a ytm_player file open blocks (conservative)
+            # rather than risk stealing a live instance's claim.
+            (["nvim", "src/ytm_player/ipc.py"], True),
+        ],
+    )
+    def test_match(self, argv, expected):
+        import ytm_player.ipc as ipc_mod
+
+        assert ipc_mod._looks_like_ytm(argv) is expected
+
+    @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="/proc probe is Linux-only")
+    def test_cmdline_of_reads_own_process(self):
+        import os
+
+        import ytm_player.ipc as ipc_mod
+
+        argv = ipc_mod._cmdline_of(os.getpid())
+        assert argv is not None
+        assert "pytest" in " ".join(argv)
 
 
 class TestIPCCommandWhitelist:

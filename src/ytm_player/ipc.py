@@ -80,24 +80,157 @@ def _is_pid_alive(pid: int) -> bool:
             return False
 
 
+def _cmdline_of(pid: int) -> list[str] | None:
+    """Best-effort argv of *pid*; None when it cannot be determined.
+
+    Linux reads ``/proc/<pid>/cmdline``; macOS asks ``ps``; Windows can only
+    resolve the executable image path (the full command line would need
+    ``NtQueryInformationProcess``), so it returns a single-element list.
+    """
+    if sys.platform == "win32":
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        kernel32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return None
+        try:
+            kernel32.QueryFullProcessImageNameW.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_ulong,
+                ctypes.c_wchar_p,
+                ctypes.POINTER(ctypes.c_ulong),
+            ]
+            buf = ctypes.create_unicode_buffer(32768)
+            size = ctypes.c_ulong(len(buf))
+            if not kernel32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size)):
+                return None
+            return [buf.value] if buf.value else None
+        finally:
+            kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+            kernel32.CloseHandle(handle)
+    proc_cmdline = Path(f"/proc/{pid}/cmdline")
+    if proc_cmdline.parent.parent.exists():  # /proc present → Linux-style probe
+        try:
+            raw = proc_cmdline.read_bytes()
+        except OSError:
+            return None
+        argv = [a for a in raw.decode("utf-8", errors="replace").split("\x00") if a]
+        return argv or None
+    # No /proc (macOS): ask ps for the full command line.
+    import subprocess
+
+    try:
+        # -ww: never truncate the command line to terminal width — a
+        # truncated `.../bin/ytm` path would misclassify a live TUI as
+        # not-ours and get its PID file deleted.
+        out = subprocess.run(
+            ["ps", "-ww", "-p", str(pid), "-o", "command="],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    argv = out.stdout.strip().split()
+    return argv or None
+
+
+def _looks_like_ytm(argv: list[str]) -> bool:
+    """Heuristic: does *argv* look like a ytm-player entry point?
+
+    Errs on the side of True — a false "ours" merely preserves the
+    always-block behavior, while a false "not ours" would let a second
+    instance steal a live TUI's PID file. Only positive evidence that the
+    process is something else entirely may return False.
+    """
+    for arg in argv:
+        # Separator-agnostic basename: Windows image paths must also parse
+        # when this rule is exercised off-Windows (tests, ps output quirks).
+        name = arg.replace("\\", "/").rsplit("/", 1)[-1].lower()
+        if name == "ytm" or name.startswith("ytm.") or "ytm_player" in arg:
+            return True
+    if len(argv) == 1:
+        # Windows image-name-only probe: a bare interpreter path cannot
+        # rule out `python -m ytm_player`.
+        name = argv[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
+        if name.startswith("python"):
+            return True
+    return False
+
+
+def _is_ytm_process(pid: int) -> bool:
+    """Whether the live *pid* actually looks like a ytm-player process.
+
+    Unknown (cmdline unavailable) counts as ours — see ``_looks_like_ytm``.
+    """
+    argv = _cmdline_of(pid)
+    if argv is None:
+        return True
+    return _looks_like_ytm(argv)
+
+
+def _unlink_pid_if_still(expected_raw: str) -> bool:
+    """Remove PID_FILE only if it still holds *expected_raw*.
+
+    Between judging a file stale (which may involve a subprocess identity
+    probe) and deleting it, a concurrent launcher can evict the same stale
+    file and publish its own claim — deleting blindly would destroy that
+    fresh claim and let two instances pass the guard. Re-reading right
+    before the unlink closes that window down to the gap between two
+    adjacent syscalls; the remaining microsecond-scale TOCTOU is accepted
+    (fully closing it needs an eviction lock with its own staleness
+    problem).
+
+    Returns True when the stale file was actually removed, so callers can
+    scope any follow-up cleanup (Windows IPC port/token files) to a real
+    eviction and never touch a fresh claimant's files.
+    """
+    try:
+        if PID_FILE.read_text(encoding="utf-8") != expected_raw:
+            return False
+    except OSError:
+        return False  # already gone — nothing to clean
+    PID_FILE.unlink(missing_ok=True)
+    return True
+
+
 def get_running_pid() -> int | None:
     """Return the PID of the live ytm-player TUI process, or None.
 
     Cleans up the stale PID file (and IPC port file on Windows) when the
-    recorded process is dead, so a fresh launch can proceed.
+    recorded process is dead — or when its PID was recycled by an unrelated
+    process after a crash — so a fresh launch can proceed.
     """
     if not PID_FILE.exists():
         return None
     try:
-        pid = int(PID_FILE.read_text(encoding="utf-8").strip())
-    except (ValueError, OSError):
+        raw = PID_FILE.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    except OSError:
+        # Unreadable — evict so the claim loop keeps making progress.
         PID_FILE.unlink(missing_ok=True)
         return None
-    if _is_pid_alive(pid):
+    try:
+        pid = int(raw.strip())
+    except ValueError:
+        _unlink_pid_if_still(raw)
+        return None
+    if _is_pid_alive(pid) and _is_ytm_process(pid):
         return pid
-    # Process is dead — clean up stale PID file and IPC port/token files (Windows).
-    PID_FILE.unlink(missing_ok=True)
-    if sys.platform == "win32":
+    # Process is dead (or the PID now belongs to an unrelated process) —
+    # clean up stale PID file and IPC port/token files (Windows). The
+    # liveness/identity probes above take real time, so only remove the
+    # file if no concurrent launcher replaced it with a fresh claim since
+    # we read it — and only touch the IPC files after a real eviction
+    # (they may already belong to the fresh claimant).
+    if _unlink_pid_if_still(raw) and sys.platform == "win32":
         from ytm_player.config.paths import IPC_PORT_FILE
 
         if IPC_PORT_FILE is not None:
