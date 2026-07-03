@@ -3,7 +3,7 @@
 Exercises three end-to-end flows through the full SessionMixin:
 
 1. Valid round-trip — ``_save_session_state`` writes; ``_restore_session_state``
-   re-reads; the host's queue/player/theme reflect the persisted values.
+   re-reads; the host's queue/player state reflects the persisted values.
 2. Corrupt JSON — a malformed ``session.json`` falls back to defaults
    silently (no exception propagates, no state is misapplied).
 3. Save-failure toast — when the atomic write raises ``OSError`` the failure
@@ -32,9 +32,9 @@ def _build_session_host():
 
     Mirrors the ``_fresh_session_host`` / ``_save_session_host`` pattern
     in ``tests/test_app/test_session.py`` — the SessionMixin reaches for
-    queue, player, settings, sidebar maps, theme, and a couple of
-    private resume slots, all of which need to exist or the mixin
-    raises AttributeError before any business logic runs.
+    queue, player, settings, sidebar maps, and a couple of private
+    resume slots, all of which need to exist or the mixin raises
+    AttributeError before any business logic runs.
     """
     h = SessionMixin()
 
@@ -164,7 +164,7 @@ def test_save_oserror_surfaces_warning_notify(tmp_path, monkeypatch):
 
     Retroactive integration coverage for Task 4.6 (commit 1d2e3d7) —
     previously the failure was swallowed with a logger.warning and the
-    user lost their queue/position/theme silently on next launch.
+    user lost their queue and position silently on next launch.
     """
     target = tmp_path / "session.json"
     monkeypatch.setattr("ytm_player.config.paths.SESSION_STATE_FILE", target, raising=False)
