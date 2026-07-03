@@ -207,11 +207,6 @@ class ContextPage(TrackFilterHost, Widget):
         self.query_one("#context-content").display = False
         self._load_data()
 
-    def on_remove(self) -> None:
-        """Cancel background workers when page is removed (prevents DuplicateIds crash)."""
-        for worker in self.workers:
-            worker.cancel()
-
     def _load_data(self) -> None:
         """Start an async worker to fetch context data."""
         self.loading = True

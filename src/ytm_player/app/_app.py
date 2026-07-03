@@ -277,9 +277,6 @@ class YTMPlayerApp(
         # IPC server for CLI command channel.
         self._ipc_server: IPCServer | None = None
 
-        # Clean exit flag: True when user quits via q/C-q (no resume on next start).
-        self._clean_exit: bool = False
-
         # Sidebar state: per-page playlist sidebar visibility and global lyrics toggle.
         # Default True for all pages -- user can toggle off per-view.
         self._sidebar_default: bool = True

@@ -189,6 +189,29 @@ class QueueManager:
                 insert_pos = self._current_index + 1 if self._current_index >= 0 else 0
                 self._add_unlocked(track, position=insert_pos)
 
+    def add_next_multiple(self, tracks: list[dict]) -> None:
+        """Insert *tracks* immediately after the current track, preserving order.
+
+        The N tracks become the next N to play, in the given order. Shuffle-aware:
+        under shuffle they're spliced into the shuffle order right after the
+        current position (so they play next, in order) while appended to
+        ``_tracks``; otherwise they're spliced into ``_tracks`` after the current
+        index. Duplicates are inserted as-is, mirroring :meth:`add_next`.
+        """
+        if not tracks:
+            return
+        with self._lock:
+            if self._shuffle:
+                start_idx = len(self._tracks)
+                self._tracks.extend(tracks)
+                new_indices = range(start_idx, start_idx + len(tracks))
+                insert_pos = self._shuffle_position + 1
+                for offset, new_idx in enumerate(new_indices):
+                    self._shuffle_order.insert(insert_pos + offset, new_idx)
+            else:
+                insert_pos = self._current_index + 1 if self._current_index >= 0 else 0
+                self._tracks[insert_pos:insert_pos] = tracks
+
     def _add_multiple_unlocked(self, tracks: list[dict]) -> None:
         """Append *tracks* to the queue and update shuffle order.
 

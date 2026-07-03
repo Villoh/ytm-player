@@ -46,7 +46,6 @@ ACTION_DESCRIPTIONS: dict[Action, str] = {
     Action.FOCUS_PANE_CYCLE: "Cycle focus through the visible panes",
     Action.GO_BACK: "Go back / close page",
     Action.GO_FORWARD: "Go forward (after going back)",
-    Action.CLOSE_POPUP: "Close popup / cancel",
     # Pages
     Action.LIBRARY: "Go to library",
     Action.SEARCH: "Go to search",
@@ -62,8 +61,7 @@ ACTION_DESCRIPTIONS: dict[Action, str] = {
     Action.DELETE_ITEM: "Delete / remove item",
     Action.TRACK_ACTIONS: "Show track actions menu",
     Action.LIKE_TOGGLE: "Toggle like on the currently playing track",
-    Action.CONTEXT_ACTIONS: "Show context actions menu",
-    Action.SELECTED_ACTIONS: "Actions for selected items",
+    Action.PLAY_NEXT: "Play the focused track next (insert after current)",
     Action.ADD_TO_QUEUE: "Add track to queue",
     Action.ADD_TO_PLAYLIST: "Add track to a playlist",
     Action.DISCOVERY_MIX: "Start discovery roulette — random mix from a rotating source",
@@ -112,7 +110,6 @@ ACTION_CATEGORIES: dict[str, list[Action]] = {
         Action.FOCUS_PANE_CYCLE,
         Action.GO_BACK,
         Action.GO_FORWARD,
-        Action.CLOSE_POPUP,
     ],
     "Pages": [
         Action.LIBRARY,
@@ -130,8 +127,7 @@ ACTION_CATEGORIES: dict[str, list[Action]] = {
         Action.DELETE_ITEM,
         Action.TRACK_ACTIONS,
         Action.LIKE_TOGGLE,
-        Action.CONTEXT_ACTIONS,
-        Action.SELECTED_ACTIONS,
+        Action.PLAY_NEXT,
         Action.ADD_TO_QUEUE,
         Action.ADD_TO_PLAYLIST,
         Action.DISCOVERY_MIX,
@@ -313,8 +309,6 @@ class HelpPage(Widget):
         except Exception:
             filter_input = None
         if filter_input is not None and self.app.focused is filter_input:
-            if action == Action.CLOSE_POPUP:
-                self.filter_visible = False
             return
 
         match action:
@@ -346,10 +340,3 @@ class HelpPage(Widget):
             case Action.GO_BOTTOM:
                 if table.row_count > 0:
                     table.move_cursor(row=table.row_count - 1)
-
-            case Action.CLOSE_POPUP:
-                if self.filter_text:
-                    self.filter_text = ""
-                    self._populate_table()
-                else:
-                    await self.app.navigate_to("back")  # type: ignore[attr-defined]

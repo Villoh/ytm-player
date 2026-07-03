@@ -560,8 +560,3 @@ def _normalize_raw_headers(raw: str) -> str:
             continue
         result.append(stripped)
     return "\n".join(result)
-
-
-def get_auth_manager(cookies_file: str | None = None) -> AuthManager:
-    """Construct a new AuthManager for *cookies_file* (not a shared singleton)."""
-    return AuthManager(cookies_file=cookies_file)

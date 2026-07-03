@@ -61,6 +61,43 @@ class TrackActionsMixin(YTMHostBase):
             widget = widget.parent
         return None
 
+    def _resolve_action_track(self) -> dict | None:
+        """Focused-table track, falling back to the currently playing track."""
+        track = self._get_focused_track()
+        if track:
+            return track
+        if self.player and self.player.current_track:
+            return self.player.current_track
+        return None
+
+    def _enqueue_track(self, track: dict) -> None:
+        """Append *track* to the queue, refresh the queue page, and notify."""
+        self.queue.add(track)
+        self._refresh_queue_page()
+        self.notify(f"Added to queue: {track.get('title') or 'track'}", timeout=2)
+
+    def _play_track_next(self, track: dict) -> None:
+        """Insert *track* right after the current track, refresh, and notify."""
+        self.queue.add_next(track)
+        self._refresh_queue_page()
+        self.notify(f"Playing next: {track.get('title') or 'track'}", timeout=2)
+
+    def _add_focused_to_queue(self) -> None:
+        """Enqueue the focused (or playing) track — the app-level Add-to-Queue key."""
+        track = self._resolve_action_track()
+        if not track:
+            self.notify("No track selected.", severity="warning", timeout=2)
+            return
+        self._enqueue_track(track)
+
+    def _play_focused_next(self) -> None:
+        """Play the focused (or playing) track next — the app-level Play-Next key."""
+        track = self._resolve_action_track()
+        if not track:
+            self.notify("No track selected.", severity="warning", timeout=2)
+            return
+        self._play_track_next(track)
+
     async def _open_add_to_playlist(self) -> None:
         """Open PlaylistPicker for the currently playing track."""
         track = None
@@ -112,13 +149,9 @@ class TrackActionsMixin(YTMHostBase):
             elif action_id == "download":
                 self.run_worker(self._download_track(track))
             elif action_id == "play_next":
-                self.queue.add_next(track)
-                self._refresh_queue_page()
-                self.notify("Playing next", timeout=2)
+                self._play_track_next(track)
             elif action_id == "add_to_queue":
-                self.queue.add(track)
-                self._refresh_queue_page()
-                self.notify("Added to queue", timeout=2)
+                self._enqueue_track(track)
             elif action_id == "remove_from_queue":
                 video_id = get_video_id(track)
                 if video_id:
@@ -239,6 +272,11 @@ class TrackActionsMixin(YTMHostBase):
         self.queue.add_multiple(tracks)
         self._refresh_queue_page()
         self.notify(f"Added {label} ({len(tracks)} tracks) to queue", timeout=3)
+
+    def _play_next_multiple(self, tracks: list[dict], label: str) -> None:
+        self.queue.add_next_multiple(tracks)
+        self._refresh_queue_page()
+        self.notify(f"Playing {label} next ({len(tracks)} tracks)", timeout=3)
 
     def _refresh_queue_page(self) -> None:
         """Refresh the queue page if it's currently displayed."""
@@ -572,6 +610,17 @@ class TrackActionsMixin(YTMHostBase):
             return
         self._append_to_queue(tracks, album_name)
 
+    async def _add_album_next(self, album_id: str, album_name: str) -> None:
+        """Fetch album tracks and insert them right after the current track."""
+        if not self.ytmusic:
+            return
+        data = await self.ytmusic.get_album(album_id)
+        tracks = normalize_tracks(data.get("tracks", []) if isinstance(data, dict) else [])
+        if not tracks:
+            self.notify("No tracks found.", severity="warning", timeout=3)
+            return
+        self._play_next_multiple(tracks, album_name)
+
     async def _dispatch_entity_action(self, action_id: str, item: dict, item_type: str) -> bool:
         """Dispatch an entity action to the correct method. Returns True if handled."""
         entity_id = item.get("browseId") or item.get("album_id") or item.get("playlistId") or ""
@@ -604,6 +653,21 @@ class TrackActionsMixin(YTMHostBase):
                     self.notify("No ID available", severity="error", timeout=2)
                     return True
                 await self._add_playlist_to_queue(entity_id, entity_name)
+            else:
+                return False
+            return True
+
+        if action_id == "play_next":
+            if item_type == "album":
+                if not entity_id:
+                    self.notify("No ID available", severity="error", timeout=2)
+                    return True
+                await self._add_album_next(entity_id, entity_name)
+            elif item_type == "playlist":
+                if not entity_id:
+                    self.notify("No ID available", severity="error", timeout=2)
+                    return True
+                await self._add_playlist_next(entity_id, entity_name)
             else:
                 return False
             return True
@@ -708,6 +772,20 @@ class TrackActionsMixin(YTMHostBase):
         except Exception:
             logger.debug("Failed to add playlist to queue", exc_info=True)
             self.notify("Failed to add to queue", severity="error", timeout=2)
+
+    async def _add_playlist_next(self, playlist_id: str, name: str) -> None:
+        if not self.ytmusic:
+            return
+        try:
+            data = await self.ytmusic.get_playlist(playlist_id)
+            tracks = normalize_tracks(data.get("tracks", []))
+            if tracks:
+                self._play_next_multiple(tracks, name)
+            else:
+                self.notify("Playlist is empty", severity="warning", timeout=2)
+        except Exception:
+            logger.debug("Failed to add playlist to play next", exc_info=True)
+            self.notify("Failed to play next", severity="error", timeout=2)
 
     async def _start_playlist_radio(self, item: dict) -> None:
         """Start radio seeded from a playlist."""

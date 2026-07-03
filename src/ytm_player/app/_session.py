@@ -169,9 +169,9 @@ class SessionMixin(YTMHostBase):
         queue_tracks = list(self.queue.tracks)
         queue_index = self.queue.current_index
 
-        # Save current track + position regardless of clean/unclean exit.
-        # Whether to RESTORE on next launch is gated by
-        # settings.playback.resume_on_launch in _restore_session_state.
+        # Always save current track + position on exit. Whether to RESTORE
+        # on next launch is gated by settings.playback.resume_on_launch in
+        # _restore_session_state.
         # Guard: only save resume if position > 1.0s, so a startup-crash
         # (or any premature exit) doesn't overwrite a valid prior resume
         # with "position 0".

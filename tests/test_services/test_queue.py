@@ -568,3 +568,75 @@ class TestPeekNext:
         queue_manager.jump_to(0)
         nxt = queue_manager.peek_next()
         assert nxt in sample_tracks
+
+
+def _extra(video_id: str) -> dict:
+    """A minimal standardized track dict for add_next_multiple tests."""
+    return {
+        "video_id": video_id,
+        "title": video_id,
+        "artist": "X",
+        "artists": [],
+        "album": "",
+        "album_id": None,
+        "duration": 100,
+        "thumbnail_url": None,
+        "is_video": False,
+    }
+
+
+class TestAddNextMultiple:
+    """add_next_multiple: insert N tracks right after the current track, in order."""
+
+    def test_empty_input_is_noop(self, queue_manager, sample_tracks):
+        queue_manager.add_multiple(sample_tracks)
+        queue_manager.jump_to(0)
+        queue_manager.add_next_multiple([])
+        assert queue_manager.length == 5
+
+    def test_empty_queue_inserts_at_front_in_order(self, queue_manager):
+        queue_manager.add_next_multiple([_extra("x1"), _extra("x2")])
+        assert queue_manager.length == 2
+        assert [t["video_id"] for t in queue_manager.tracks] == ["x1", "x2"]
+
+    def test_mid_queue_inserts_after_current_in_order(self, queue_manager, sample_tracks):
+        queue_manager.add_multiple(sample_tracks)
+        queue_manager.jump_to(1)  # current = vid_02
+        queue_manager.add_next_multiple([_extra("x1"), _extra("x2")])
+        vids = [t["video_id"] for t in queue_manager.tracks]
+        assert vids == ["vid_01", "vid_02", "x1", "x2", "vid_03", "vid_04", "vid_05"]
+        # Current track is unaffected by the insertion after it.
+        assert queue_manager.current()["video_id"] == "vid_02"
+
+    def test_next_plays_inserted_tracks_in_order(self, queue_manager, sample_tracks):
+        queue_manager.add_multiple(sample_tracks)
+        queue_manager.jump_to(0)  # current = vid_01
+        queue_manager.add_next_multiple([_extra("x1"), _extra("x2")])
+        assert queue_manager.next_track()["video_id"] == "x1"
+        assert queue_manager.next_track()["video_id"] == "x2"
+        assert queue_manager.next_track()["video_id"] == "vid_02"
+
+    def test_order_preserved_for_many(self, queue_manager, sample_tracks):
+        queue_manager.add_multiple(sample_tracks)
+        queue_manager.jump_to(2)
+        queue_manager.add_next_multiple([_extra(f"x{i}") for i in range(5)])
+        played = [queue_manager.next_track()["video_id"] for _ in range(5)]
+        assert played == ["x0", "x1", "x2", "x3", "x4"]
+
+    def test_shuffle_inserts_next_in_order(self, queue_manager, sample_tracks):
+        queue_manager.add_multiple(sample_tracks)
+        queue_manager.jump_to(0)
+        queue_manager.toggle_shuffle()
+        queue_manager.add_next_multiple([_extra("x1"), _extra("x2")])
+        assert queue_manager.length == 7
+        # Under shuffle the inserted tracks are the next N to play, in order.
+        assert queue_manager.next_track()["video_id"] == "x1"
+        assert queue_manager.next_track()["video_id"] == "x2"
+
+    def test_duplicates_inserted_as_is(self, queue_manager, sample_tracks):
+        # No dedup, consistent with add_next().
+        queue_manager.add_multiple(sample_tracks)
+        queue_manager.jump_to(0)
+        queue_manager.add_next_multiple([sample_tracks[0]])  # vid_01 already present
+        assert queue_manager.length == 6
+        assert queue_manager.next_track()["video_id"] == "vid_01"

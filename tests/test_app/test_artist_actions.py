@@ -562,6 +562,8 @@ class TestDispatchEntityAction:
         host._play_playlist = AsyncMock()
         host._add_album_to_queue = AsyncMock()
         host._add_playlist_to_queue = AsyncMock()
+        host._add_album_next = AsyncMock()
+        host._add_playlist_next = AsyncMock()
         host._start_artist_radio = AsyncMock()
         host._start_playlist_radio = AsyncMock()
         host._play_artist_top_songs = AsyncMock()
@@ -694,6 +696,36 @@ class TestDispatchEntityAction:
         )
         assert result is True
         host._add_playlist_to_queue.assert_awaited_once_with("PL1", "Playlist")
+
+    async def test_play_next_album_dispatches(self):
+        host = self._make_host()
+        item = {"browseId": "ALB1", "title": "Album"}
+        result = await TrackActionsMixin._dispatch_entity_action(host, "play_next", item, "album")
+        assert result is True
+        host._add_album_next.assert_awaited_once_with("ALB1", "Album")
+
+    async def test_play_next_playlist_dispatches(self):
+        host = self._make_host()
+        item = {"playlistId": "PL1", "title": "Playlist"}
+        result = await TrackActionsMixin._dispatch_entity_action(
+            host, "play_next", item, "playlist"
+        )
+        assert result is True
+        host._add_playlist_next.assert_awaited_once_with("PL1", "Playlist")
+
+    async def test_play_next_album_no_id_notifies(self):
+        host = self._make_host()
+        item = {"title": "No ID"}
+        result = await TrackActionsMixin._dispatch_entity_action(host, "play_next", item, "album")
+        assert result is True
+        host.notify.assert_called_once()
+        host._add_album_next.assert_not_awaited()
+
+    async def test_play_next_track_returns_false(self):
+        host = self._make_host()
+        item = {"browseId": "X", "title": "X"}
+        result = await TrackActionsMixin._dispatch_entity_action(host, "play_next", item, "track")
+        assert result is False
 
 
 # ── _open_actions_for_artist / _open_actions_for_album tests ─────────
@@ -933,6 +965,8 @@ class TestDispatchEntityActionExtended:
         host._play_playlist = AsyncMock()
         host._add_album_to_queue = AsyncMock()
         host._add_playlist_to_queue = AsyncMock()
+        host._add_album_next = AsyncMock()
+        host._add_playlist_next = AsyncMock()
         host._start_artist_radio = AsyncMock()
         host._start_playlist_radio = AsyncMock()
         host._play_artist_top_songs = AsyncMock()
