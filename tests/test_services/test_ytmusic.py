@@ -591,3 +591,19 @@ class TestAddHistoryItem:
         ytmusic_service._ytm.get_song = MagicMock(side_effect=RuntimeError("boom"))
 
         assert await ytmusic_service.add_history_item("vid123") is False
+
+    async def test_skips_when_playback_tracking_missing(self, ytmusic_service):
+        # Unavailable tracks come back without playbackTracking; we must skip
+        # explicitly rather than let a KeyError surface from add_history_item.
+        ytmusic_service._ytm.get_song = MagicMock(return_value={"videoDetails": {}})
+        ytmusic_service._ytm.add_history_item = MagicMock()
+
+        assert await ytmusic_service.add_history_item("vid123") is False
+        ytmusic_service._ytm.add_history_item.assert_not_called()
+
+    async def test_returns_false_when_add_raises(self, ytmusic_service):
+        song = {"playbackTracking": {"videostatsPlaybackUrl": {"baseUrl": "u"}}}
+        ytmusic_service._ytm.get_song = MagicMock(return_value=song)
+        ytmusic_service._ytm.add_history_item = MagicMock(side_effect=RuntimeError("boom"))
+
+        assert await ytmusic_service.add_history_item("vid123") is False

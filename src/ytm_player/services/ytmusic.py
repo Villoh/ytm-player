@@ -1047,10 +1047,23 @@ class YTMusicService:
         """
         if not video_id:
             return False
+        # ``add_history_item`` needs the ``playbackTracking`` payload, which is
+        # only available from ``get_song``. There is no combined endpoint, so
+        # one extra round trip per reported play is unavoidable.
         try:
             song = await self._call(self.client.get_song, video_id)
+        except Exception:
+            logger.exception("get_song failed for %r", video_id)
+            return False
+        # Unavailable / non-playable tracks come back without playbackTracking;
+        # skip explicitly instead of letting a KeyError surface as a generic
+        # "add_history_item failed".
+        if not isinstance(song, dict) or "playbackTracking" not in song:
+            logger.debug("add_history_item: no playbackTracking for %r; skipping", video_id)
+            return False
+        try:
             resp = await self._call(self.client.add_history_item, song)
-            return getattr(resp, "status_code", None) == 204
         except Exception:
             logger.exception("add_history_item failed for %r", video_id)
             return False
+        return getattr(resp, "status_code", None) == 204
