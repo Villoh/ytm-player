@@ -30,7 +30,7 @@ from textual.widget import Widget
 from textual.worker import Worker, WorkerState
 
 from ytm_player.ui.pages.context import ContextPage
-from ytm_player.ui.pages.recently_played import RecentlyPlayedPage
+from ytm_player.ui.pages.recently_played import _TAB_LOCAL, RecentlyPlayedPage
 
 
 def _attach_fake_app(page: Widget, fake_app: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -109,6 +109,10 @@ async def test_recently_played_shows_error_fallback_when_history_raises_oserror(
         f"loading label leaked the empty-state message on failure: {update_calls!r}"
     )
 
+    # Failure must NOT be cached as an empty history — a retry (tab
+    # re-entry) must refetch.
+    assert page._get_cache(_TAB_LOCAL) is None
+
 
 async def test_recently_played_shows_error_fallback_when_history_raises_sqlite_error(
     monkeypatch: pytest.MonkeyPatch,
@@ -130,6 +134,9 @@ async def test_recently_played_shows_error_fallback_when_history_raises_sqlite_e
     widgets["#recent-table"].load_tracks.assert_called_once_with([])
     update_calls = [c.args[0] for c in widgets["#recent-loading"].update.call_args_list]
     assert any("Couldn't load history" in msg for msg in update_calls)
+    # Failure must NOT be cached as an empty history — a retry (tab
+    # re-entry) must refetch.
+    assert page._get_cache(_TAB_LOCAL) is None
 
 
 async def test_recently_played_keeps_empty_state_message_for_genuine_empty_history(

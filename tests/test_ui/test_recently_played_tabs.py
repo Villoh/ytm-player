@@ -303,6 +303,45 @@ def test_background_refresh_reapplies_active_filter(monkeypatch) -> None:
     widgets["#recent-table"].apply_filter.assert_called_once_with("alp")
 
 
+async def test_local_failure_does_not_leak_onto_ytm_tab(monkeypatch) -> None:
+    """A failed Local load then a YTM visit with 0 rows must show the YTM
+    empty message, not the local-failure copy."""
+    page, widgets = _make_page(active_tab=_TAB_LOCAL)
+    fake_app = MagicMock()
+    fake_app.history.get_recently_played = AsyncMock(side_effect=OSError("locked"))
+    fake_ytmusic = MagicMock()
+    fake_ytmusic.get_history = AsyncMock(return_value=[])
+    fake_app.ytmusic = fake_ytmusic
+    fake_app._ytm_history = None
+    _attach_fake_app(page, fake_app, monkeypatch)
+
+    await page._load_history()
+    assert page._load_failed is True
+
+    page._active_tab = _TAB_YTM
+    await page._load_ytm_history()
+
+    msg = str(widgets["#recent-loading"].update.call_args.args[0])
+    assert "No YT Music play history found." in msg
+    # The local flag survives for the local tab's own retry logic.
+    assert page._load_failed is True
+
+
+async def test_ytm_visit_does_not_clear_local_failure_flag(monkeypatch) -> None:
+    page, widgets = _make_page(active_tab=_TAB_YTM)
+    fake_ytmusic = MagicMock()
+    fake_ytmusic.get_history = AsyncMock(return_value=_raw_tracks(3))
+    fake_app = MagicMock()
+    fake_app.ytmusic = fake_ytmusic
+    fake_app._ytm_history = None
+    _attach_fake_app(page, fake_app, monkeypatch)
+    page._load_failed = True  # local tab failed earlier
+
+    await page._load_ytm_history()
+
+    assert page._load_failed is True
+
+
 def test_background_refresh_keeps_cursor_on_same_track(monkeypatch) -> None:
     """A dedup-move refresh is net-zero: the cursored track keeps its row."""
     old = [{"video_id": "a", "title": "A"}, {"video_id": "b", "title": "B"}]

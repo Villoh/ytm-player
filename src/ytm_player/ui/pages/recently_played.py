@@ -227,8 +227,6 @@ class RecentlyPlayedPage(TrackFilterHost, Widget):
 
     async def _load_history(self) -> None:
         """Load the local SQLite play history (Local tab)."""
-        self._ytm_auth_required = False
-        self._ytm_load_failed = False
         history = self.app.history  # type: ignore[attr-defined]
         if not history:
             self.query_one("#recent-loading", Label).update("History not available.")
@@ -237,6 +235,10 @@ class RecentlyPlayedPage(TrackFilterHost, Widget):
         try:
             tracks = await history.get_recently_played(limit=_MAX_TRACKS)
             self._load_failed = False
+            # Cache only successful loads: a failure cached as [] would show
+            # "No play history yet" with no retry until remount (the YTM
+            # loader has the same success-only asymmetry).
+            self._set_cache(_TAB_LOCAL, tracks)
         except (OSError, sqlite3.Error):
             # Local DB failure: file unreadable, disk full, DB locked,
             # schema mismatch, corrupt page, etc. Programming errors
@@ -247,13 +249,11 @@ class RecentlyPlayedPage(TrackFilterHost, Widget):
             tracks = []
             self._load_failed = True
 
-        self._set_cache(_TAB_LOCAL, tracks)
         if self._active_tab == _TAB_LOCAL:
             self._display_tracks(tracks)
 
     async def _load_ytm_history(self) -> None:
         """Load the account play history from YT Music (YT Music tab)."""
-        self._load_failed = False
         self._ytm_auth_required = False
         self._ytm_load_failed = False
 
@@ -354,15 +354,17 @@ class RecentlyPlayedPage(TrackFilterHost, Widget):
             self.track_count = 0
             self.query_one("#recent-footer", Static).update("")
             table.display = False
-            if self._load_failed:
-                loading.update(_HISTORY_LOAD_FAILED_MSG)
-            elif self._active_tab == _TAB_YTM:
+            # Read only the ACTIVE tab's failure flags: the other tab's
+            # failure copy must not leak onto this one.
+            if self._active_tab == _TAB_YTM:
                 if self._ytm_auth_required:
                     loading.update(_YTM_AUTH_REQUIRED_MSG)
                 elif self._ytm_load_failed:
                     loading.update(_YTM_LOAD_FAILED_MSG)
                 else:
                     loading.update("No YT Music play history found.")
+            elif self._load_failed:
+                loading.update(_HISTORY_LOAD_FAILED_MSG)
             else:
                 loading.update("No play history yet. Start listening!")
             loading.display = True
