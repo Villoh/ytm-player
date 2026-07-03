@@ -12,10 +12,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 from ytm_player.app._playback import (
     _YTM_HISTORY_MAX,
-    _YTM_HISTORY_MIN_SECONDS,
     _YTM_HISTORY_POLL_SECONDS,
     PlaybackMixin,
 )
+from ytm_player.config.settings import DEFAULT_HISTORY_MIN_LISTEN_SECONDS
 
 
 def _host(
@@ -29,6 +29,7 @@ def _host(
 ) -> MagicMock:
     host = MagicMock()
     host.settings.playback.sync_history_to_ytmusic = enabled
+    host.settings.playback.history_min_listen_seconds = DEFAULT_HISTORY_MIN_LISTEN_SECONDS
     host.ytmusic = MagicMock() if ytmusic == "default" else ytmusic
     host._play_generation = play_generation
     host._ytm_reported_generation = reported_generation
@@ -42,6 +43,7 @@ def _host(
     host.player.current_track = {"video_id": video_id} if video_id else None
     host.set_timer = MagicMock()
     host.run_worker = MagicMock()
+    host._history_min_listen_seconds = PlaybackMixin._history_min_listen_seconds.__get__(host)
     return host
 
 
@@ -72,7 +74,15 @@ def test_schedule_arms_initial_threshold_timer() -> None:
     host = _host()
     _schedule(host)
     host.set_timer.assert_called_once()
-    assert host.set_timer.call_args.args[0] == _YTM_HISTORY_MIN_SECONDS
+    assert host.set_timer.call_args.args[0] == DEFAULT_HISTORY_MIN_LISTEN_SECONDS
+
+
+def test_schedule_uses_configured_history_threshold() -> None:
+    host = _host()
+    host.settings.playback.history_min_listen_seconds = 30
+    _schedule(host)
+    host.set_timer.assert_called_once()
+    assert host.set_timer.call_args.args[0] == 30
 
 
 def test_schedule_skips_when_disabled() -> None:
@@ -97,7 +107,7 @@ def test_schedule_skips_without_video_id() -> None:
 
 
 def test_report_fires_once_position_crosses_threshold() -> None:
-    host = _host(play_generation=3, position=_YTM_HISTORY_MIN_SECONDS)
+    host = _host(play_generation=3, position=DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 1)
     _report(host, generation=3)
     host.ytmusic.add_history_item.assert_called_once_with("vid1")
     host.run_worker.assert_called_once()
@@ -112,7 +122,7 @@ def test_report_skips_stale_generation() -> None:
 
 
 def test_report_repolls_while_position_below_threshold() -> None:
-    host = _host(position=_YTM_HISTORY_MIN_SECONDS - 1)
+    host = _host(position=DEFAULT_HISTORY_MIN_LISTEN_SECONDS - 1)
     _report(host)
     host.ytmusic.add_history_item.assert_not_called()
     host.run_worker.assert_not_called()
@@ -120,11 +130,34 @@ def test_report_repolls_while_position_below_threshold() -> None:
     assert host.set_timer.call_args.args[0] == _YTM_HISTORY_POLL_SECONDS
 
 
+def test_report_uses_configured_history_threshold() -> None:
+    host = _host(position=10)
+    host.settings.playback.history_min_listen_seconds = 30
+    _report(host)
+    host.ytmusic.add_history_item.assert_not_called()
+    host.run_worker.assert_not_called()
+    host.set_timer.assert_called_once()
+    assert host.set_timer.call_args.args[0] == _YTM_HISTORY_POLL_SECONDS
+
+
+def test_zero_threshold_counts_positive_playback_time() -> None:
+    host = _host(position=0)
+    host.settings.playback.history_min_listen_seconds = 0
+    _report(host)
+    host.ytmusic.add_history_item.assert_not_called()
+    host.run_worker.assert_not_called()
+
+    host = _host(position=1)
+    host.settings.playback.history_min_listen_seconds = 0
+    _report(host)
+    host.ytmusic.add_history_item.assert_called_once_with("vid1")
+
+
 def test_report_repolls_when_resumed_below_relative_threshold() -> None:
     """On resume-on-launch the track starts mid-file, so raw position is high
     but the actual listen time (position - start) is still below threshold."""
-    host = _host(position=_YTM_HISTORY_MIN_SECONDS + 100)
-    host._track_start_position = float(_YTM_HISTORY_MIN_SECONDS + 100 - 1)  # heard ~1s
+    host = _host(position=DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 100)
+    host._track_start_position = float(DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 100 - 1)  # heard ~1s
     _report(host)
     host.ytmusic.add_history_item.assert_not_called()
     host.run_worker.assert_not_called()
@@ -134,7 +167,7 @@ def test_report_repolls_when_resumed_below_relative_threshold() -> None:
 
 def test_report_fires_when_resumed_and_listened_past_threshold() -> None:
     host = _host(position=200.0, play_generation=3)
-    host._track_start_position = float(200 - _YTM_HISTORY_MIN_SECONDS)  # heard 5s
+    host._track_start_position = float(200 - DEFAULT_HISTORY_MIN_LISTEN_SECONDS - 1)  # heard 6s
     _report(host, generation=3)
     host.ytmusic.add_history_item.assert_called_once_with("vid1")
 
@@ -158,11 +191,11 @@ def test_local_schedule_arms_threshold_timer() -> None:
     host = _host()
     _schedule_local(host)
     host.set_timer.assert_called_once()
-    assert host.set_timer.call_args.args[0] == _YTM_HISTORY_MIN_SECONDS
+    assert host.set_timer.call_args.args[0] == DEFAULT_HISTORY_MIN_LISTEN_SECONDS
 
 
 def test_local_report_repolls_until_position_exceeds_threshold() -> None:
-    host = _host(position=_YTM_HISTORY_MIN_SECONDS)
+    host = _host(position=DEFAULT_HISTORY_MIN_LISTEN_SECONDS)
     _report_local(host)
     host.run_worker.assert_not_called()
     host.set_timer.assert_called_once()
@@ -170,7 +203,7 @@ def test_local_report_repolls_until_position_exceeds_threshold() -> None:
 
 
 def test_local_report_inserts_once_position_exceeds_threshold() -> None:
-    host = _host(position=_YTM_HISTORY_MIN_SECONDS + 1)
+    host = _host(position=DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 1)
     _report_local(host)
     host.run_worker.assert_called_once()
 
@@ -179,14 +212,14 @@ def test_local_report_fires_even_when_current_track_cleared() -> None:
     """Natural advance: a duplicate mpv end-file clears player.current_track
     while the track keeps playing. The report must still fire (generation is
     the source of truth), otherwise the play is silently dropped."""
-    host = _host(position=_YTM_HISTORY_MIN_SECONDS + 1)
+    host = _host(position=DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 1)
     host.player.current_track = None
     _report_local(host)
     host.run_worker.assert_called_once()
 
 
 def test_ytm_report_fires_even_when_current_track_cleared() -> None:
-    host = _host(position=_YTM_HISTORY_MIN_SECONDS)
+    host = _host(position=DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 1)
     host.player.current_track = None
     _report(host)
     host.ytmusic.add_history_item.assert_called_once_with("vid1")
@@ -201,7 +234,7 @@ async def test_local_insert_records_play_id() -> None:
 
     await PlaybackMixin._insert_local_history_play.__get__(host)(
         {"video_id": "vid1"},
-        _YTM_HISTORY_MIN_SECONDS + 1,
+        DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 1,
         "vid1",
         4,
     )
@@ -221,7 +254,7 @@ async def test_local_insert_still_logs_when_superseded_after_threshold() -> None
 
     await PlaybackMixin._insert_local_history_play.__get__(host)(
         {"video_id": "vid1"},
-        _YTM_HISTORY_MIN_SECONDS + 1,
+        DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 1,
         "vid1",
         4,
     )
@@ -239,7 +272,7 @@ async def test_local_insert_bails_when_superseded_by_other_report() -> None:
 
     await PlaybackMixin._insert_local_history_play.__get__(host)(
         {"video_id": "vid1"},
-        _YTM_HISTORY_MIN_SECONDS + 1,
+        DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 1,
         "vid1",
         1,
     )
@@ -259,7 +292,7 @@ async def test_local_insert_applies_pending_duration() -> None:
 
     await PlaybackMixin._insert_local_history_play.__get__(host)(
         {"video_id": "vid1"},
-        _YTM_HISTORY_MIN_SECONDS + 1,
+        DEFAULT_HISTORY_MIN_LISTEN_SECONDS + 1,
         "vid1",
         1,
     )

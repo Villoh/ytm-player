@@ -17,11 +17,6 @@ logger = logging.getLogger(__name__)
 
 _MAX_CONSECUTIVE_FAILURES = 5
 
-# Minimum played seconds before a play is reported to the YouTube Music
-# account history. Short (native YT Music registers plays early) but non-zero
-# so instant skips aren't logged.
-_YTM_HISTORY_MIN_SECONDS = 5
-
 # Poll player.position with a timer instead of relying on UI position events:
 # timers keep firing when the terminal window loses focus, while position stays
 # frozen during pause. Best of both: focus-independent, pause-aware.
@@ -683,6 +678,7 @@ class PlaybackMixin(YTMHostBase):
                     track=track,
                     listened_seconds=listened,
                     source="tui",
+                    min_listen_seconds=self._history_min_listen_seconds(),
                 )
         except Exception:
             logger.exception("Failed to log play history")
@@ -693,12 +689,17 @@ class PlaybackMixin(YTMHostBase):
                 self._local_history_play_id = None
                 self._local_history_video_id = ""
 
+    def _history_min_listen_seconds(self) -> int:
+        """Configured minimum seconds before a play counts instead of a skip."""
+        value = self.settings.playback.history_min_listen_seconds
+        return max(0, int(value))
+
     def _schedule_local_history_log(self, track: dict, video_id: str, generation: int) -> None:
         """Insert the current play into SQLite once it crosses the threshold."""
         if not self.history or not video_id:
             return
         self.set_timer(
-            _YTM_HISTORY_MIN_SECONDS,
+            self._history_min_listen_seconds(),
             lambda: self._report_local_play(track, video_id, generation),
         )
 
@@ -715,7 +716,8 @@ class PlaybackMixin(YTMHostBase):
         if not self.history or not self.player:
             return
         listened = int(self.player.position - self._track_start_position)
-        if listened <= _YTM_HISTORY_MIN_SECONDS:
+        min_listen = self._history_min_listen_seconds()
+        if listened <= min_listen:
             self.set_timer(
                 _YTM_HISTORY_POLL_SECONDS,
                 lambda: self._report_local_play(track, video_id, generation),
@@ -745,7 +747,12 @@ class PlaybackMixin(YTMHostBase):
             self._reset_local_history_state()
             return
         try:
-            play_id = await self.history.log_play(track, listened, source="tui")
+            play_id = await self.history.log_play(
+                track,
+                listened,
+                source="tui",
+                min_listen_seconds=self._history_min_listen_seconds(),
+            )
         except Exception:
             logger.exception("Failed to log play history")
             self._reset_local_history_state()
@@ -805,7 +812,7 @@ class PlaybackMixin(YTMHostBase):
         if not self.ytmusic or not video_id:
             return
         self.set_timer(
-            _YTM_HISTORY_MIN_SECONDS,
+            self._history_min_listen_seconds(),
             lambda: self._report_ytm_play(track, video_id, generation),
         )
 
@@ -830,7 +837,7 @@ class PlaybackMixin(YTMHostBase):
         # (``_track_start_position`` > 0), so a bare ``position`` check would
         # report the play immediately even if the user only heard a second.
         listened = int(self.player.position - self._track_start_position)
-        if listened < _YTM_HISTORY_MIN_SECONDS:
+        if listened <= self._history_min_listen_seconds():
             self.set_timer(
                 _YTM_HISTORY_POLL_SECONDS,
                 lambda: self._report_ytm_play(track, video_id, generation),

@@ -99,11 +99,51 @@ class TestPlayHistory:
     async def test_log_play_with_short_listen_time_is_ignored(self, history_manager):
         await history_manager.init()
         track = _make_track()
-        # 5 seconds or less should be ignored (threshold is >5).
+        # 5 seconds or less should be ignored by the default threshold (>5).
         await history_manager.log_play(track, listened_seconds=3, source="search")
         await history_manager.log_play(track, listened_seconds=5, source="search")
         plays = await history_manager.get_play_history()
         assert len(plays) == 0
+        await history_manager.close()
+
+    async def test_log_play_uses_configured_min_listen_seconds(self, history_manager):
+        await history_manager.init()
+        track = _make_track()
+        await history_manager.log_play(
+            track,
+            listened_seconds=10,
+            source="search",
+            min_listen_seconds=30,
+        )
+        await history_manager.log_play(
+            track,
+            listened_seconds=31,
+            source="search",
+            min_listen_seconds=30,
+        )
+        plays = await history_manager.get_play_history()
+        assert len(plays) == 1
+        assert plays[0]["listened_seconds"] == 31
+        await history_manager.close()
+
+    async def test_log_play_zero_threshold_counts_positive_listen_time(self, history_manager):
+        await history_manager.init()
+        track = _make_track()
+        await history_manager.log_play(
+            track,
+            listened_seconds=0,
+            source="search",
+            min_listen_seconds=0,
+        )
+        await history_manager.log_play(
+            track,
+            listened_seconds=1,
+            source="search",
+            min_listen_seconds=0,
+        )
+        plays = await history_manager.get_play_history()
+        assert len(plays) == 1
+        assert plays[0]["listened_seconds"] == 1
         await history_manager.close()
 
     async def test_get_play_history_returns_plays(self, history_manager):

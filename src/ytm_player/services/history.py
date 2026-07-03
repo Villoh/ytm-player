@@ -9,6 +9,7 @@ from pathlib import Path
 import aiosqlite
 
 from ytm_player.config.paths import HISTORY_DB, SECURE_FILE_MODE, secure_chmod
+from ytm_player.config.settings import DEFAULT_HISTORY_MIN_LISTEN_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +47,6 @@ CREATE TABLE IF NOT EXISTS play_stats (
     last_played TEXT
 );
 """
-
-# Minimum listen duration (seconds) before a play counts.
-_MIN_LISTEN_SECONDS = 5
 
 
 class HistoryManager:
@@ -177,13 +175,15 @@ class HistoryManager:
         track: dict,
         listened_seconds: int,
         source: str,
+        *,
+        min_listen_seconds: int = DEFAULT_HISTORY_MIN_LISTEN_SECONDS,
     ) -> int | None:
         """Record a track play event.
 
         Skips are ignored: the play is only logged when *listened_seconds*
         exceeds the minimum threshold.
         """
-        if listened_seconds <= _MIN_LISTEN_SECONDS:
+        if listened_seconds <= min_listen_seconds:
             return None
 
         if self._db is None:
