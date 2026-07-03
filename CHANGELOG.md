@@ -8,9 +8,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Unreleased
 
+**New features**
+
+- **Play Next, everywhere** — press `X` (or `Ctrl+X`) on any page to slot the focused track in right after the current one. Albums and playlists get a "Play Next" entry in their context menus too, inserting the whole set in order — shuffle-aware, so they still play next even with shuffle on.
+
 **Changes**
 
 - **Only one TUI instance at a time** — launching `ytm` while another instance is running now exits with "ytm is already running (PID …)" instead of letting two instances fight over the same session and IPC socket.
+- **Add to Queue works on every page** — `Z` / `Ctrl+Z` silently did nothing on five of the seven pages; it now works everywhere through the same track resolution the actions menu uses, and queue toasts name the track ("Added to queue: …", "Playing next: …").
+- **Retired keybindings that promised nothing** — `g A` / `g a` ("context/selected actions") were bound, routed, and listed in Help, but no page ever implemented them (the `a` actions menu already does that job) — removed, along with the dead Escape close-popup action. The Help page now matches reality.
 - **Every color now follows your theme** — the last hard-coded widget colors (the search-mode `▶` indicator and the Spotify-import status texts and result symbols) now use the theme's `primary` / `success` / `warning` / `error` variables, so custom themes recolor them too.
 
 **Fixes**
