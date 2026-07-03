@@ -47,6 +47,7 @@ def _make_page(active_tab: int = _TAB_LOCAL):
     }
     widgets["#recent-table"].row_count = 0
     widgets["#recent-table"].cursor_row = None
+    widgets["#recent-table"].selected_track = None
     widgets["#track-filter"].value = ""
 
     def fake_query_one(selector: str, _expected_type=None):
@@ -343,12 +344,15 @@ async def test_ytm_visit_does_not_clear_local_failure_flag(monkeypatch) -> None:
 
 
 def test_background_refresh_keeps_cursor_on_same_track(monkeypatch) -> None:
-    """A dedup-move refresh is net-zero: the cursored track keeps its row."""
-    old = [{"video_id": "a", "title": "A"}, {"video_id": "b", "title": "B"}]
+    """A dedup-move refresh is net-zero: the cursored track keeps its row.
+
+    Identity comes from ``selected_track`` (the highlighted VISIBLE row,
+    mapped through any active sort) — a backing-list index would restore
+    to the wrong track in a sorted view.
+    """
     new = [{"video_id": "b", "title": "B"}, {"video_id": "a", "title": "A"}]
     page, widgets = _page_with_cache(monkeypatch, new)
-    widgets["#recent-table"].tracks = old
-    widgets["#recent-table"].cursor_row = 0  # cursor on "a"
+    widgets["#recent-table"].selected_track = {"video_id": "a", "title": "A"}
     widgets["#recent-table"].row_count = 2
 
     page._refresh_tab_from_cache(_TAB_LOCAL)

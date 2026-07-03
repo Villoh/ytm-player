@@ -325,13 +325,16 @@ class RecentlyPlayedPage(TrackFilterHost, Widget):
             logger.debug("Failed to read track filter on tab refresh", exc_info=True)
         try:
             table = self.query_one("#recent-table", TrackTable)
-            row = table.cursor_row
             # While a filter is active the cursor restore is skipped:
             # apply_filter rebuilds the visible rows on a debounce, so a row
             # index computed now would race it — and the user is typing in
             # the Input at that moment, not driving the table cursor.
-            if not query and row is not None and 0 <= row < len(table.tracks):
-                cursored_id = get_video_id(table.tracks[row])
+            # selected_track maps the visible cursor row through any active
+            # sort; the reload below resets the sort, so the cache index is
+            # the right restore target.
+            cursored = table.selected_track
+            if not query and cursored is not None:
+                cursored_id = get_video_id(cursored)
                 for i, t in enumerate(cache):
                     if get_video_id(t) == cursored_id:
                         self._restore_cursor_row = i
